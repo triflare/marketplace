@@ -40,7 +40,16 @@ export function StaySignedInPage() {
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-12">
       <div className="flex items-center">
-        <img src="/assets/logo.svg" alt="TwextHub" className="h-8 w-auto" />
+        <img
+          src="/assets/logo-light.svg"
+          alt="TwextHub"
+          className="h-8 w-auto dark:hidden"
+        />
+        <img
+          src="/assets/logo-dark.svg"
+          alt="TwextHub"
+          className="hidden h-8 w-auto dark:block"
+        />
       </div>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">

@@ -35,7 +35,18 @@ export function Layout({ children }: { children: ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#1B1A1F" />
-        <link rel="icon" type="image/svg+xml" href="/assets/icon.svg" />
+        <link
+          rel="icon"
+          type="image/svg+xml"
+          href="/assets/icon-light.svg"
+          media="(prefers-color-scheme: light)"
+        />
+        <link
+          rel="icon"
+          type="image/svg+xml"
+          href="/assets/icon-dark.svg"
+          media="(prefers-color-scheme: dark)"
+        />
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <Meta />
         <Links />
