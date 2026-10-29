@@ -82,12 +82,27 @@ existing instance). `apps/ui/.env.example` lists the three variables it reads.
 
 ```
 apps/
-  api/      TwextHub API (own README, docs/, compose files, CI workflows)
+  api/      TwextHub API (own README, docs/, compose files, Dockerfile)
   ui/       TwextHub frontend, plus the Dockerfile this repo adds
+.github/    CI, CD, and Dependabot for the whole repository
 docker-compose.yml
 .env.example
 ```
 
-The API's GitHub workflows still live in `apps/api/.github/workflows`. GitHub
-only reads `.github/workflows` at the repository root, so nothing runs until
-those move up and gain `paths:` filters for `apps/api/**`.
+## CI
+
+GitHub only reads `.github` at the repository root, so the workflows live there
+and point into `apps/api` rather than sitting beside it:
+
+- `ci.yml` runs the API's lint, format, Prisma usage check, unit tests, and the
+  developer `npm run test:setup` path, on pushes and pull requests to `develop`.
+- `cd.yml` repeats those checks, then builds `apps/api` and pushes the image to
+  `ghcr.io/twextjs/twexthub-api`. It still gates on `main` and `v*` tags, which
+  this repository does not have yet; retarget it when the release branch or tag
+  scheme exists.
+- `dependabot.yml` has one entry per lockfile and Dockerfile, plus the root
+  compose file's Postgres image.
+
+Both workflows filter on `apps/api/**`, so a UI-only change does not start
+them. The frontend has no workflow yet; `npm run typecheck`, `npm run build`,
+and the Playwright suite in `apps/ui` are what one would run.

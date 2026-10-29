@@ -1,9 +1,19 @@
-name: CD
+name: API CD
 
+# Root-scoped because GitHub only reads .github/workflows at the repository
+# root. The image is built from apps/api, which is also the only thing whose
+# changes can produce a new one.
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/cd.yml'
+
+defaults:
+  run:
+    working-directory: apps/api
 
 jobs:
   check:
@@ -32,6 +42,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
@@ -76,7 +87,9 @@ jobs:
         run: echo "No image tags were generated for ref $GITHUB_REF." && exit 1
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: .
+          # Relative to the repository root, so the build has the monorepo
+          # checkout to read and nothing outside apps/api in its context.
+          context: apps/api
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

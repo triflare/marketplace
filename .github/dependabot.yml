@@ -1,0 +1,30 @@
+version: 2
+updates:
+  # Each app resolves its own dependencies, so each gets its own entry. A
+  # single `/` entry would look for a root package.json that does not exist.
+  - package-ecosystem: 'npm'
+    directory: '/apps/api'
+    schedule:
+      interval: 'daily'
+  - package-ecosystem: 'npm'
+    directory: '/apps/ui'
+    schedule:
+      interval: 'daily'
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+  - package-ecosystem: 'docker'
+    directory: '/apps/api'
+    schedule:
+      interval: 'daily'
+  - package-ecosystem: 'docker'
+    directory: '/apps/ui'
+    schedule:
+      interval: 'daily'
+  # The root compose file pins postgres:16-alpine; the other two Dockerfiles
+  # are covered by the entries above.
+  - package-ecosystem: 'docker'
+    directory: '/'
+    schedule:
+      interval: 'daily'

@@ -1,13 +1,26 @@
-name: CI
+name: API CI
 
+# Root-scoped because GitHub only reads .github/workflows at the repository
+# root. Everything below runs with apps/api as its working directory, and the
+# path filter keeps it off changes that cannot affect the API.
 on:
   push:
-    branches: [devel]
+    branches: [develop]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/ci.yml'
   pull_request:
-    branches: [devel]
+    branches: [develop]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: apps/api
 
 jobs:
   lint:
@@ -23,6 +36,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/api/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Run ESLint
@@ -43,6 +57,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/api/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Check formatting
@@ -76,6 +91,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/api/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Run unit tests
@@ -101,6 +117,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: apps/api/package-lock.json
       - name: Start the test database the way a developer does
         run: npm run test:setup
       - name: Install dependencies
