@@ -1,0 +1,515 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "./generated/client"
+  previewFeatures = ["driverAdapters", "relationJoins", "partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model AuditLog {
+  Id                BigInt   @id @default(autoincrement())
+  ActorId           BigInt?
+  ActorNamespace    String
+  Action            String
+  TargetNamespace   String?
+  TargetExtensionId String?
+  TargetVersion     String?
+  Detail            Json     @default("{}")
+  CreatedAt         DateTime @default(now()) @db.Timestamptz(6)
+  Users             Users?   @relation(fields: [ActorId], references: [Id], onUpdate: NoAction)
+
+  @@index([CreatedAt(sort: Desc)], map: "audit_log_created_idx")
+  @@index([TargetNamespace, TargetExtensionId], map: "audit_log_target_idx", where: raw("(\"TargetNamespace\" IS NOT NULL)"))
+}
+
+model AutomationTokens {
+  Id         BigInt    @id @default(autoincrement())
+  UserId     BigInt
+  Name       String
+  TokenHash  String    @unique
+  Scopes     Json      @default("[]")
+  CreatedAt  DateTime  @default(now()) @db.Timestamptz(6)
+  ExpiresAt  DateTime? @db.Timestamptz(6)
+  LastUsedAt DateTime? @db.Timestamptz(6)
+  Users      Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([UserId], map: "automation_tokens_user_id_idx")
+}
+
+/// A CLI sign-in waiting on a browser: the secret the client polls with, the
+/// short code a person types into the approval page, and the account that
+/// approved it. Both codes are stored as hashes, like a session token, so
+/// neither can be recovered from the table.
+model DeviceCodes {
+  Id             BigInt    @id @default(autoincrement())
+  DeviceCodeHash String    @unique
+  UserCodeHash   String    @unique
+  ClientName     String
+  UserId         BigInt?
+  ApprovedAt     DateTime? @db.Timestamptz(6)
+  DeniedAt       DateTime? @db.Timestamptz(6)
+  LastPolledAt   DateTime? @db.Timestamptz(6)
+  CreatedAt      DateTime  @default(now()) @db.Timestamptz(6)
+  ExpiresAt      DateTime  @db.Timestamptz(6)
+  Users          Users?    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ExpiresAt])
+  @@index([UserId])
+}
+
+model DistTags {
+  OwnerId     BigInt
+  Namespace   String
+  ExtensionId String
+  Tag         String
+  Version     String
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+  Users       Users    @relation(fields: [OwnerId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([Namespace, ExtensionId, Tag])
+  @@index([Namespace, ExtensionId], map: "dist_tags_namespace_id_idx")
+  @@index([Namespace, ExtensionId, Version], map: "dist_tags_version_idx")
+}
+
+model DownloadEvents {
+  Id          BigInt   @id @default(autoincrement())
+  Namespace   String
+  ExtensionId String
+  Version     String
+  UserAgent   String   @default("")
+  IpHash      String?
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([Namespace, ExtensionId, CreatedAt], map: "download_events_ns_id_ts_idx")
+  @@index([Namespace, ExtensionId, Version], map: "download_events_version_idx")
+}
+
+model ExtensionDailyDownloads {
+  Namespace         String
+  ExtensionId       String
+  Day               DateTime @db.Date
+  TotalDownloads    BigInt   @default(0)
+  DistinctDownloads BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Day])
+}
+
+model ExtensionOwnerInvites {
+  Namespace                                  String
+  ExtensionId                                String
+  OwnerId                                    BigInt
+  InvitedBy                                  BigInt?
+  CreatedAt                                  DateTime @default(now()) @db.Timestamptz(6)
+  UsersExtensionOwnerInvitesInvitedByTousers Users?   @relation("extension_owner_invites_invited_byTousers", fields: [InvitedBy], references: [Id], onUpdate: NoAction)
+  UsersExtensionOwnerInvitesOwnerIdTousers   Users    @relation("extension_owner_invites_owner_idTousers", fields: [OwnerId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([Namespace, ExtensionId, OwnerId])
+  @@index([OwnerId], map: "extension_owner_invites_owner_idx")
+}
+
+model ExtensionOwners {
+  OwnerId                            BigInt
+  Namespace                          String
+  ExtensionId                        String
+  AddedBy                            BigInt?
+  AddedAt                            DateTime @default(now()) @db.Timestamptz(6)
+  UsersExtensionOwnersAddedByTousers Users?   @relation("extension_owners_added_byTousers", fields: [AddedBy], references: [Id], onDelete: NoAction, onUpdate: NoAction)
+  UsersExtensionOwnersOwnerIdTousers Users    @relation("extension_owners_owner_idTousers", fields: [OwnerId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([Namespace, ExtensionId, OwnerId])
+  @@index([OwnerId], map: "extension_owners_owner_idx")
+}
+
+model ExtensionRedirects {
+  FromNamespace   String
+  FromExtensionId String
+  ToNamespace     String
+  ToExtensionId   String
+  CreatedAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([FromNamespace, FromExtensionId])
+  @@index([ToNamespace, ToExtensionId], map: "extension_redirects_to_idx")
+}
+
+model ExtensionTransfers {
+  Namespace   String
+  ExtensionId String
+  ToNamespace String
+  RequestedBy BigInt
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+  Users       Users    @relation(fields: [RequestedBy], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([Namespace, ExtensionId, ToNamespace])
+  @@index([ToNamespace], map: "extension_transfers_to_idx")
+}
+
+model ExtensionVersionDailyDownloads {
+  Namespace         String
+  ExtensionId       String
+  Version           String
+  Day               DateTime @db.Date
+  TotalDownloads    BigInt   @default(0)
+  DistinctDownloads BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Version, Day])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model LegalDocuments {
+  Kind      String   @id
+  Version   Int      @default(1)
+  Body      String
+  UpdatedAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Notifications {
+  Id        BigInt    @id @default(autoincrement())
+  UserId    BigInt
+  Kind      String
+  Message   String
+  Payload   Json      @default("{}")
+  ReadAt    DateTime? @db.Timestamptz(6)
+  CreatedAt DateTime  @default(now()) @db.Timestamptz(6)
+  Users     Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([UserId], map: "notifications_unread_idx", where: raw("(\"ReadAt\" IS NULL)"))
+  @@index([UserId, Id(sort: Desc)], map: "notifications_user_id_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model OidcFlows {
+  Id               BigInt   @id @default(autoincrement())
+  Kind             String
+  StateHash        String   @unique
+  FlowSecretHash   String
+  CodeVerifier     String
+  Nonce            String
+  UserId           BigInt?
+  ReturnTo         String?
+  ExchangeCodeHash String?  @unique
+  CreatedAt        DateTime @default(now()) @db.Timestamptz(6)
+  ExpiresAt        DateTime @db.Timestamptz(6)
+  Users            Users?   @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ExpiresAt])
+}
+
+/// The identity of an extension: the address it is published under.
+///
+/// An extension in this schema is an address rather than a row -- its versions
+/// live in "Versions" -- so there was nothing for a report to point at. This
+/// table gives the address a row of its own, which is what lets a report say
+/// which extension it is about and lets the database hold that link.
+///
+/// One row per extension, created when the extension is first published and
+/// removed when the extension is deleted, so the row's life is the extension's
+/// life. The address is kept as text alongside the row: the report names the
+/// extension by address as well as by link, and the address outlives the row.
+/// The holding account is linked as well, and the link is cleared rather than
+/// cascading when the account goes away, so a report about an extension whose
+/// namespace account was deleted is still a report about that extension.
+model Extensions {
+  Id          BigInt    @id @default(autoincrement())
+  NamespaceId BigInt?
+  Namespace   String
+  ExtensionId String
+  CreatedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  Users       Users?    @relation(fields: [NamespaceId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  Reports     Reports[]
+
+  @@unique([Namespace, ExtensionId])
+  @@index([NamespaceId], map: "extensions_namespace_id_idx")
+}
+
+/// A report filed by an account about a user account, an organization, or an
+/// extension, for a moderator to read by hand.
+///
+/// The row is a queue entry and nothing more: filing a report never suspends,
+/// hides, or removes anything. Enforcement is a moderator's decision, taken
+/// through the admin endpoints and recorded in the audit trail.
+///
+/// The target is named by its address and linked to the target itself: the
+/// reported account by its id, the reported extension by the row that gives
+/// the extension its identity. Both links are cleared rather than cascading
+/// when the target goes away, so a report outlives what it is about and still
+/// says what was reported -- and nothing is blocked on the way, so deleting a
+/// reported account or extension is still the moderator's decision to take.
+/// The reporter and the reviewer are linked the same way, so neither a report
+/// nor a decision disappears with the person who filed or made it.
+model Reports {
+  Id                   BigInt      @id @default(autoincrement())
+  ReporterId           BigInt?
+  ReporterNamespace    String
+  TargetType           String
+  TargetNamespace      String
+  TargetExtensionId    String      @default("")
+  TargetAccountId      BigInt?
+  TargetExtensionRefId BigInt?
+  Reason               String
+  Description          String
+  Status               String      @default("open")
+  ReviewedBy           BigInt?
+  ReviewedByNamespace  String?
+  ReviewedAt           DateTime?   @db.Timestamptz(6)
+  ResolutionNote       String?
+  CreatedAt            DateTime    @default(now()) @db.Timestamptz(6)
+  UpdatedAt            DateTime    @default(now()) @db.Timestamptz(6)
+  Reporter             Users?      @relation("reports_reporter", fields: [ReporterId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  Reviewer             Users?      @relation("reports_reviewer", fields: [ReviewedBy], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  TargetAccount        Users?      @relation("reports_target_account", fields: [TargetAccountId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+  TargetExtension      Extensions? @relation(fields: [TargetExtensionRefId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
+
+  // One open report per reporter per target. The rule is enforced here rather
+  // than in the request handler so two reports filed at the same moment cannot
+  // both slip through, and it stops applying the moment the report is decided:
+  // a target that is reported again later gets a new report.
+  @@unique([ReporterId, TargetType, TargetNamespace, TargetExtensionId], map: "reports_open_unique_idx", where: raw("(\"Status\" = 'open')"))
+  @@index([Status, Id], map: "reports_status_idx")
+  @@index([TargetType, TargetNamespace, TargetExtensionId], map: "reports_target_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model OrganizationOwners {
+  OrgId                                        BigInt
+  OrgKind                                      String   @default("organization")
+  UserId                                       BigInt
+  UserKind                                     String   @default("user")
+  AddedBy                                      BigInt?
+  AddedAt                                      DateTime @default(now()) @db.Timestamptz(6)
+  UsersOrganizationOwnersAddedByTousers        Users?   @relation("organization_owners_added_byTousers", fields: [AddedBy], references: [Id], onUpdate: NoAction)
+  UsersOrganizationOwnersOrgIdOrgKindTousers   Users    @relation("organization_owners_org_id_org_kindTousers", fields: [OrgId, OrgKind], references: [Id, Kind], onDelete: Cascade, onUpdate: NoAction)
+  UsersOrganizationOwnersUserIdUserKindTousers Users    @relation("organization_owners_user_id_user_kindTousers", fields: [UserId, UserKind], references: [Id, Kind], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([OrgId, UserId])
+  @@index([UserId], map: "organization_owners_user_idx")
+}
+
+/// A ceremony the server has to remember between the two halves of it: the
+/// challenge it handed out, and -- for a sign-in waiting on its second factor --
+/// the secret that lets the anonymous half claim the row again.
+model MfaChallenges {
+  Id         BigInt   @id @default(autoincrement())
+  UserId     BigInt
+  Kind       String
+  SecretHash String?
+  Challenge  String?
+  ExpiresAt  DateTime @db.Timestamptz(6)
+  CreatedAt  DateTime @default(now()) @db.Timestamptz(6)
+  Users      Users    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([SecretHash, Kind])
+  @@index([ExpiresAt])
+  @@index([UserId, Kind])
+}
+
+/// One passkey. `PublicKey` is the COSE key the registration ceremony returned,
+/// base64url-encoded, and `Counter` is the authenticator's sign counter, which
+/// has to grow between assertions.
+model Passkeys {
+  Id           BigInt    @id @default(autoincrement())
+  UserId       BigInt
+  CredentialId String    @unique
+  PublicKey    String
+  Counter      BigInt    @default(0)
+  Label        String
+  Transports   String[]  @default([])
+  CreatedAt    DateTime  @default(now()) @db.Timestamptz(6)
+  LastUsedAt   DateTime? @db.Timestamptz(6)
+  Users        Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([UserId])
+}
+
+/// A backup code, stored as a SHA-256 hash the same way tokens are: the codes
+/// are generated high-entropy, so a slow hash buys nothing an attacker who can
+/// read the table could not already do. `UsedAt` marks one consumed, and the
+/// whole set is replaced when the account regenerates it.
+model MfaBackupCodes {
+  Id        BigInt    @id @default(autoincrement())
+  UserId    BigInt
+  CodeHash  String    @unique
+  UsedAt    DateTime? @db.Timestamptz(6)
+  CreatedAt DateTime  @default(now()) @db.Timestamptz(6)
+  Users     Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([UserId])
+}
+
+model RateLimitEntries {
+  Id          BigInt   @id @default(autoincrement())
+  Bucket      String
+  WindowStart DateTime @db.Timestamptz(6)
+  Count       Int      @default(1)
+
+  @@unique([Bucket, WindowStart])
+  @@index([WindowStart])
+}
+
+model SchemaMigrations {
+  Version   String   @id
+  AppliedAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model Sessions {
+  Id         BigInt    @id @default(autoincrement())
+  UserId     BigInt
+  TokenHash  String    @unique
+  CreatedAt  DateTime  @default(now()) @db.Timestamptz(6)
+  ExpiresAt  DateTime  @db.Timestamptz(6)
+  LastUsedAt DateTime? @db.Timestamptz(6)
+  ReauthAt   DateTime? @db.Timestamptz(6)
+  Users      Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ExpiresAt])
+  @@index([UserId])
+}
+
+model UserIdentities {
+  Id        BigInt   @id @default(autoincrement())
+  UserId    BigInt
+  Issuer    String
+  Subject   String
+  Email     String?
+  CreatedAt DateTime @default(now()) @db.Timestamptz(6)
+  Users     Users    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([Issuer, Subject])
+  @@index([UserId])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Users {
+  Id                                                         BigInt                  @id @default(autoincrement())
+  Namespace                                                  String                  @unique
+  DisplayName                                                String
+  PasswordHash                                               String?
+  Role                                                       String                  @default("normal")
+  HasPublished                                               Boolean                 @default(false)
+  TermsAcceptedVersion                                       Int?
+  CreatedAt                                                  DateTime                @default(now()) @db.Timestamptz(6)
+  Bio                                                        String                  @default("")
+  Website                                                    String?
+  Github                                                     String?
+  AvatarUrl                                                  String?
+  BannerUrl                                                  String?
+  BlobBytes                                                  BigInt                  @default(0)
+  MaxBlobBytes                                               BigInt?
+  AvatarBlobDigest                                           String?
+  AvatarContentType                                          String?
+  AvatarBytes                                                Int?
+  BannerBlobDigest                                           String?
+  BannerContentType                                          String?
+  BannerBytes                                                Int?
+  Kind                                                       String                  @default("user")
+  AuditLog                                                   AuditLog[]
+  AutomationTokens                                           AutomationTokens[]
+  DeviceCodes                                                DeviceCodes[]
+  DistTags                                                   DistTags[]
+  ExtensionOwnerInvitesExtensionOwnerInvitesInvitedByTousers ExtensionOwnerInvites[] @relation("extension_owner_invites_invited_byTousers")
+  ExtensionOwnerInvitesExtensionOwnerInvitesOwnerIdTousers   ExtensionOwnerInvites[] @relation("extension_owner_invites_owner_idTousers")
+  ExtensionOwnersExtensionOwnersAddedByTousers               ExtensionOwners[]       @relation("extension_owners_added_byTousers")
+  ExtensionOwnersExtensionOwnersOwnerIdTousers               ExtensionOwners[]       @relation("extension_owners_owner_idTousers")
+  ExtensionTransfers                                         ExtensionTransfers[]
+  Extensions                                                 Extensions[]
+  MfaBackupCodes                                             MfaBackupCodes[]
+  MfaChallenges                                              MfaChallenges[]
+  Notifications                                              Notifications[]
+  OidcFlows                                                  OidcFlows[]
+  OrganizationOwnersOrganizationOwnersAddedByTousers         OrganizationOwners[]    @relation("organization_owners_added_byTousers")
+  OrganizationOwnersOrganizationOwnersOrgIdOrgKindTousers    OrganizationOwners[]    @relation("organization_owners_org_id_org_kindTousers")
+  OrganizationOwnersOrganizationOwnersUserIdUserKindTousers  OrganizationOwners[]    @relation("organization_owners_user_id_user_kindTousers")
+  Passkeys                                                   Passkeys[]
+  Sessions                                                   Sessions[]
+  UserIdentities                                             UserIdentities[]
+  Versions                                                   Versions[]
+  ReportsReporter                                            Reports[]               @relation("reports_reporter")
+  ReportsReviewer                                            Reports[]               @relation("reports_reviewer")
+  ReportsTargetAccount                                       Reports[]               @relation("reports_target_account")
+
+  @@unique([Id, Kind])
+  @@index([AvatarBlobDigest], map: "users_avatar_blob_idx", where: raw("(\"AvatarBlobDigest\" IS NOT NULL)"))
+  @@index([BannerBlobDigest], map: "users_banner_blob_idx", where: raw("(\"BannerBlobDigest\" IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Versions {
+  Id                 BigInt    @id @default(autoincrement())
+  OwnerId            BigInt    @unique(map: "versions_one_pending_idx", where: raw("(\"Status\" = ANY (ARRAY['staging'::text, 'pending'::text]))"))
+  Namespace          String
+  ExtensionId        String
+  Version            String
+  Status             String    @default("staging")
+  Name               String
+  License            String
+  Description        String    @default("")
+  Author             String?
+  Color1             String?
+  Color2             String?
+  Color3             String?
+  BlobPath           String
+  SearchText         String    @default("")
+  CreatedAt          DateTime  @default(now()) @db.Timestamptz(6)
+  PublishedAt        DateTime? @db.Timestamptz(6)
+  RejectionReason    String?
+  BlobDigest         String?
+  BlobSize           BigInt?
+  BlobSha512         String?
+  DeprecationMessage String?
+  SourcePath         String?
+  SourceDigest       String?
+  SourceSize         BigInt    @default(0)
+  BuildLog           String?
+  BuildError         String?
+  IsUnsandboxed      Boolean?
+  Warnings           Json      @default("[]")
+  Users              Users     @relation(fields: [OwnerId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([OwnerId, ExtensionId, Version])
+  @@index([BlobDigest])
+  @@index([Namespace, ExtensionId], map: "versions_namespace_id_idx")
+  @@index([Namespace, ExtensionId, Status, PublishedAt(sort: Desc)], map: "versions_public_listing_idx", where: raw("(\"Status\" = ANY (ARRAY['published'::text, 'deprecated'::text]))"))
+  @@index([SearchText(ops: raw("gin_trgm_ops"))], map: "versions_search_text_trgm_idx", type: Gin)
+  @@index([SourceDigest], where: raw("(\"SourceDigest\" IS NOT NULL)"))
+  @@index([Status, CreatedAt])
+  @@index([Status, PublishedAt(sort: Desc)])
+}
+
+model WebhookDeliveries {
+  Id            BigInt    @id @default(autoincrement())
+  WebhookId     BigInt
+  Event         String
+  Payload       Json
+  Body          String
+  Signature     String
+  Attempt       Int       @default(0)
+  MaxAttempts   Int       @default(4)
+  Status        String    @default("pending")
+  NextAttemptAt DateTime? @db.Timestamptz(6)
+  LastError     String?
+  CreatedAt     DateTime  @default(now()) @db.Timestamptz(6)
+  UpdatedAt     DateTime  @default(now()) @db.Timestamptz(6)
+  Webhooks      Webhooks  @relation(fields: [WebhookId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([Status, NextAttemptAt], map: "webhook_deliveries_due_idx", where: raw("(\"Status\" = ANY (ARRAY['pending'::text, 'retrying'::text, 'delivering'::text]))"))
+  @@index([WebhookId, Id(sort: Desc)], map: "webhook_deliveries_webhook_id_idx")
+}
+
+model Webhooks {
+  Id                 BigInt              @id @default(autoincrement())
+  Namespace          String
+  ExtensionId        String?
+  Url                String
+  Secret             String
+  Events             String[]            @default([])
+  Active             Boolean             @default(true)
+  LastDeliveryStatus String?
+  LastDeliveryAt     DateTime?           @db.Timestamptz(6)
+  CreatedAt          DateTime            @default(now()) @db.Timestamptz(6)
+  WebhookDeliveries  WebhookDeliveries[]
+
+  @@index([Namespace, ExtensionId], map: "webhooks_extension_idx")
+  @@index([Namespace], where: raw("\"Active\""))
+}

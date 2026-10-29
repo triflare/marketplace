@@ -1,0 +1,19 @@
+node_modules
+build
+dist
+.react-router
+test-results
+playwright-report
+blob-report
+.git
+.github
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Only `npm run build` runs inside the image; the end-to-end suite drives a
+# browser against a mock API and has no place in it.
+tests
+playwright.config.ts

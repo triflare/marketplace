@@ -1,0 +1,269 @@
+# ⚙️ Configuration Reference
+
+Every instance of the TwextHub API reads its settings from a YAML file, and most of them can also come from an environment variable that overrides the file. The default file is `config.yaml` in the working directory; the server takes a different path as its first argument (`node src/server.js path/to/config.yaml`), and `node src/migrate.js` takes one as a positional argument or after `--config`.
+
+Settings are applied in three layers:
+
+1. The defaults built into the code.
+2. The configuration file, merged over the defaults.
+3. Environment variables, which override both.
+
+`database.url` is the only required setting. The server refuses to start without one, from either the file or `TWEXTHUB_DATABASE_URL`.
+
+Here is a configuration that uses every key:
+
+```yaml
+port: 3000
+dataDir: ./data
+publicBaseUrl: http://localhost:3000
+requireHttps: false
+trustProxy: false
+
+database:
+  url: postgres://postgres:postgres@localhost:5432/twexthub
+  maxConnections: 10
+  connectTimeoutSeconds: 30
+  idleTimeoutSeconds: 60
+
+auth:
+  sessionTtlDays: 7
+  scrypt: { N: 16384, r: 8, p: 1 }
+  oidc:
+    issuer: null
+    clientId: null
+    clientSecret: null
+    required: false
+  webauthn:
+    rpId: null # defaults to the hostname of publicBaseUrl
+    rpName: null # defaults to the product name
+  device:
+    verificationUrl: null # the page a browser approves a CLI sign-in on
+  reauthWindowMinutes: 10
+
+rateLimits:
+  loginAttemptsPerWindow: 5
+  loginWindowMinutes: 15
+  signupsPerIpPerWindow: 5
+  signupWindowMinutes: 15
+  publishPerWindow: 30 # null turns this bucket off
+  publishWindowMinutes: 60
+  downloadsPerIpPerWindow: 240 # null turns this bucket off
+  downloadWindowMinutes: 5
+  reportsPerWindow: 10 # null turns this bucket off
+  reportsWindowMinutes: 60
+  routesPerIpPerWindow: 600
+  routeWindowMinutes: 15
+
+pagination:
+  defaultLimit: 20
+  maxLimit: 50
+
+limits:
+  maxBlobBytes: 2097152
+  maxAccountBlobBytes: 67108864
+  maxSourceBytes: 1048576
+  maxProfileImageBytes: 2097152
+
+compiler:
+  command: null
+  timeoutMs: 30000
+  memoryMb: 192
+  addressSpaceMb: 1536
+  minify: true
+
+logging:
+  requests: false
+
+cors:
+  allowedOrigins: '*'
+```
+
+## 📕 Table of Contents
+
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+- [🔀 How Settings Are Applied](#-how-settings-are-applied)
+- [🌐 Server](#-server)
+- [🗄️ Database](#-database)
+- [🔐 Authentication](#-authentication)
+  - [Signing in with an identity provider](#signing-in-with-an-identity-provider)
+  - [Signing in with a passkey](#signing-in-with-a-passkey)
+  - [Signing in from a CLI](#signing-in-from-a-cli)
+- [🚦 Rate Limits](#-rate-limits)
+- [📄 Pagination](#-pagination)
+- [📦 Size Limits](#-size-limits)
+- [🛠️ The Build Sandbox](#-the-build-sandbox)
+- [🌍 CORS and Logging](#-cors-and-logging)
+- [🖥️ Editing Settings at Runtime](#-editing-settings-at-runtime)
+- [🔑 Other Environment Variables](#-other-environment-variables)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+## 🔀 How Settings Are Applied
+
+The configuration file is merged over the defaults one key at a time, so a file only has to set what it wants to change. An explicit `null` in the file means "not set" and falls back to the default — except for `rateLimits.publishPerWindow`, `rateLimits.downloadsPerIpPerWindow`, and `rateLimits.reportsPerWindow`, where `null` is how you switch a bucket off.
+
+Environment variables are read last and win over the file. They are typed by the default they override:
+
+- Booleans accept `true` or `1` and `false` or `0`. Anything else fails startup with an error naming the variable.
+- Numbers must be positive integers. A typo like `TWEXTHUB_PORT=3000x` fails startup instead of quietly becoming `3000`.
+- The switchable rate-limit buckets also accept `off` or `null`, which sets them to `null`.
+- `cors.allowedOrigins` is a comma-separated list, or `*`.
+- `trustProxy` accepts `true`, `false`, a number of hops, or one of Express's keyword values.
+
+Not every key has an environment variable: `database.connectTimeoutSeconds`, `database.idleTimeoutSeconds`, and `auth.scrypt` are file-only.
+
+## 🌐 Server
+
+- `port`: Port the HTTP server listens on. Defaults to `3000`. `TWEXTHUB_PORT`.
+- `dataDir`: Directory holding everything the instance stores on disk — compiled blobs, retained project sources, build temporary files, and the generated download-address key. Relative paths resolve against the working directory. Defaults to `./data`. `TWEXTHUB_DATA_DIR`. It has to be persistent storage; see [Data Persistence](./deploy.md#-data-persistence).
+- `apiRoot`: URL prefix every route is served under. Leading and trailing slashes are ignored, so `/v1` and `v1` are the same thing; an empty string serves the API at the root. Defaults to the `defaults.apiRoot` value in `product.yml` (`/v2`). `TWEXTHUB_API_ROOT`.
+- `publicBaseUrl`: Absolute URL of the instance, used to build download, source, and profile image links in responses. Defaults to `http://localhost:3000`. `TWEXTHUB_PUBLIC_BASE_URL`.
+- `requireHttps`: Reject plain HTTP requests with a `403`. Turn it on when the instance is served over TLS. Defaults to `false`. `TWEXTHUB_REQUIRE_HTTPS`.
+- `trustProxy`: Handed to Express as its [trust proxy](https://expressjs.com/en/guide/behind-proxies.html) setting. Set it when the API runs behind a reverse proxy, or the rate limits will count the proxy's address instead of each client's. Defaults to `false`. `TWEXTHUB_TRUST_PROXY`.
+
+## 🗄️ Database
+
+- `url`: PostgreSQL connection URL. Required, with no default. `TWEXTHUB_DATABASE_URL`.
+- `maxConnections`: Size of the connection pool. Defaults to `10`. `TWEXTHUB_DATABASE_MAX_CONNECTIONS`.
+- `connectTimeoutSeconds`: How long to wait for a connection before giving up. Defaults to `30`. File-only.
+- `idleTimeoutSeconds`: How long an unused connection is kept before closing. Defaults to `60`. File-only.
+
+The three pool settings map onto the `pg` pool the Prisma client runs on: `maxConnections` is its `max`, `connectTimeoutSeconds` its `connectionTimeoutMillis`, and `idleTimeoutSeconds` its `idleTimeoutMillis`. The pool it opens is also pinned to a UTC session, so a server whose own `timezone` is set to something else still returns the timestamps the API was built against.
+
+Migrations are applied by Prisma Migrate. The server runs `prisma migrate deploy` as part of booting — before it serves anything — and `node src/migrate.js` runs the same thing on its own when you would rather not start the server. Both take the database URL from this setting; the `database.url` key is what the CLI is handed, so there is no second place to keep it.
+
+## 🔐 Authentication
+
+- `sessionTtlDays`: Lifetime of a sign-in session, in days. It applies to sessions created after the change; existing sessions keep the expiry they were given. Defaults to `7`. `TWEXTHUB_SESSION_TTL_DAYS`.
+- `scrypt`: Cost parameters (`N`, `r`, `p`) for password hashing. File-only, and each stored hash records the parameters it was made with, so changing them affects new passwords without invalidating old ones. The defaults (`16384`, `8`, `1`) are a sensible balance; raising `N` makes every sign-in more expensive for the server.
+- `oidc.issuer`: Base URL of an OpenID Connect provider, with a trailing slash allowed. Setting it (with `clientId`) turns on provider sign-in. Defaults to `null` (off). `TWEXTHUB_OIDC_ISSUER`.
+- `oidc.clientId`: Client identifier registered at the provider. `TWEXTHUB_OIDC_CLIENT_ID`.
+- `oidc.clientSecret`: Client secret for a confidential client. Leave unset for a public client that authenticates with PKCE alone. `TWEXTHUB_OIDC_CLIENT_SECRET`.
+- `oidc.required`: When `true`, password sign-in and registration are refused and the provider is the only way to get an account. Defaults to `false`. `TWEXTHUB_OIDC_REQUIRED`.
+- `device.verificationUrl`: The page a browser visits to approve a CLI sign-in. Defaults to `null`, which turns the device flow off. `TWEXTHUB_DEVICE_VERIFICATION_URL`.
+- `webauthn.rpId`: The domain passkeys are scoped to — the hostname of the site that runs the ceremony, without a scheme or port. Defaults to `null`, which uses the hostname of `publicBaseUrl`. Set it explicitly when the web client is served from a parent domain of the API (for example `example.com` with the API on `api.example.com` and the client on `app.example.com`) or from a different host. `TWEXTHUB_WEBAUTHN_RP_ID`.
+- `webauthn.rpName`: The name an authenticator shows when it offers to store a passkey. Defaults to `null`, which uses the product name. `TWEXTHUB_WEBAUTHN_RP_NAME`.
+- `reauthWindowMinutes`: How long a session counts as recently authenticated for the operations that demand it — adding or removing a passkey, regenerating backup codes. Must be a finite positive number. Defaults to `10`. `TWEXTHUB_REAUTH_WINDOW_MINUTES`.
+
+`oidc.issuer` and `oidc.clientId` must be set together, and `oidc.required` cannot be turned on without both — the server refuses to start otherwise, so an instance cannot lock itself out of every way in.
+
+### Signing in with an identity provider
+
+Point `oidc.issuer` at the provider's base URL (the same value it publishes as its `issuer`); discovery is read from `<issuer>/.well-known/openid-configuration`. Register the instance's callback URL at the provider:
+
+```
+<publicBaseUrl>/<apiRoot>/auth/oidc/callback
+```
+
+For example, `http://localhost:3000/v2/auth/oidc/callback`. The redirect URI is derived from `publicBaseUrl` and `apiRoot` rather than configured, so it cannot drift from what the instance actually serves.
+
+The routes are:
+
+- `GET /auth` — public; says whether password sign-in is offered and, when the provider is on, its issuer and whether it is required. A sign-in page reads this to decide what to render.
+- `GET /auth/oidc/authorize` — starts a sign-in. Add `returnTo` to send the browser somewhere specific afterwards; it must be a path on this instance or an origin listed in `cors.allowedOrigins`. A browser (an `Accept: text/html` request) is redirected to the provider; an API client gets `{ "authorizationUrl": ... }`.
+- `GET /auth/oidc/callback` — where the provider sends the browser back. In a browser it redirects to `returnTo` with a one-time `oidc_code`; an API client receives the session directly.
+- `POST /auth/oidc/exchange` — trades the browser's one-time `oidc_code` for the session, so the session token is never carried in a URL.
+- `POST /auth/oidc/link` — starts linking the provider to the signed-in account (session required).
+- `GET /auth/oidc/identities` and `DELETE /auth/oidc/identities/<id>` — list and remove the account's linked identities. The last way into an account cannot be removed if it would leave the account unreachable.
+
+The first account created through the provider becomes an admin, exactly as the first password registration does. An account's namespace comes from the provider's `preferred_username` (or `nickname`/`username`) when it can be one, with a `user-<hash>` fallback. Email is stored for reference and is never used to match or link accounts — only the provider's `iss`/`sub` pair is.
+
+When `oidc.required` is on, `POST /sessions` and `POST /users` return `403`; existing sessions and tokens keep working. Turn it on only after you have signed in through the provider at least once, so the instance always has an admin.
+
+### Signing in with a passkey
+
+Multi-factor authentication is per account and opt-in: an account registers one or more passkeys, and from then on a password (or provider) sign-in stops at a second step until a passkey or a backup code confirms it. An account with no passkeys signs in exactly as before, so an instance that never enables MFA is unaffected.
+
+The ceremony runs in the browser, so the page that calls `navigator.credentials` has to be served from an origin the server trusts. The server accepts the `publicBaseUrl` origin plus every origin in `cors.allowedOrigins` (a `*` there contributes nothing, since the browser sends a concrete origin). Passkeys are scoped to `webauthn.rpId`; its default — the hostname of `publicBaseUrl` — is right when the web client and the API share a site, and needs setting when they do not.
+
+The routes are:
+
+- `GET /auth/mfa` — the account's MFA state: whether it is on, its passkeys, and how many backup codes remain (session required).
+- `POST /auth/mfa/passkeys/options` and `POST /auth/mfa/passkeys` — register a passkey (recent authentication required for both requests). The first one turns MFA on and returns ten backup codes, shown once.
+- `PATCH /auth/mfa/passkeys/<id>` and `DELETE /auth/mfa/passkeys/<id>` — rename or remove a passkey. Removing the last one turns MFA off and discards the backup codes.
+- `POST /auth/mfa/backup-codes` — replaces every backup code with ten new ones. The old set stops working immediately.
+- `POST /auth/mfa/reauth/options` and `POST /auth/mfa/reauth` — satisfy a recent-authentication check with a passkey, without signing in again.
+
+The second step of a sign-in uses its own pair:
+
+- `POST /auth/mfa/options` — hands out a WebAuthn challenge for the passkeys of the account waiting to sign in.
+- `POST /auth/mfa/verify` — completes the sign-in with either a passkey assertion or a backup code, and returns the session.
+
+Adding or removing a passkey and regenerating backup codes require the session to be recently authenticated: within `reauthWindowMinutes` of a sign-in (or of a completed `POST /auth/mfa/reauth`). A sign-in that just happened counts, so the common path needs nothing extra. Failed second-factor attempts count against the login rate limit, alongside failed passwords.
+
+A sign-in that stops at the second step returns `202` with `{ "mfaRequired": true, "mfaToken": ..., "methods": [...] }` instead of the `201` session. The token is the credential for the `/auth/mfa/options` and `/auth/mfa/verify` calls and is shown once, like a session token. `POST /sessions`, `POST /auth/oidc/exchange`, and the API-client form of `GET /auth/oidc/callback` all answer this way when the account has MFA on.
+
+### Signing in from a CLI
+
+`twext login` signs in with a password prompt, and the provider and passkey paths both need a browser on the instance's own origin. A different client — another build tool, a script, anything that would rather not collect a password — cannot run either. The device authorization flow (RFC 8628) is for those: the client asks for a code, the person approves it in a browser, and the client polls until it has a session.
+
+Set `auth.device.verificationUrl` to the page that approves a code to turn the flow on. With it unset, the endpoints answer `404` and `GET /auth` reports `device: null`, because a client that asked for a code would otherwise wait for a page nobody can visit. The API serves the endpoints; the page itself belongs to the web client.
+
+The flow runs on five endpoints:
+
+1. `POST /auth/device/code` with an optional `clientName`. The response has a long `deviceCode`, a short `userCode` in the `ABCD-EFGH` shape, `verificationUriComplete` with the code filled in, `expiresIn`, and the `interval` to poll at.
+2. The person opens that URL. The page reads `POST /auth/device/lookup` with their session to show the client name, then calls `POST /auth/device/approve` or `POST /auth/device/deny`.
+3. The client polls `POST /auth/device/token` with the `deviceCode`. Until the page approves it the answer is `400` with `error: authorization_pending`. A poll inside the interval answers `slow_down`, a refusal answers `access_denied`, and an unknown or expired code answers `expired_token`.
+4. The poll after approval answers `200` with the same body as `POST /sessions` — `{ session, user, token }` — and consumes the code, so a replayed device code does not mint a second session.
+
+Approval requires a session authenticated within `reauthWindowMinutes` of a sign-in or a completed `POST /auth/mfa/reauth`. An older session receives `403` until the person reauthenticates. The browser has to finish a passkey or provider sign-in before it has a session to approve with, and the client never sees either. A pending `mfaToken` from `POST /sessions` is not a session and is refused. An approved code stays uncollected until the client's next poll, so the page can still decline it in that window; that is also why the approval page should show the client name it got from the lookup.
+
+The session this issues is the same credential `twext login` stores: every scope, `sessionTtlDays` of life, and revocable with `DELETE /sessions/current`. The device code is shown only to the client that asked, both codes are stored as hashes, and they expire after ten minutes.
+
+## 🚦 Rate Limits
+
+Limits are counted in fixed windows aligned to the clock — a 15-minute window resets at :00, :15, :30, and :45 — and rejected requests carry a `Retry-After` header saying when the window rolls over.
+
+- `loginAttemptsPerWindow` / `loginWindowMinutes`: Failed sign-ins, counted per namespace per IP and per IP overall. Defaults to `5` attempts per `15` minutes. `TWEXTHUB_LOGIN_ATTEMPTS_PER_WINDOW`, `TWEXTHUB_LOGIN_WINDOW_MINUTES`.
+- `signupsPerIpPerWindow` / `signupWindowMinutes`: Sign-up attempts from one IP, counting attempts at both accounts and organizations whether they succeed or not. Defaults to `5` per `15` minutes. `TWEXTHUB_SIGNUPS_PER_IP_PER_WINDOW`, `TWEXTHUB_SIGNUP_WINDOW_MINUTES`.
+- `publishPerWindow` / `publishWindowMinutes`: Publishes per account — per account rather than per IP because CI runners often share one. Defaults to `30` per `60` minutes. `TWEXTHUB_PUBLISH_PER_WINDOW`, `TWEXTHUB_PUBLISH_WINDOW_MINUTES`.
+- `downloadsPerIpPerWindow` / `downloadWindowMinutes`: Downloads from one IP. Defaults to `240` per `5` minutes. `TWEXTHUB_DOWNLOADS_PER_IP_PER_WINDOW`, `TWEXTHUB_DOWNLOAD_WINDOW_MINUTES`.
+- `reportsPerWindow` / `reportsWindowMinutes`: Reports filed per account — per account rather than per IP because a report is about somebody else's account, and the rate that matters is the one at which a single account can fill the moderators' queue. Defaults to `10` per `60` minutes. `TWEXTHUB_REPORTS_PER_WINDOW`, `TWEXTHUB_REPORTS_WINDOW_MINUTES`.
+- `routesPerIpPerWindow` / `routeWindowMinutes`: A coarse cap on every route, as a backstop for floods the buckets above don't cover. Loopback addresses are exempt. Both must be positive integers — the server won't start without them. Defaults to `600` per `15` minutes. `TWEXTHUB_ROUTES_PER_IP_PER_WINDOW`, `TWEXTHUB_ROUTE_WINDOW_MINUTES`.
+
+The publish, download, and report buckets can be switched off entirely with `null` in the file, or `off` in the environment.
+
+## 📄 Pagination
+
+- `defaultLimit`: Page size when a client doesn't ask for one. Defaults to `20`. `TWEXTHUB_PAGINATION_DEFAULT_LIMIT`.
+- `maxLimit`: The largest page size a client may request. Defaults to `50`. `TWEXTHUB_PAGINATION_MAX_LIMIT`.
+
+## 📦 Size Limits
+
+- `maxBlobBytes`: Largest compiled extension the server will store for one version. Defaults to 2 MB. `TWEXTHUB_MAX_BLOB_BYTES`.
+- `maxAccountBlobBytes`: Total bytes one account may have stored across its versions and source archives. An admin can raise or lower it for a single account. Defaults to 64 MB. `TWEXTHUB_MAX_ACCOUNT_BLOB_BYTES`.
+- `maxSourceBytes`: Largest project tarball a publish may upload. Defaults to 1 MB. `TWEXTHUB_MAX_SOURCE_BYTES`.
+- `maxProfileImageBytes`: Largest avatar or banner upload. Defaults to 2 MB. `TWEXTHUB_MAX_PROFILE_IMAGE_BYTES`.
+
+## 🛠️ The Build Sandbox
+
+Every publish is compiled on the server, in a child process with filesystem, memory, and time limits. The [deploy guide](./deploy.md#-the-build-sandbox) describes what the sandbox does; these keys tune it:
+
+- `command`: Path to a Node.js script (`.js`, `.mjs`, or `.cjs`) used instead of the bundled Twext, called as `node <command> build -o <out>`. Defaults to the Twext that ships with the server. `TWEXTHUB_COMPILER`.
+- `timeoutMs`: Wall-clock limit for one build; the process is killed when it passes. Defaults to `30000`. `TWEXTHUB_COMPILER_TIMEOUT_MS`.
+- `memoryMb`: V8 heap cap for the build, in megabytes. Defaults to `192`. `TWEXTHUB_COMPILER_MEMORY_MB`.
+- `addressSpaceMb`: Address-space limit (`ulimit -v`) for the build, in megabytes. Defaults to `1536`. `TWEXTHUB_COMPILER_ADDRESS_SPACE_MB`.
+- `minify`: Minify compiled extension output with Terser before it is served. A pending version is minified when it is approved; a trusted account's version is minified at publish. The stored digest, size, and integrity hash describe the minified bytes. Defaults to `true`. `TWEXTHUB_COMPILER_MINIFY`.
+
+## 🌍 CORS and Logging
+
+- `cors.allowedOrigins`: Origins allowed to call the API from a browser. Either `*`, or a list of origins compared exactly against the `Origin` header. Defaults to `*`. `TWEXTHUB_CORS_ALLOWED_ORIGINS`, as a comma-separated list or `*`.
+- `logging.requests`: Write one structured JSON line per request, in addition to the in-memory counters. Defaults to `false`. `TWEXTHUB_LOG_REQUESTS`.
+
+## 🖥️ Editing Settings at Runtime
+
+An admin can read and change a subset of these settings from the running instance through `GET` and `PUT` on `/admin/config` (under the API root), without redeploying. The file is edited in place, so comments and key order survive, and the change is written back to the same file the instance started from.
+
+The endpoint only accepts its own allowlist: the public base URL, session lifetime, page sizes, size limits, compiler limits, request logging, and allowed origins. The database URL, port, API root, and data directory are not editable there — a typo in those is an instance that won't start, and the form would be an easier way to break one than a text editor.
+
+Each setting is either applied immediately or needs a restart, and the response says which. The endpoint returns `409` if the configuration file isn't writable or wouldn't survive a redeploy — inside a container, that means mounting `config.yaml` as a volume rather than baking it into the image.
+
+## 🔑 Other Environment Variables
+
+These aren't part of the configuration file:
+
+- `TWEXTHUB_DOWNLOAD_HASH_KEY`: Key used to hash client addresses for download statistics, so distinct downloads can be counted without storing the addresses. If unset, one is generated into `dataDir/secrets/download-address.key` on first use. Keep it in your secret store if you manage secrets outside the container.
+- `TWEXTHUB_METRICS_INTERVAL_MS`: How often the daily download rollup runs, in milliseconds. Defaults to one hour.
+- `TWEXTHUB_TEST_DATABASE_URL`: Used only by the test suite; see [Development Guide](./development.md#-tests).

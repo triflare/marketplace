@@ -1,0 +1,71 @@
+# The whole product in one stack: the registry API, the web frontend that talks
+# to it, and the PostgreSQL the API keeps its schema and data in.
+#
+#   cp .env.example .env   # set SESSION_SECRET
+#   docker compose up --build
+#
+# The API listens on http://localhost:3000 and the frontend on
+# http://localhost:3001.
+name: marketplace
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: twexthub
+      POSTGRES_PASSWORD: twexthub
+      POSTGRES_DB: twexthub
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Loopback only, so a dev server running on the host can reach it. This
+      # collides with apps/api/compose.test.yml, which publishes 5432 too; stop
+      # one of them before starting the other.
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U twexthub -d twexthub']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./apps/api
+    environment:
+      TWEXTHUB_DATABASE_URL: postgres://twexthub:twexthub@db:5432/twexthub
+      # Absolute URL the API advertises in install links, badges, and the OIDC
+      # redirect. Browsers resolve it, so it is the published host port.
+      TWEXTHUB_PUBLIC_BASE_URL: ${TWEXTHUB_PUBLIC_BASE_URL:-http://localhost:3000}
+      # Page a browser opens to approve a CLI sign-in. Without it the device
+      # flow stays off, since there would be no page to approve on.
+      TWEXTHUB_DEVICE_VERIFICATION_URL: ${TWEXTHUB_UI_PUBLIC_BASE_URL:-http://localhost:3001}/device
+      TWEXTHUB_LOG_REQUESTS: 'false'
+    ports:
+      - '3000:3000'
+    volumes:
+      # Published sources and blobs. Losing it loses the registry's contents
+      # even though the database survives.
+      - twexthub-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: ./apps/ui
+      args:
+        # Inlined into the browser bundle, so it has to be the API URL a
+        # visitor's browser can reach, not the service name.
+        VITE_TWEXTHUB_API_URL: ${TWEXTHUB_PUBLIC_BASE_URL:-http://localhost:3000}/v2
+    environment:
+      # Server-side requests stay on the compose network.
+      TWEXTHUB_API_URL: http://api:3000/v2
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set — copy .env.example to .env and fill it in}
+      PORT: 3000
+    ports:
+      - '3001:3000'
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  twexthub-data:

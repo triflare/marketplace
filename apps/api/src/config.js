@@ -1,0 +1,336 @@
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import YAML from 'yaml';
+import { product } from './product.js';
+import { normalizeApiRoot } from './util.js';
+
+export const DEFAULTS = {
+  port: 3000,
+  dataDir: './data',
+  apiRoot: product.defaults?.apiRoot ?? '/v0',
+  publicBaseUrl: 'http://localhost:3000',
+  requireHttps: false,
+  trustProxy: false,
+  database: {
+    url: null,
+    maxConnections: 10,
+    connectTimeoutSeconds: 30,
+    idleTimeoutSeconds: 60,
+  },
+  auth: {
+    sessionTtlDays: 7,
+    scrypt: { N: 16384, r: 8, p: 1 },
+    oidc: {
+      issuer: null,
+      clientId: null,
+      clientSecret: null,
+      required: false,
+    },
+    webauthn: {
+      // The domain a passkey is scoped to. Null means the hostname of
+      // publicBaseUrl, which is right whenever the web client and the API are
+      // served from the same site.
+      rpId: null,
+      // The name an authenticator shows when it asks to store the passkey.
+      rpName: null,
+    },
+    device: {
+      // The page a browser visits to approve a CLI sign-in. Null turns the
+      // device flow off, since without a page to approve on a client would
+      // wait for something nobody can do.
+      verificationUrl: null,
+    },
+    // How long a session stays "recently authenticated" for the operations
+    // that demand it (adding/removing a passkey, regenerating backup codes).
+    reauthWindowMinutes: 10,
+  },
+  rateLimits: {
+    loginAttemptsPerWindow: 5,
+    loginWindowMinutes: 15,
+    signupsPerIpPerWindow: 5,
+    signupWindowMinutes: 15,
+    publishPerWindow: 30,
+    publishWindowMinutes: 60,
+    downloadsPerIpPerWindow: 240,
+    downloadWindowMinutes: 5,
+    reportsPerWindow: 10,
+    reportsWindowMinutes: 60,
+    routesPerIpPerWindow: 600,
+    routeWindowMinutes: 15,
+  },
+  pagination: {
+    defaultLimit: 20,
+    maxLimit: 50,
+  },
+  limits: {
+    maxBlobBytes: 2 * 1024 * 1024,
+    maxAccountBlobBytes: 64 * 1024 * 1024,
+    maxSourceBytes: 1024 * 1024,
+    maxProfileImageBytes: 2 * 1024 * 1024,
+  },
+  compiler: {
+    command: null,
+    timeoutMs: 30_000,
+    memoryMb: 192,
+    addressSpaceMb: 1536,
+    minify: true,
+  },
+  logging: {
+    requests: false,
+  },
+  cors: {
+    allowedOrigins: '*',
+  },
+};
+
+// The buckets that a null switches off entirely, and the only keys for which a
+// null is a value rather than the absence of one. An environment variable is a
+// string, so "off" (or "null") is how an operator spells it there; no other key
+// may use those spellings, or a mistyped port or quota would become null instead
+// of failing startup.
+const NULLABLE_KEYS = new Set([
+  'rateLimits.publishPerWindow',
+  'rateLimits.downloadsPerIpPerWindow',
+  'rateLimits.reportsPerWindow',
+]);
+
+// Merge the config file over the defaults. `path` is the dotted key the value
+// came from, because an explicit null means "off" for the nullable buckets
+// and "not set" for everything else: keeping the default when a file says
+// `publishPerWindow: null` would silently leave the bucket on, which is the one
+// thing that line is there to do.
+function mergeDeep(base, override, path = '') {
+  if (override === undefined) return base;
+  if (override === null) return NULLABLE_KEYS.has(path) ? null : base;
+  if (Array.isArray(base)) return override;
+  if (typeof base === 'object' && base !== null) {
+    const out = structuredClone(base);
+    for (const [key, value] of Object.entries(override)) {
+      if (value !== undefined)
+        out[key] = mergeDeep(base[key], value, path ? `${path}.${key}` : key);
+    }
+    return out;
+  }
+  return override;
+}
+
+const ENV_OVERRIDES = [
+  ['port', 'TWEXTHUB_PORT'],
+  ['dataDir', 'TWEXTHUB_DATA_DIR'],
+  ['apiRoot', 'TWEXTHUB_API_ROOT'],
+  ['publicBaseUrl', 'TWEXTHUB_PUBLIC_BASE_URL'],
+  ['requireHttps', 'TWEXTHUB_REQUIRE_HTTPS'],
+  ['trustProxy', 'TWEXTHUB_TRUST_PROXY'],
+  ['database.url', 'TWEXTHUB_DATABASE_URL'],
+  ['database.maxConnections', 'TWEXTHUB_DATABASE_MAX_CONNECTIONS'],
+  ['auth.sessionTtlDays', 'TWEXTHUB_SESSION_TTL_DAYS'],
+  ['auth.oidc.issuer', 'TWEXTHUB_OIDC_ISSUER'],
+  ['auth.oidc.clientId', 'TWEXTHUB_OIDC_CLIENT_ID'],
+  ['auth.oidc.clientSecret', 'TWEXTHUB_OIDC_CLIENT_SECRET'],
+  ['auth.oidc.required', 'TWEXTHUB_OIDC_REQUIRED'],
+  ['auth.webauthn.rpId', 'TWEXTHUB_WEBAUTHN_RP_ID'],
+  ['auth.webauthn.rpName', 'TWEXTHUB_WEBAUTHN_RP_NAME'],
+  ['auth.reauthWindowMinutes', 'TWEXTHUB_REAUTH_WINDOW_MINUTES'],
+  ['auth.device.verificationUrl', 'TWEXTHUB_DEVICE_VERIFICATION_URL'],
+  ['rateLimits.loginAttemptsPerWindow', 'TWEXTHUB_LOGIN_ATTEMPTS_PER_WINDOW'],
+  ['rateLimits.loginWindowMinutes', 'TWEXTHUB_LOGIN_WINDOW_MINUTES'],
+  ['rateLimits.signupsPerIpPerWindow', 'TWEXTHUB_SIGNUPS_PER_IP_PER_WINDOW'],
+  ['rateLimits.signupWindowMinutes', 'TWEXTHUB_SIGNUP_WINDOW_MINUTES'],
+  ['rateLimits.publishPerWindow', 'TWEXTHUB_PUBLISH_PER_WINDOW'],
+  ['rateLimits.publishWindowMinutes', 'TWEXTHUB_PUBLISH_WINDOW_MINUTES'],
+  ['rateLimits.downloadsPerIpPerWindow', 'TWEXTHUB_DOWNLOADS_PER_IP_PER_WINDOW'],
+  ['rateLimits.downloadWindowMinutes', 'TWEXTHUB_DOWNLOAD_WINDOW_MINUTES'],
+  ['rateLimits.reportsPerWindow', 'TWEXTHUB_REPORTS_PER_WINDOW'],
+  ['rateLimits.reportsWindowMinutes', 'TWEXTHUB_REPORTS_WINDOW_MINUTES'],
+  ['rateLimits.routesPerIpPerWindow', 'TWEXTHUB_ROUTES_PER_IP_PER_WINDOW'],
+  ['rateLimits.routeWindowMinutes', 'TWEXTHUB_ROUTE_WINDOW_MINUTES'],
+  ['pagination.defaultLimit', 'TWEXTHUB_PAGINATION_DEFAULT_LIMIT'],
+  ['pagination.maxLimit', 'TWEXTHUB_PAGINATION_MAX_LIMIT'],
+  ['limits.maxBlobBytes', 'TWEXTHUB_MAX_BLOB_BYTES'],
+  ['limits.maxAccountBlobBytes', 'TWEXTHUB_MAX_ACCOUNT_BLOB_BYTES'],
+  ['limits.maxSourceBytes', 'TWEXTHUB_MAX_SOURCE_BYTES'],
+  ['limits.maxProfileImageBytes', 'TWEXTHUB_MAX_PROFILE_IMAGE_BYTES'],
+  ['compiler.command', 'TWEXTHUB_COMPILER'],
+  ['compiler.timeoutMs', 'TWEXTHUB_COMPILER_TIMEOUT_MS'],
+  ['compiler.memoryMb', 'TWEXTHUB_COMPILER_MEMORY_MB'],
+  ['compiler.addressSpaceMb', 'TWEXTHUB_COMPILER_ADDRESS_SPACE_MB'],
+  ['compiler.minify', 'TWEXTHUB_COMPILER_MINIFY'],
+  ['logging.requests', 'TWEXTHUB_LOG_REQUESTS'],
+  ['cors.allowedOrigins', 'TWEXTHUB_CORS_ALLOWED_ORIGINS'],
+];
+
+// `fallback` is the DEFAULTS value for the key, not whatever YAML merged in: the
+// coercion each value goes through is the one its default type calls for.
+function coerceEnvValue(raw, fallback, envName, key) {
+  if (NULLABLE_KEYS.has(key) && (raw === 'off' || raw === 'null')) return null;
+  if (typeof fallback === 'boolean') {
+    if (raw === 'true' || raw === '1') return true;
+    if (raw === 'false' || raw === '0') return false;
+    throw new Error(`${envName} must be "true" or "false" (got "${raw}")`);
+  }
+  if (typeof fallback === 'number') {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new Error(`${envName} must be a positive integer (got "${raw}")`);
+    }
+    return n;
+  }
+  return raw;
+}
+
+function coerceTrustProxy(raw) {
+  if (raw === 'true') return true;
+  if (raw === 'false' || raw === '0') return false;
+  if (/^[1-9]\d*$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+function coerceAllowedOrigins(raw) {
+  if (raw === '*') return '*';
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+// An identity provider configured only halfway, or required but absent, is an
+// instance where nobody can sign in -- so it fails here rather than at the
+// first sign-in attempt. A bare issuer also gets normalized (no trailing
+// slash, since discovery is fetched at issuer + /.well-known/...) and the
+// client id is stringified, because YAML spells a numeric id as a number.
+function normalizeOidc(config) {
+  const oidc = config.auth.oidc;
+  if (oidc.issuer !== null && oidc.issuer !== undefined && oidc.issuer !== '') {
+    if (typeof oidc.issuer !== 'string') {
+      throw new Error(`auth.oidc.issuer must be a URL string (got ${JSON.stringify(oidc.issuer)})`);
+    }
+    oidc.issuer = oidc.issuer.replace(/\/+$/, '');
+    const parsed = URL.parse(oidc.issuer);
+    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+      throw new Error(`auth.oidc.issuer must be an http or https URL (got "${oidc.issuer}")`);
+    }
+  } else {
+    oidc.issuer = null;
+  }
+  oidc.clientId =
+    oidc.clientId === null || oidc.clientId === undefined ? null : String(oidc.clientId);
+  oidc.clientSecret =
+    oidc.clientSecret === null || oidc.clientSecret === undefined || oidc.clientSecret === ''
+      ? null
+      : String(oidc.clientSecret);
+  if ((oidc.issuer || oidc.clientId || oidc.clientSecret) && !(oidc.issuer && oidc.clientId)) {
+    throw new Error('auth.oidc.issuer and auth.oidc.clientId must be set together');
+  }
+  if (oidc.required && !oidc.issuer) {
+    throw new Error(
+      'auth.oidc.required is true, but auth.oidc.issuer and auth.oidc.clientId are not both set',
+    );
+  }
+}
+
+// The approval page belongs to the web client, so its URL is configured rather
+// than derived from publicBaseUrl: the API cannot know which path the client
+// serves it on, and a wrong guess would send people to a 404 mid sign-in.
+function normalizeDevice(config) {
+  const device = config.auth.device;
+  if (
+    device.verificationUrl === undefined ||
+    device.verificationUrl === null ||
+    device.verificationUrl === ''
+  ) {
+    device.verificationUrl = null;
+    return;
+  }
+  if (typeof device.verificationUrl !== 'string') {
+    throw new Error(
+      `auth.device.verificationUrl must be a URL string (got ${JSON.stringify(device.verificationUrl)})`,
+    );
+  }
+  const parsed = URL.parse(device.verificationUrl);
+  if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+    throw new Error(
+      `auth.device.verificationUrl must be an http or https URL (got "${device.verificationUrl}")`,
+    );
+  }
+  device.verificationUrl = parsed.toString();
+}
+
+// A WebAuthn relying party is an origin's host, so the RP ID is a bare
+// hostname: a scheme, a port, or a path in it would be accepted here and then
+// silently never match what the browser sends. The name is free text shown by
+// the authenticator.
+function normalizeWebauthn(config) {
+  const webauthn = config.auth.webauthn;
+  if (webauthn.rpId === undefined || webauthn.rpId === null || webauthn.rpId === '') {
+    webauthn.rpId = null;
+  } else {
+    webauthn.rpId = String(webauthn.rpId).trim().toLowerCase().replace(/\.$/, '');
+    if (!/^[a-z0-9.-]+$/.test(webauthn.rpId) || webauthn.rpId.includes('..')) {
+      throw new Error(
+        `auth.webauthn.rpId must be a bare hostname, like "example.com" (got "${webauthn.rpId}")`,
+      );
+    }
+  }
+  webauthn.rpName =
+    webauthn.rpName === undefined || webauthn.rpName === null || webauthn.rpName === ''
+      ? null
+      : String(webauthn.rpName);
+}
+
+function applyEnvOverrides(config) {
+  for (const [key, envName] of ENV_OVERRIDES) {
+    const raw = process.env[envName];
+    if (raw === undefined) continue;
+    const parts = key.split('.');
+    const target = parts.slice(0, -1).reduce((acc, part) => acc[part], config);
+    const last = parts[parts.length - 1];
+    if (key === 'trustProxy') {
+      target[last] = coerceTrustProxy(raw);
+      continue;
+    }
+    if (key === 'cors.allowedOrigins') {
+      target[last] = coerceAllowedOrigins(raw);
+      continue;
+    }
+    target[last] = coerceEnvValue(
+      raw,
+      parts.reduce((acc, part) => acc[part], DEFAULTS),
+      envName,
+      key,
+    );
+  }
+}
+
+export function loadConfig(configPath = product.defaults?.configFilename ?? 'config.yaml') {
+  let raw = {};
+  if (existsSync(configPath)) {
+    const parsed = YAML.parse(readFileSync(configPath, 'utf8'));
+    if (parsed && typeof parsed === 'object') raw = parsed;
+  }
+  const config = mergeDeep(DEFAULTS, raw);
+  applyEnvOverrides(config);
+  config.apiRoot = normalizeApiRoot(config.apiRoot);
+  normalizeOidc(config);
+  normalizeWebauthn(config);
+  normalizeDevice(config);
+  const reauthWindow = config.auth.reauthWindowMinutes;
+  const reauthWindowMinutes = Number(reauthWindow);
+  if (
+    !['number', 'string'].includes(typeof reauthWindow) ||
+    !Number.isFinite(reauthWindowMinutes) ||
+    reauthWindowMinutes <= 0
+  ) {
+    throw new Error('auth.reauthWindowMinutes must be a finite positive number');
+  }
+  config.auth.reauthWindowMinutes = reauthWindowMinutes;
+  if (!config.database.url) {
+    throw new Error(
+      `database.url is required (set it in ${configPath}, pass a file via --config, or set TWEXTHUB_DATABASE_URL)`,
+    );
+  }
+  config.dataDir = path.resolve(process.cwd(), config.dataDir);
+  // Recorded so the admin configuration endpoints can edit the same file this
+  // instance was started from, rather than guessing at a name.
+  config.configPath = path.resolve(configPath);
+  return config;
+}
