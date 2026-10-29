@@ -111,9 +111,8 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <img src="/assets/icon.svg" alt="" className="size-7 rounded-md" />
-          <img src="/assets/logo.svg" alt="TwextHub" className="h-6 w-auto" />
+        <Link to="/" className="flex shrink-0 items-center">
+          <img src="/assets/logo.svg" alt="TwextHub" className="h-7 w-auto" />
         </Link>
 
         <nav
