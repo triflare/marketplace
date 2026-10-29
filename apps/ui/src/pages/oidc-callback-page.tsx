@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 import { errorMessage, th } from "@/lib/twexthub"
 
 export function OidcCallbackPage() {
@@ -18,7 +19,7 @@ export function OidcCallbackPage() {
   const [challenge, setChallenge] = useState<MfaRequired | null>(null)
   const started = useRef(false)
 
-  usePageMeta("Signing in", "Finishing sign-in to TwextHub.")
+  usePageMeta("Signing in", `Finishing sign-in to ${product.name}.`)
 
   const oidcError = params.get("oidc_error")
   const code = params.get("oidc_code")

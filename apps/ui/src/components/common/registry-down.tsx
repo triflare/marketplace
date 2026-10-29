@@ -2,6 +2,7 @@ import { RefreshCwIcon } from "lucide-react"
 import { useState, useSyncExternalStore, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
+import { product } from "@/lib/product"
 import {
   isRegistryUnreachable,
   reportRegistryReachable,
@@ -56,10 +57,10 @@ function RegistryDown() {
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-md flex-col items-start justify-center gap-4 px-4 py-16">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        TwextHub
+        {product.name}
       </p>
       <h1 className="text-2xl font-semibold tracking-tight">
-        TwextHub is down
+        {product.name} is down
       </h1>
       <p className="text-sm text-muted-foreground">
         The registry isn’t answering right now, so extension pages, search, and

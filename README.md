@@ -78,6 +78,14 @@ In development the app talks to `http://localhost:3000/v2` unless
 `TWEXTHUB_API_URL` says otherwise, so run the API first (or point it at an
 existing instance). `apps/ui/.env.example` lists the three variables it reads.
 
+## Product identity
+
+Each app keeps its identity in a `product.yml`: name, version, tagline, author,
+homepage, the brand palette, and the API's config filename. The API reads its
+file at boot, so a rebrand is an edit and a restart. The frontend parses its
+copy during the build and inlines the values into both bundles, so a rebrand
+there needs `npm run build` (or `docker compose up --build`) again.
+
 ## Repository layout
 
 ```

@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
+import { product } from "@/lib/product"
 
 type Props = { children: ReactNode }
 type State = { failed: boolean }
@@ -20,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="mx-auto flex min-h-svh w-full max-w-md flex-col items-start justify-center gap-4 px-4 py-16">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          TwextHub
+          {product.name}
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           Something went wrong

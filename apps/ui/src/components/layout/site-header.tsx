@@ -27,6 +27,7 @@ import {
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { useSearchShortcut } from "@/hooks/use-search-shortcut"
+import { product } from "@/lib/product"
 import { th } from "@/lib/twexthub"
 import { cn } from "@/lib/utils"
 
@@ -114,12 +115,12 @@ export function SiteHeader() {
         <Link to="/" className="flex shrink-0 items-center">
           <img
             src="/assets/logo-light.svg"
-            alt="TwextHub"
+            alt={product.name}
             className="h-7 w-auto dark:hidden"
           />
           <img
             src="/assets/logo-dark.svg"
-            alt="TwextHub"
+            alt={product.name}
             className="hidden h-7 w-auto dark:block"
           />
         </Link>

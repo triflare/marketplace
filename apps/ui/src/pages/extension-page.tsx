@@ -47,6 +47,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { loadExtensionData, type ExtensionData } from "@/lib/extension-data"
+import { product } from "@/lib/product"
 import { formatDate, formatNumber } from "@/lib/format"
 import { licenseName } from "@/lib/licenses"
 import { extensionKey } from "@/lib/preload"
@@ -144,7 +145,7 @@ function ExtensionView({ namespace, id }: { namespace: string; id: string }) {
       ? ""
       : `${window.location.origin}/@${extension.namespace}/${extension.id}`
   const badgeLabel = BADGE_FIELDS.find((field) => field.value === badgeField)
-  const badgeMarkdown = `[![TwextHub ${badgeLabel?.label ?? ""}](${badgeRegistryUrl})](${pageUrl})`
+  const badgeMarkdown = `[![${product.name} ${badgeLabel?.label ?? ""}](${badgeRegistryUrl})](${pageUrl})`
 
   async function handleDownload(version: string) {
     setDownloading(version)

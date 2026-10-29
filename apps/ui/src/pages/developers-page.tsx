@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { CopyButton } from "@/components/common/copy-button"
 import { PageHeader } from "@/components/common/page-header"
 import { ButtonLink } from "@/components/common/button-link"
+import { product } from "@/lib/product"
 import {
   API_BASE_URL,
   CLI_HUB_URL_FLAG,
@@ -125,7 +126,7 @@ export function DevelopersPage() {
               />
               <ExternalLink
                 href="https://github.com/twextjs/twext/blob/main/docs/twexthub.md"
-                label="Publishing to TwextHub"
+                label={`Publishing to ${product.name}`}
               />
               <ExternalLink
                 href="https://github.com/twextjs/twext"

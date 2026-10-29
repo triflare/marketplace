@@ -24,6 +24,7 @@ import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { formatNumber } from "@/lib/format"
 import { HOME_FEED_KEY } from "@/lib/preload"
+import { product } from "@/lib/product"
 import { CLI_HUB_URL_FLAG, th } from "@/lib/twexthub"
 
 const QUICK_STEPS = [
@@ -67,7 +68,7 @@ export function HomePage() {
       <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-5 pt-2">
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {feed.data?.meta.name ?? "TwextHub"} · built with Twext
+            {feed.data?.meta.name ?? product.name} · built with Twext
           </p>
           <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
             Extensions for TurboWarp, built with Twext.

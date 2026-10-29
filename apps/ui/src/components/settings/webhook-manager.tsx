@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { product } from "@/lib/product"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { errorMessage } from "@/lib/twexthub"
@@ -232,7 +233,7 @@ export function WebhookManager({
             <DialogTitle>Signing secret</DialogTitle>
             <DialogDescription>
               Shown once. Use it to verify that each delivery came from
-              TwextHub.
+              {product.name}.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">

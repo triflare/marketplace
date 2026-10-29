@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 import { formatRelative } from "@/lib/format"
 import { deviceAuth, errorMessage } from "@/lib/twexthub"
 
@@ -324,7 +325,7 @@ export function DevicePage() {
           ) : null}
           <p className="text-center text-xs text-muted-foreground">
             <Link to="/" className="hover:text-foreground">
-              Back to TwextHub
+              Back to {product.name}
             </Link>
           </p>
         </form>

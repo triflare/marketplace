@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
-import { product } from './product.js';
+import { brandText, configFilename, product } from './product.js';
 import { createApp } from './app.js';
 import { createDb, ensureDataDirs, reconcileOnBoot, runMigrations } from './db.js';
 import { dailyAggregationJob } from './metrics.js';
@@ -43,11 +43,13 @@ export async function bootstrap(
 const isMain = process.argv[1] && process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMain) {
-  const configPath = process.argv[2] ?? product.defaults?.configFilename ?? 'config.yaml';
+  const configPath = process.argv[2] ?? configFilename();
   const { app, db, config, rateLimiter, metricsJob, webhookWorker, maintenanceJob } =
     await bootstrap(loadConfig(configPath));
   const server = app.listen(config.port, () => {
-    console.log(`${product.name} v${product.version} listening on http://localhost:${config.port}`);
+    console.log(
+      `${brandText(product.name)} v${product.version} listening on http://localhost:${config.port}`,
+    );
   });
   let shuttingDown = false;
   const shutdown = async () => {

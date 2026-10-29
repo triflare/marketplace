@@ -22,9 +22,8 @@ import { AuthProvider } from "@/context/auth"
 import { resolveActiveAccount } from "@/lib/accounts.server"
 import { SERVER_API_URL } from "@/lib/api.server"
 import { PreloadProvider } from "@/lib/preload"
+import { product } from "@/lib/product"
 import { readSession, requireSessionSecret } from "@/lib/session.server"
-
-const DESCRIPTION = "Browse and publish TurboWarp extensions built with Twext."
 
 const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("theme");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.remove("light","dark");r.classList.add(d?"dark":"light")}catch(e){}})()`
 
@@ -76,12 +75,12 @@ export async function loader({ request }: { request: Request }) {
 
 export function meta() {
   return [
-    { title: "TwextHub — Extensions for TurboWarp" },
-    { name: "description", content: DESCRIPTION },
-    { property: "og:title", content: "TwextHub" },
-    { property: "og:description", content: DESCRIPTION },
+    { title: `${product.name} — Extensions for TurboWarp` },
+    { name: "description", content: product.tagline },
+    { property: "og:title", content: product.name },
+    { property: "og:description", content: product.tagline },
     { property: "og:type", content: "website" },
-    { property: "og:site_name", content: "TwextHub" },
+    { property: "og:site_name", content: product.name },
     { name: "twitter:card", content: "summary" },
   ]
 }
@@ -122,14 +121,14 @@ export function ErrorBoundary() {
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-md flex-col items-start justify-center gap-4 px-4 py-16">
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        TwextHub
+        {product.name}
       </p>
       <h1 className="text-2xl font-semibold tracking-tight">
         {notFound ? "Page not found" : "Something went wrong"}
       </h1>
       <p className="text-sm text-muted-foreground">
         {notFound
-          ? "This page isn’t available on TwextHub."
+          ? `This page isn’t available on ${product.name}.`
           : "We couldn’t finish loading this page. Try again, or go back to the home page."}
       </p>
       <div className="flex flex-wrap gap-2">

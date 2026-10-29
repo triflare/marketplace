@@ -4,6 +4,7 @@ import {
   type ProblemDetails,
 } from "@twextjs/twexthubkit"
 
+import { product } from "@/lib/product"
 import {
   isUnreachableStatus,
   reportRegistryReachable,
@@ -128,7 +129,7 @@ export const deviceAuth = {
 
 export function errorMessage(error: unknown): string {
   if (error instanceof TwextHubNetworkError) {
-    return "We couldn’t reach TwextHub. Check your connection and try again."
+    return `We couldn’t reach ${product.name}. Check your connection and try again.`
   }
 
   if (error instanceof TwextHubError) {

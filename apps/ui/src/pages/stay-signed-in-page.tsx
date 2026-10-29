@@ -5,6 +5,7 @@ import { UserAvatar } from "@/components/common/user-avatar"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 
 export function StaySignedInPage() {
   const { user, loading, remember } = useAuth()
@@ -42,12 +43,12 @@ export function StaySignedInPage() {
       <div className="flex items-center">
         <img
           src="/assets/logo-light.svg"
-          alt="TwextHub"
+          alt={product.name}
           className="h-8 w-auto dark:hidden"
         />
         <img
           src="/assets/logo-dark.svg"
-          alt="TwextHub"
+          alt={product.name}
           className="hidden h-8 w-auto dark:block"
         />
       </div>

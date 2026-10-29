@@ -1,6 +1,8 @@
 import { useEffect } from "react"
 
-const SITE_NAME = "TwextHub"
+import { product } from "@/lib/product"
+
+const SITE_NAME = product.name
 
 function setMeta(attribute: "name" | "property", key: string, value: string) {
   let element = document.head.querySelector<HTMLMetaElement>(
@@ -24,8 +26,7 @@ export function usePageMeta(title?: string, description?: string) {
     const pageTitle = title ? `${title} · ${SITE_NAME}` : SITE_NAME
     document.title = pageTitle
 
-    const summary =
-      description ?? "Browse and publish TurboWarp extensions built with Twext."
+    const summary = description ?? product.tagline
 
     setMeta("name", "description", summary)
     setMeta("property", "og:title", pageTitle)

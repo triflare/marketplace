@@ -3,8 +3,15 @@ import { reactRouter } from "@react-router/dev/vite"
 import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite"
 
+import { loadProduct } from "./src/lib/product.server.ts"
+
 // https://reactrouter.com/start/framework/installation
 export default defineConfig({
+  // product.yml is parsed once here and inlined into both bundles, so the app
+  // reads its identity from `@/lib/product` without a loader or a fetch.
+  define: {
+    __PRODUCT__: JSON.stringify(loadProduct()),
+  },
   plugins: [tailwindcss(), reactRouter()],
   resolve: {
     alias: {

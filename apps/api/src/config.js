@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { product } from './product.js';
+import { configFilename, product } from './product.js';
 import { normalizeApiRoot } from './util.js';
 
 export const DEFAULTS = {
@@ -301,7 +301,7 @@ function applyEnvOverrides(config) {
   }
 }
 
-export function loadConfig(configPath = product.defaults?.configFilename ?? 'config.yaml') {
+export function loadConfig(configPath = configFilename()) {
   let raw = {};
   if (existsSync(configPath)) {
     const parsed = YAML.parse(readFileSync(configPath, 'utf8'));

@@ -1,8 +1,9 @@
 import { ButtonLink } from "@/components/common/button-link"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 
 export function NotFoundPage() {
-  usePageMeta("Page not found", "This page isn’t available on TwextHub.")
+  usePageMeta("Page not found", `This page isn’t available on ${product.name}.`)
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-start gap-4 py-16">

@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { UserAvatar } from "@/components/common/user-avatar"
 import { formatDate, formatNumber } from "@/lib/format"
 import type { EmbedSize, EmbedTheme } from "@/lib/embeds"
+import { product } from "@/lib/product"
 import { cn } from "@/lib/utils"
 
 // The dark variant is defined as `.dark *`, so the theme class has to sit on an
@@ -40,7 +41,7 @@ function Credit({ origin, href }: { origin: string; href: string }) {
         target="_top"
         className="hover:text-foreground"
       >
-        TwextHub
+        {product.name}
       </a>
     </p>
   )
@@ -148,7 +149,7 @@ export function MissingEmbedCard({ what }: { what: string }) {
     <Card>
       <p className="text-sm font-medium">Not available</p>
       <p className="mt-1 text-xs text-muted-foreground">
-        This {what} isn’t published on this TwextHub instance.
+        This {what} isn’t published on this {product.name} instance.
       </p>
     </Card>
   )

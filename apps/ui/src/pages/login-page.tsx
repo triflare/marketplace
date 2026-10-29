@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 import { API_BASE_URL, errorMessage, th } from "@/lib/twexthub"
 
 function safeNext(value: string | null): string {
@@ -92,7 +93,7 @@ export function LoginPage() {
     <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8">
       <div>
         <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
-          TwextHub
+          {product.name}
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {adding ? "Add another account" : "Sign in"}

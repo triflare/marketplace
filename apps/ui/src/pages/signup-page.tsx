@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
+import { product } from "@/lib/product"
 import { errorMessage } from "@/lib/twexthub"
 
 export function SignupPage() {
@@ -22,7 +23,7 @@ export function SignupPage() {
 
   usePageMeta(
     "Create an account",
-    "Create a TwextHub account to publish and manage TurboWarp extensions."
+    `Create a ${product.name} account to publish and manage TurboWarp extensions.`
   )
 
   if (!loading && user && !submitted) {
@@ -57,7 +58,7 @@ export function SignupPage() {
     <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8">
       <div>
         <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
-          TwextHub
+          {product.name}
         </p>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           Create an account
