@@ -9,7 +9,7 @@ import {
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { ExtensionSummary } from "@twextjs/twexthubkit"
+import type { ExtensionSummary } from "@/lib/api"
 
 import {
   EmptyState,
@@ -30,7 +30,8 @@ import {
   humanizeKind,
 } from "@/lib/format"
 import { dashboardKey } from "@/lib/preload"
-import { cursorFrom, errorMessage, th } from "@/lib/twexthub"
+import { extend } from "@/lib/product"
+import { cursorFrom, errorMessage, th } from "@/lib/registry"
 import { useSaved } from "@/lib/saved"
 
 /** How many of the publisher's extensions the dashboard lists. */
@@ -217,7 +218,7 @@ export function DashboardPage() {
             ) : extensions.length === 0 ? (
               <EmptyState
                 title="You have not published yet"
-                description="Create a Twext project and publish it with the CLI, or upload an existing project archive. A first release waits for a moderator before it is listed here or in the registry."
+                description={`Create a ${extend.name} project and publish it with the CLI, or upload an existing project archive. A first release waits for a moderator before it is listed here or in the registry.`}
                 action={
                   <div className="flex flex-wrap justify-center gap-2">
                     <ButtonLink to="/developers" variant="outline">

@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { normalizeValue } from './db.js';
 import { downloadAddressKey } from './download-address.js';
+import { envName } from './product.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -93,7 +94,7 @@ export function dailyAggregationJob(db) {
   };
   return {
     start() {
-      const interval = Number(process.env.TWEXTHUB_METRICS_INTERVAL_MS ?? 60 * 60 * 1000);
+      const interval = Number(process.env[envName('METRICS_INTERVAL_MS')] ?? 60 * 60 * 1000);
       timer = setInterval(tick, interval);
       timer.unref?.();
       void tick();

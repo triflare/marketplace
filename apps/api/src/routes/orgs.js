@@ -4,13 +4,14 @@ import { Router } from 'express';
 import { Prisma } from '../../prisma/generated/client/index.js';
 import { requireScope } from '../auth.js';
 import { uniqueViolation } from '../db.js';
-import { removeBlobIfUnused } from '../blobs.js';
 import { removeProfileImageBlob } from '../profile-images.js';
 import { removeSourceIfUnused } from '../sources.js';
 import { conflict, fieldErrors, forbidden, notFound } from '../errors.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { organizationToObject, profileImageUrl } from '../serialize.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
+import { idempotent } from '../idempotency.js';
+import { requireIfMatch, userEtag } from '../validators.js';
 import { addedAsOrgOwnerMessage, notifyUser, removedAsOrgOwnerMessage } from '../notify.js';
 import { requireObjectBody } from './shared.js';
 import { makeProfileImageRouter } from './profile-images.js';
@@ -48,6 +49,7 @@ export function makeOrgsRouter({
   rateLimiter,
   listExtensions,
   resolveTarget,
+  blobs,
 }) {
   const router = Router();
 
@@ -97,7 +99,7 @@ export function makeOrgsRouter({
   // and an extension namespace. The caller becomes its first owner, which is
   // the only reason it exists -- an organization with no owner could not be
   // changed by anyone.
-  router.post('/', manageOrgs, termsGate, async (req, res) => {
+  router.post('/', manageOrgs, termsGate, idempotent(db), async (req, res) => {
     requireObjectBody(req);
     const { namespace, displayName } = req.body;
 
@@ -129,7 +131,7 @@ export function makeOrgsRouter({
     // Signups are the same act as signing in, so they share the window: an
     // organization is as expensive to mint as an account, and a caller who may
     // make five of one may make five of the other.
-    await rateLimiter.signupCheck(`signup:${req.ip}`);
+    await rateLimiter.signupCheck(`signup:${req.ip}`, res);
 
     // The profile columns come from the shared helper, so a field an account
     // accepts is a field an organization accepts, defaults included.
@@ -168,7 +170,7 @@ export function makeOrgsRouter({
   // and a same-millisecond pair cannot be skipped or repeated.
   router.get('/', async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
     const rows = await db.Users.findMany({
       where: {
@@ -191,7 +193,7 @@ export function makeOrgsRouter({
 
   router.get('/:namespace', async (req, res) => {
     const org = await loadOrg(req.params.namespace);
-    res.json(organizationToObject(org, config));
+    res.set('ETag', userEtag(org)).json(organizationToObject(org, config));
   });
 
   // Only the profile fields, and only from the owner list. An organization has
@@ -200,6 +202,7 @@ export function makeOrgsRouter({
   router.patch('/:namespace', manageOrgs, termsGate, async (req, res) => {
     const org = await loadOrgForWrite(req);
     requireObjectBody(req);
+    requireIfMatch(req, userEtag(org));
     const { patch, columns } = profilePatch(req.body);
     if (columns.length === 0) {
       throw fieldErrors([
@@ -213,7 +216,10 @@ export function makeOrgsRouter({
     const errors = profileFieldErrors(req.body);
     if (errors.length > 0) throw fieldErrors(errors);
 
-    const updated = await db.Users.update({ where: { Id: org.Id }, data: patch });
+    const updated = await db.Users.update({
+      where: { Id: org.Id },
+      data: { ...patch, UpdatedAt: new Date() },
+    });
     await audit(
       db,
       req.auth.user,
@@ -223,7 +229,7 @@ export function makeOrgsRouter({
         changed: Object.keys(patch),
       },
     );
-    res.json(organizationToObject(updated, config));
+    res.set('ETag', userEtag(updated)).json(organizationToObject(updated, config));
   });
 
   // Deleting the namespace takes its extensions, its images and its hooks with
@@ -273,10 +279,10 @@ export function makeOrgsRouter({
     try {
       await Promise.all([
         ...owned
-          .map((row) => (row.BlobDigest ? removeBlobIfUnused(db, config, row.BlobDigest) : null))
+          .map((row) => (row.BlobDigest ? blobs.removeIfUnused(db, row.BlobDigest) : null))
           .filter(Boolean),
         ...legacyPaths.map((rel) => rm(path.join(config.dataDir, rel), { force: true })),
-        ...profileDigests.map((digest) => removeProfileImageBlob(db, config, digest)),
+        ...profileDigests.map((digest) => removeProfileImageBlob(db, blobs, digest)),
       ]);
     } catch (error) {
       console.error(`blob cleanup deferred for ${org.Namespace}: ${error.message}`);
@@ -440,7 +446,10 @@ export function makeOrgsRouter({
         events: created.events,
       },
     );
-    res.status(201).json(created);
+    res
+      .location(`${orgPath(org.Namespace)}/webhooks/${created.id}`)
+      .status(201)
+      .json(created);
   });
 
   router.delete('/:namespace/webhooks/:webhookId', ...manageChain, async (req, res) => {
@@ -482,6 +491,7 @@ export function makeOrgsRouter({
   router.use(
     makeProfileImageRouter({
       db,
+      blobs,
       config,
       load: (namespace) => loadOrg(namespace),
       mayWrite: (row, req) => req.auth.user.Id !== undefined && isOrgOwner(req.auth.user, row),

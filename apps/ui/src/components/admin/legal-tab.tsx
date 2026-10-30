@@ -2,7 +2,8 @@ import { ScaleIcon } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { TwextHubError, type LegalDocument } from "@twextjs/twexthubkit"
+import type { LegalDocument } from "@/lib/api"
+import { ApiError } from "@/lib/api/errors"
 
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
 import {
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 type LegalKind = "terms" | "privacy"
 
@@ -34,7 +35,7 @@ async function loadDocument(
       ? await th.instance.terms({ signal })
       : await th.instance.privacy({ signal })
   } catch (error) {
-    if (error instanceof TwextHubError && error.status === 404) {
+    if (error instanceof ApiError && error.status === 404) {
       return null
     }
     throw error

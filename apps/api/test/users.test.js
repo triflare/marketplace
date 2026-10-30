@@ -67,6 +67,7 @@ test('owner can update their own displayName', async () => {
   const { user, token } = await signupAndAccept(app, uniqNs());
   const r = await request(app)
     .patch(apiPath(`/users/${user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ displayName: 'Fresh Handle' })
     .expect(200);
@@ -85,6 +86,7 @@ test('changing password revokes existing sessions and tokens', async () => {
 
   await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ password: 'newpassword9', currentPassword: FIXTURE_PASSWORD })
     .expect(200);
@@ -111,6 +113,7 @@ test('password rotation bypasses terms re-acceptance', async () => {
 
   const r = await request(app)
     .patch(apiPath(`/users/${user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ password: 'newpassword9', currentPassword: FIXTURE_PASSWORD });
   assert.equal(r.status, 200);
@@ -176,6 +179,7 @@ test('non-owner cannot update another user', async () => {
 
   const r = await request(app)
     .patch(apiPath(`/users/${admin.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ displayName: 'Nope' });
   assert.equal(r.status, 403);
@@ -187,12 +191,14 @@ test('only admin can change a role', async () => {
 
   const denied = await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ role: 'admin' });
   assert.equal(denied.status, 403);
 
   const granted = await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ role: 'admin' })
     .expect(200);
@@ -213,6 +219,7 @@ test('manage:account alone does not reach another account, admin scope does', as
   // Its own account is the point of the scope, and it keeps working.
   await request(app)
     .patch(apiPath(`/users/${admin.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(selfOnly))
     .send({ bio: 'set by a token' })
     .expect(200);
@@ -220,6 +227,7 @@ test('manage:account alone does not reach another account, admin scope does', as
   // Another account is an administrative act, which the scope alone does not cover.
   const crossAccount = await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(selfOnly))
     .send({ displayName: 'Nope' });
   assert.equal(crossAccount.status, 403);
@@ -227,6 +235,7 @@ test('manage:account alone does not reach another account, admin scope does', as
   // A role change is the sharpest edge of that, so it is checked on its own.
   const promote = await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(selfOnly))
     .send({ role: 'admin' });
   assert.equal(promote.status, 403);
@@ -246,11 +255,13 @@ test('manage:account alone does not reach another account, admin scope does', as
 
   await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(ops))
     .send({ displayName: 'Renamed' })
     .expect(200);
   const promoted = await request(app)
     .patch(apiPath(`/users/${other.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(ops))
     .send({ role: 'admin' })
     .expect(200);
@@ -299,7 +310,7 @@ test('an unreviewed version needs the admin scope, not just the role', async () 
 // Account-level webhooks: the namespace-wide collection an organization gets
 // at /orgs/:ns/webhooks, keyed on a personal namespace, so one URL hears every
 // extension an author publishes instead of a hook per extension id.
-const PUBLIC_URL = 'https://example.com/twext-hook';
+const PUBLIC_URL = 'https://example.com/triflare-hook';
 
 test('an account hook hears every extension under the namespace', async () => {
   const admin = await signupAndAccept(app, uniqNs());

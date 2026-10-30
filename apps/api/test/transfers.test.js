@@ -448,10 +448,11 @@ describe('what the move carries', () => {
     await request(app)
       .post(apiPath(`/@${ns}/hello/webhooks`))
       .set(bearer(owner.token))
-      .send({ url: 'https://example.com/twext-hook', events: ['version.published'] })
+      .send({ url: 'https://example.com/triflare-hook', events: ['version.published'] })
       .expect(201);
     await request(app)
       .get(apiPath(`/@${ns}/hello/versions/latest/download`))
+      .redirects(1)
       .expect(200);
     // Seeded rather than waited for: in production the rollup is filled by a
     // scheduled job, and the raw event above is what a download actually wrote.
@@ -558,6 +559,7 @@ describe('what the move carries', () => {
 
     await request(app)
       .patch(apiPath(`/users/${other.user.namespace}`))
+      .set('If-Match', '*')
       .set(bearer(other.token))
       .send({ displayName: 'Receiver Name' })
       .expect(200);
@@ -642,7 +644,7 @@ describe('what the move carries', () => {
     await request(app)
       .post(apiPath(`/@${ns}/hello/webhooks`))
       .set(bearer(owner.token))
-      .send({ url: 'https://example.com/twext-hook', events: ['extension.transferred'] })
+      .send({ url: 'https://example.com/triflare-hook', events: ['extension.transferred'] })
       .expect(201);
 
     await offer(ns, 'hello', other.user.namespace, owner.token).expect(201);

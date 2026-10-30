@@ -14,7 +14,7 @@ import { createAuthenticator } from './fake-authenticator.mjs';
 
 // Every test builds its URL from the API root the product actually ships with
 // (product.yml -> defaults.apiRoot) instead of restating a literal, so moving
-// the API to /v2 is a one-line change in product.yml instead of a sweep over
+// the API to /v1 is a one-line change in product.yml instead of a sweep over
 // the suite.
 const configuredRoot = normalizeApiRoot(DEFAULTS.apiRoot);
 const apiRootPrefix = configuredRoot ? `/${configuredRoot}` : '';
@@ -28,8 +28,8 @@ export function apiPath(suffix = '') {
 }
 
 export const TEST_DATABASE_URL =
-  process.env.TWEXTHUB_TEST_DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/twexthub_test';
+  process.env.TRIFLARE_TEST_DATABASE_URL ??
+  'postgres://postgres:postgres@localhost:5432/triflare_test';
 
 // `scripts/test-run.mjs` sets this when it runs the files concurrently: each
 // file then builds its app against a clone of the migrated database instead of
@@ -37,7 +37,7 @@ export const TEST_DATABASE_URL =
 // truncate each other's rows. A file run straight from the shell (`node --test
 // test/foo.test.js`) leaves the flag unset and shares the one database, which
 // is what the runner expects without the orchestrator.
-const ISOLATED = process.env.TWEXTHUB_TEST_ISOLATED === '1';
+const ISOLATED = process.env.TRIFLARE_TEST_ISOLATED === '1';
 
 // A clone is named `<base>_w<runId>_<pid>`: the run that made it, then the
 // process. The pid keeps two files in the same run apart; the run id — this
@@ -46,7 +46,7 @@ const ISOLATED = process.env.TWEXTHUB_TEST_ISOLATED === '1';
 // a crashed run left behind, so sweeping one run's residue cannot drop the
 // other's working databases. A pid alone would not: it is unique only among the
 // processes alive at once, so two runs on one machine are indistinguishable.
-const RUN_ID = process.env.TWEXTHUB_TEST_RUN_ID ?? String(Date.now());
+const RUN_ID = process.env.TRIFLARE_TEST_RUN_ID ?? String(Date.now());
 const PROCESS_DATABASE_URL = (() => {
   if (!ISOLATED) return TEST_DATABASE_URL;
   const url = new URL(TEST_DATABASE_URL);
@@ -97,7 +97,7 @@ function mergeOverrides(base, overrides) {
 }
 
 export function makeConfig(overrides = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twexthub-test-'));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-test-'));
   // Built over the production DEFAULTS rather than restated key by key, so the
   // suite exercises what an instance actually ships with and a key the server
   // gains cannot be missing here. The keys a test config must pin for its own
@@ -151,14 +151,14 @@ function describeBootFailure(error, url) {
       parsed.password = '';
       return parsed.toString();
     } catch {
-      return 'the URL in TWEXTHUB_TEST_DATABASE_URL';
+      return 'the URL in TRIFLARE_TEST_DATABASE_URL';
     }
   })();
   const database = (() => {
     try {
       return new URL(url).pathname.slice(1);
     } catch {
-      return 'twexthub_test';
+      return 'triflare_test';
     }
   })();
 
@@ -182,7 +182,7 @@ function describeBootFailure(error, url) {
       `the test database at ${shown} is not reachable (${detail}).\n\n` +
       '`npm test` needs the Postgres container CI runs — `npm run test:setup`\n' +
       'starts it. If your database lives elsewhere, point\n' +
-      'TWEXTHUB_TEST_DATABASE_URL at it.'
+      'TRIFLARE_TEST_DATABASE_URL at it.'
     );
   }
   return null;
@@ -321,7 +321,7 @@ export async function resetDb() {
       await db.$executeRawUnsafe(`
         TRUNCATE TABLE "AutomationTokens", "Sessions", "Versions", "RateLimitEntries", "Notifications",
         "Users", "LegalDocuments", "DownloadEvents", "ExtensionDailyDownloads", "ExtensionVersionDailyDownloads", "DistTags",
-        "WebhookDeliveries", "Webhooks", "UserIdentities", "OidcFlows",
+        "WebhookDeliveries", "Webhooks", "AuthIdentities", "AuthChallenges", "MailOutbox", "OidcFlows",
         "Passkeys", "MfaBackupCodes", "MfaChallenges", "DeviceCodes"
         RESTART IDENTITY CASCADE
       `);
@@ -372,9 +372,16 @@ export async function signup(app, namespace, password = FIXTURE_PASSWORD, displa
 
 export async function acceptTerms(app, namespace, token) {
   const terms = await request(app).get(apiPath('/terms')).expect(200);
+  // The write is conditional: the ETag names the profile the acceptance is
+  // being added to, the same way a client would have read it first.
+  const current = await request(app)
+    .get(apiPath(`/users/${namespace}`))
+    .set(bearer(token))
+    .expect(200);
   const accepted = await request(app)
     .patch(apiPath(`/users/${namespace}`))
     .set(bearer(token))
+    .set('If-Match', current.headers.etag)
     .send({ termsAcceptedVersion: String(terms.body.version) });
   assert.equal(accepted.status, 200, `terms accept failed: ${JSON.stringify(accepted.body)}`);
   return accepted.body;
@@ -413,9 +420,14 @@ export async function registerPasskey(app, token, label = 'Test passkey') {
 }
 
 export async function approveVersion(app, adminToken, ns, id, version) {
+  const current = await request(app)
+    .get(apiPath(`/@${ns}/${id}/versions/${version}`))
+    .set(bearer(adminToken))
+    .expect(200);
   const r = await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/${version}`))
     .set(bearer(adminToken))
+    .set('If-Match', current.headers.etag)
     .send({ status: 'approved' });
   assert.equal(r.status, 200, `approve failed: ${JSON.stringify(r.body)}`);
   return r;
@@ -427,8 +439,8 @@ function scalar(value) {
   return JSON.stringify(s);
 }
 
-// Builds a minimal but valid twext project and returns its gzipped tarball.
-// opts maps to twext.yml fields: id, name, version, description, author,
+// Builds a minimal but valid extension project and returns its gzipped tarball.
+// opts maps to extend.yml fields: id, name, version, description, author,
 // license, color1/color2/color3, isUnsandboxed, blockType, blockText,
 // entryPoint. isUnsandboxed is omitted unless the caller passes it, so tests
 // can tell "undeclared" from an explicit false. The `code` option is embedded
@@ -443,7 +455,7 @@ export async function projectTarball(opts = {}) {
   const blockText = opts.blockText ?? 'hello';
   const entryPoint = opts.entryPoint ?? 'src/index.js';
   const code = opts.code ?? '// default';
-  // The opcode declared in twext.yml. When it differs from the exported
+  // The opcode declared in extend.yml. When it differs from the exported
   // handler name ("hello"), the compiler fails: no handler for the opcode.
   const opcode = opts.opcode ?? 'hello';
 
@@ -488,16 +500,16 @@ export async function projectTarball(opts = {}) {
     `  },\n` +
     `};\n`;
 
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'twexthub-proj-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'triflare-proj-'));
   try {
-    await writeFile(path.join(dir, 'twext.yml'), yml);
+    await writeFile(path.join(dir, 'extend.yml'), yml);
     await writeFile(
       path.join(dir, 'package.json'),
       JSON.stringify({ name: id, version, type: 'module', private: true }),
     );
     await mkdir(path.join(dir, path.dirname(entryPoint)), { recursive: true });
     await writeFile(path.join(dir, entryPoint), entry);
-    return await createTarballBuffer(dir, ['twext.yml', 'package.json', entryPoint]);
+    return await createTarballBuffer(dir, ['extend.yml', 'package.json', entryPoint]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

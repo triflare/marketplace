@@ -1,4 +1,4 @@
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { notFound } from '../errors.js';
 
 // The delivery log and its redelivery are the same two operations for an
@@ -17,7 +17,7 @@ export function makeWebhookDeliveryRoutes({ webhooks, config }) {
       const webhookId = Number(req.params.webhookId);
       if (!Number.isInteger(webhookId)) throw notFound('No such webhook.');
       const limit = parseLimit(config, req.query.limit);
-      const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+      const cursor = decodeCursor(pageToken(req), { i: 'int' });
       const back = parseDir(req.query.dir);
       const rows = await webhooks.listDeliveries(namespace, extensionId, webhookId, {
         limit,

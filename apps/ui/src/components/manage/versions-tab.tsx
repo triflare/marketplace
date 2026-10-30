@@ -7,7 +7,7 @@ import {
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { ExtensionDetail, VersionInfo } from "@twextjs/twexthubkit"
+import type { ExtensionDetail, VersionInfo } from "@/lib/api"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate, formatNumber } from "@/lib/format"
 import { manageKeys } from "@/lib/preload"
-import { errorMessage, saveBlob, th } from "@/lib/twexthub"
+import { errorMessage, saveBlob, th } from "@/lib/registry"
 
 export function VersionsTab({ extension }: { extension: ExtensionDetail }) {
   const [deprecateTarget, setDeprecateTarget] = useState<VersionInfo | null>(

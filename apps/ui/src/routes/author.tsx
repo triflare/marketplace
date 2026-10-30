@@ -14,12 +14,12 @@ export async function loader({
     return { preload: {} }
   }
 
-  const kit = serverApi()
+  const api = serverApi()
 
   try {
     const [account, extensions] = await Promise.all([
-      kit.users.get(namespace),
-      kit.extensions.list({
+      api.users.get(namespace),
+      api.extensions.list({
         namespace,
         limit: 20,
         sort: "recent",
@@ -29,8 +29,8 @@ export async function loader({
     const profile =
       account.kind === "organization"
         ? await Promise.all([
-            kit.orgs.get(namespace),
-            kit.orgs.listOwners(namespace),
+            api.orgs.get(namespace),
+            api.orgs.listOwners(namespace),
           ]).then(([organization, owners]) => ({
             account,
             organization,

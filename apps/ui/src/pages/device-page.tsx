@@ -18,9 +18,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
-import { product } from "@/lib/product"
+import { extend, product } from "@/lib/product"
 import { formatRelative } from "@/lib/format"
-import { deviceAuth, errorMessage } from "@/lib/twexthub"
+import { deviceAuth, errorMessage, th } from "@/lib/registry"
 
 const CODE_LENGTH = 8
 
@@ -56,7 +56,7 @@ export function DevicePage() {
 
   usePageMeta(
     "Device activation",
-    "Approve a Twext CLI sign-in from your browser."
+    `Approve a ${extend.name} CLI sign-in from your browser.`
   )
 
   const lookup = useAsync(
@@ -68,6 +68,15 @@ export function DevicePage() {
     },
     [user?.namespace, activeCode]
   )
+
+  // The device code driver can be left out of the method set, and then the
+  // server refuses every endpoint this page would call. Read that first and
+  // say so rather than offering a code nobody can approve.
+  const descriptor = useAsync((signal) => th.auth.describe({ signal }), [])
+  // The answer decides whether this page has anything to offer at all, so the
+  // code form waits for it rather than appearing and then being taken away.
+  const checkingDevice = descriptor.status === "loading" && !descriptor.data
+  const deviceOff = descriptor.data ? !descriptor.data.device : false
 
   const next = `/device?user_code=${encodeURIComponent(
     activeCode ? formatCode(activeCode) : code
@@ -145,12 +154,36 @@ export function DevicePage() {
           Device activation
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Approve a sign-in from the Twext CLI. The code is shown in your
-          terminal.
+          Approve a sign-in from the {extend.name} CLI. The code is shown in
+          your terminal.
         </p>
       </div>
 
-      {done ? (
+      {checkingDevice ? (
+        <div
+          className="flex flex-col gap-2 rounded-lg border p-5"
+          aria-busy="true"
+        >
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
+      ) : deviceOff ? (
+        <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <div className="flex items-start gap-3">
+            <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+            <div>
+              <h2 className="font-medium">Device sign-in is turned off</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                This registry doesn’t accept codes from the {extend.name} CLI.
+                An administrator can turn the device code driver back on in the
+                admin panel.
+              </p>
+            </div>
+          </div>
+          <ButtonLink to="/">Back to {product.name}</ButtonLink>
+        </section>
+      ) : done ? (
         <DeviceResult kind={done} onReset={reset} />
       ) : loading ? (
         <div className="flex flex-col gap-2 rounded-lg border p-5">

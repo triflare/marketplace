@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router"
 
-import type { MfaRequired } from "@twextjs/twexthubkit"
+import type { MfaRequired } from "@/lib/api"
 
 import { MfaForm } from "@/components/auth/mfa-form"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { product } from "@/lib/product"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function OidcCallbackPage() {
   const [params] = useSearchParams()

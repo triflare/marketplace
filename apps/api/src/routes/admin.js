@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { Prisma } from '../../prisma/generated/client/index.js';
 import { requireAdmin } from '../auth.js';
-import { renderRegistryMetrics } from '../observability.js';
 import { fieldErrors, notFound } from '../errors.js';
 import { legalDocumentToObject, reportToObject } from '../serialize.js';
 import { notifyUsersMatching, termsBumpedMessage } from '../notify.js';
@@ -12,7 +11,7 @@ import {
   editableSettings,
   EDITABLE_SETTINGS,
 } from '../server-config.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import {
   MAX_REPORT_RESOLUTION_NOTE,
   REPORT_DECISIONS,
@@ -25,13 +24,13 @@ import {
 const BROADCAST_MAX_LENGTH = 280;
 import { requireObjectBody } from './shared.js';
 
-export function makeAdminRouter({ db, config, termsGate, storageProbe = {} }) {
+export function makeAdminRouter({ db, config, termsGate, storageProbe = {}, drivers }) {
   const router = Router();
 
   router.get('/admin/metrics', requireAdmin, async (req, res) => {
     res
       .type('text/plain; version=0.0.4; charset=utf-8')
-      .send(await renderRegistryMetrics(db, req.app.locals.telemetry));
+      .send(await drivers.get('metrics').render(db, req.app.locals.telemetry));
   });
 
   // The instance's own configuration, as far as an admin is allowed to change
@@ -166,7 +165,7 @@ export function makeAdminRouter({ db, config, termsGate, storageProbe = {} }) {
     const updated = await db.$transaction(async (tx) => {
       const row = await tx.Users.update({
         where: { Id: user.Id },
-        data: { MaxBlobBytes: maxBlobBytes },
+        data: { MaxBlobBytes: maxBlobBytes, UpdatedAt: new Date() },
         select: { Id: true, Namespace: true, BlobBytes: true, MaxBlobBytes: true },
       });
       // The audit detail is a JSON column, so the previous quota is folded to a
@@ -210,7 +209,7 @@ export function makeAdminRouter({ db, config, termsGate, storageProbe = {} }) {
   // decision somebody makes by hand.
   router.get('/admin/reports', requireAdmin, async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
     const where = {};
     const { status, targetType } = req.query;
@@ -313,7 +312,7 @@ export function makeAdminRouter({ db, config, termsGate, storageProbe = {} }) {
 
   router.get('/admin/audit', requireAdmin, async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
     const rows = await db.AuditLog.findMany({
       where: cursor ? (back ? { Id: { gt: cursor.i } } : { Id: { lt: cursor.i } }) : {},

@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { uniqueViolation } from '../db.js';
+import { idempotent } from '../idempotency.js';
 import { conflict, fieldErrors, notFound } from '../errors.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { reportToOwnerObject } from '../serialize.js';
-import { isValidExtensionId, isValidNamespace } from '../util.js';
+import { isValidExtensionId, isValidNamespace, normalizeApiRoot } from '../util.js';
 import {
   MAX_REPORT_DESCRIPTION,
   REPORT_REASONS,
@@ -22,8 +23,10 @@ import { requireObjectBody } from './shared.js';
 // endpoints, which are the only ones that hand it out.
 export function makeReportsRouter({ db, config, rateLimiter, termsGate }) {
   const router = Router();
+  const root = normalizeApiRoot(config.apiRoot);
+  const mount = (path) => `${root ? `/${root}` : ''}${path}`;
 
-  router.post('/', requireAuth, termsGate, async (req, res) => {
+  router.post('/', requireAuth, termsGate, idempotent(db), async (req, res) => {
     requireObjectBody(req);
     const body = req.body;
 
@@ -76,7 +79,7 @@ export function makeReportsRouter({ db, config, rateLimiter, termsGate }) {
     // One window per reporter. The complaint is about somebody else's account,
     // so the rate that matters is the one at which a single account can fill
     // the moderators' queue, not the one at which the queue is read.
-    await rateLimiter.reportCheck(`report:${req.auth.user.Namespace}`)();
+    await rateLimiter.reportCheck(`report:${req.auth.user.Namespace}`)(res);
 
     // The report has to be about something that is there: a report about an
     // account that never existed, or an extension that was never published,
@@ -114,12 +117,15 @@ export function makeReportsRouter({ db, config, rateLimiter, termsGate }) {
       throw error;
     }
 
-    res.status(201).json(reportToOwnerObject(created));
+    res
+      .location(mount(`/reports/${created.Id}`))
+      .status(201)
+      .json(reportToOwnerObject(created));
   });
 
   router.get('/', requireAuth, async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
     const rows = await db.Reports.findMany({
       where: {

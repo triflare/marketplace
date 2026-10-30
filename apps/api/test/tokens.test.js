@@ -78,6 +78,7 @@ test('automation token can publish with publish scope', async () => {
   const version = queue.body.data[0].version;
   await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(ab.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -113,6 +114,7 @@ test('a token reaches only the endpoints its scopes cover', async () => {
 
   const account = await request(app)
     .patch(apiPath(`/users/${user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(auto))
     .send({ bio: 'set by a token' })
     .expect(403);
@@ -228,6 +230,7 @@ test('an admin token with the admin scope reviews versions', async () => {
 
   await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(reviewer))
     .send({ status: 'approved' })
     .expect(200);
@@ -241,6 +244,7 @@ test('an admin token with the admin scope reviews versions', async () => {
     .expect(201);
   const denied = await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(unscoped.body.token))
     .send({ status: 'approved' })
     .expect(403);
@@ -262,6 +266,7 @@ test('yank scope: yank own version once approved', async () => {
     .expect(200);
   await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/${queue.body.data[0].version}`))
+    .set('If-Match', '*')
     .set(bearer(ab.token))
     .send({ status: 'approved' })
     .expect(200);

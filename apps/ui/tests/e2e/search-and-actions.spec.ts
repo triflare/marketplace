@@ -161,9 +161,9 @@ test("a new automation token explains the next steps", async ({ page }) => {
   await expect(
     dialog.getByRole("heading", { name: "Copy the token now" })
   ).toBeVisible()
-  await expect(dialog.getByText("twexthub_test_secret_value")).toBeVisible()
+  await expect(dialog.getByText("triflare_test_secret_value")).toBeVisible()
   await expect(dialog.getByText("Next steps")).toBeVisible()
-  await expect(dialog.getByText("TWEXTHUB_TOKEN")).toBeVisible()
+  await expect(dialog.getByText("TRIFLARE_TOKEN")).toBeVisible()
 
   await dialog.getByRole("button", { name: "Done" }).click()
   await expect(dialog).toHaveCount(0)

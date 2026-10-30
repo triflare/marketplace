@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { ExtensionDetail } from "@twextjs/twexthubkit"
+import type { ExtensionDetail } from "@/lib/api"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
@@ -15,7 +15,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { manageKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function OwnersTab({ extension }: { extension: ExtensionDetail }) {
   const { user } = useAuth()

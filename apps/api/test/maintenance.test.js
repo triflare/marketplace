@@ -14,13 +14,14 @@ import {
 } from './helpers.mjs';
 import { gcBlobs, makeMaintenanceJob, scrubBlobs, getIntegrityErrors } from '../src/maintenance.js';
 import { createDb, reconcileOnBoot } from '../src/db.js';
-import { blobPathFor, removeBlobIfUnused, sha256Hex } from '../src/blobs.js';
+import { blobPathFor, sha256Hex } from '../src/blobs.js';
 
 let app;
 let db;
 let config;
+let blobs;
 before(async () => {
-  ({ app, db, config } = await boot());
+  ({ app, db, config, blobs } = await boot());
 });
 beforeEach(resetDb);
 after(async () => {
@@ -32,6 +33,7 @@ async function publishAndApprove(adminToken, owner, id, code = `// ${id}`) {
   await publishProject(app, ns, id, owner.token, { code });
   await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -66,7 +68,7 @@ test('gc removes blobs no version references and keeps live ones', async () => {
   fs.mkdirSync(path.dirname(freshAbs), { recursive: true });
   fs.writeFileSync(freshAbs, 'in flight bytes');
 
-  const removed = await gcBlobs(db, config.dataDir);
+  const removed = await gcBlobs(db, blobs, config);
   assert.equal(removed, 1);
   assert.ok(fs.existsSync(liveAbs), 'referenced blob survives');
   assert.ok(!fs.existsSync(orphanAbs), 'stale orphan is gone');
@@ -91,7 +93,7 @@ test('gc keeps an aged blob that a profile image names', async () => {
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
   fs.utimesSync(abs, old, old);
 
-  const removed = await gcBlobs(db, config.dataDir);
+  const removed = await gcBlobs(db, blobs, config);
   assert.equal(removed, 0);
   assert.ok(fs.existsSync(abs), 'a profile image still names these bytes');
   // Nothing names these bytes once the next test truncates the users table, so
@@ -109,12 +111,12 @@ test('removeBlobIfUnused reports whether it freed the file', async () => {
   fs.mkdirSync(path.dirname(orphanAbs), { recursive: true });
   fs.writeFileSync(orphanAbs, 'collectable bytes');
 
-  assert.equal(await removeBlobIfUnused(db, config, orphan, null), true);
+  assert.equal(await blobs.removeIfUnused(db, orphan, null), true);
   assert.ok(!fs.existsSync(orphanAbs), 'an unreferenced blob is freed');
 
   // Already gone: a second sweep, or a caller that lost the race. Not an error,
   // and not a removal worth reporting.
-  assert.equal(await removeBlobIfUnused(db, config, orphan, null), false);
+  assert.equal(await blobs.removeIfUnused(db, orphan, null), false);
 
   // The same answer for a file an account's avatar names. The helper only ever
   // looked at versions, so this digest was free to be deleted underneath the
@@ -126,7 +128,7 @@ test('removeBlobIfUnused reports whether it freed the file', async () => {
   fs.writeFileSync(heldAbs, 'bytes an avatar still points at');
   await db.$executeRaw`UPDATE "Users" SET "AvatarBlobDigest" = ${held} WHERE "Namespace" = ${ns}`;
 
-  assert.equal(await removeBlobIfUnused(db, config, held, null), false);
+  assert.equal(await blobs.removeIfUnused(db, held, null), false);
   assert.ok(fs.existsSync(heldAbs), 'a profile image names these bytes');
   fs.rmSync(heldAbs, { force: true });
 });
@@ -151,7 +153,7 @@ test('gc keeps a referenced blob however old the file is', async () => {
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
   fs.utimesSync(abs, old, old);
 
-  const removed = await gcBlobs(db, config.dataDir);
+  const removed = await gcBlobs(db, blobs, config);
   assert.equal(removed, 0);
   assert.ok(fs.existsSync(abs), 'a referenced blob is kept however old it is');
 });
@@ -168,19 +170,19 @@ test('scrub reports missing and corrupted blobs and updates the error gauge', as
   const abs = blobPathFor(config.dataDir, row.blob_digest);
 
   // Clean disk: no problems, gauge zeroed.
-  assert.deepEqual(await scrubBlobs(db, config.dataDir), []);
+  assert.deepEqual(await scrubBlobs(db, blobs), []);
   assert.equal(getIntegrityErrors(), 0);
 
   // Corrupt the stored blob in place.
   fs.writeFileSync(abs, 'totally different bytes');
-  const corrupt = await scrubBlobs(db, config.dataDir);
+  const corrupt = await scrubBlobs(db, blobs);
   assert.equal(corrupt.length, 1);
   assert.equal(corrupt[0].problem, 'mismatch');
   assert.equal(getIntegrityErrors(), 1);
 
   // Missing file reports as missing.
   fs.rmSync(abs);
-  const missing = await scrubBlobs(db, config.dataDir);
+  const missing = await scrubBlobs(db, blobs);
   assert.equal(missing.length, 1);
   assert.equal(missing[0].problem, 'missing');
   assert.equal(getIntegrityErrors(), 1);
@@ -188,6 +190,7 @@ test('scrub reports missing and corrupted blobs and updates the error gauge', as
   // The scrub only reports; the download endpoint and rows are untouched.
   const dl = await request(app)
     .get(apiPath(`/@${owner.user.namespace}/watched/versions/1.0.0/download`))
+    .redirects(1)
     .expect(404);
   assert.equal(dl.status, 404);
 });
@@ -196,7 +199,11 @@ test('scrub reports missing and corrupted blobs and updates the error gauge', as
 // digest is already known and the blob already sits where it belongs, because
 // the row commits before the file is written.
 async function insertStaging(namespace, publisherId, id, bytes, { keepBlob }) {
-  const content = `// ${id}`;
+  // The content is as long as the row says it is, so the size the row records
+  // and the bytes on disk agree (the blob route checks that, and a row that
+  // disagrees with its file is a 404 rather than an answered download).
+  const head = `// ${id}`;
+  const content = bytes > head.length ? head.padEnd(bytes, 'x') : head;
   const digest = sha256Hex(content);
   const rel = path.join('blobs', digest.slice(0, 2), digest.slice(2));
   const abs = path.join(config.dataDir, rel);
@@ -209,7 +216,7 @@ async function insertStaging(namespace, publisherId, id, bytes, { keepBlob }) {
       ("OwnerId", "Namespace", "ExtensionId", "Version", "Status", "Name", "License",
        "Description", "BlobPath", "BlobDigest", "BlobSize", "CreatedAt")
     VALUES (${publisherId}, ${namespace}, ${id}, '1.0.0', 'staging', ${id},
-            'MIT', '', ${rel}, ${digest}, ${bytes}, now() - interval '2 hours')
+            'MIT', '', ${rel}, ${digest}, ${content.length}, now() - interval '2 hours')
     RETURNING "Id" AS id, "Status" AS status
   `;
   return { ...row, rel, abs, content, digest };
@@ -235,6 +242,7 @@ test('boot reconciliation decides the status from the namespace account', async 
   // The promotion is only real if the row is serviceable afterwards.
   const download = await request(app)
     .get(apiPath(`/@${ns}/crashed/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   assert.equal(download.text, staging.content);
   fs.rmSync(staging.abs);
@@ -313,6 +321,7 @@ test('boot reconciliation preserves a legacy blob on rollback and re-keys it on 
   // The digest is only useful if the copy landed where the download looks.
   const download = await request(app)
     .get(apiPath(`/@${ns}/ancient/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   assert.equal(download.text, content);
 });
@@ -356,6 +365,7 @@ test('two instances reconciling the same legacy blob do not race each other', as
   assert.ok(!fs.existsSync(legacyAbs), 'the legacy file is removed exactly once');
   const download = await request(app)
     .get(apiPath(`/@${ns}/contested/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   assert.equal(download.text, content);
 });
@@ -396,7 +406,7 @@ test('the startup pass collects garbage but does not scrub', async () => {
   };
 
   try {
-    const job = makeMaintenanceJob({ db, config });
+    const job = makeMaintenanceJob({ db, config, blobs });
     job.start();
     await job.stop();
     assert.ok(!fs.existsSync(orphanAbs), 'the startup pass still collects garbage');

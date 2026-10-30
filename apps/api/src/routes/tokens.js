@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { hashToken, newToken, requireAuth, requireScope, SCOPES } from '../auth.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { fieldErrors, forbidden, notFound } from '../errors.js';
 import { automationTokenToObject } from '../serialize.js';
+import { idempotent } from '../idempotency.js';
+import { normalizeApiRoot } from '../util.js';
 import { requireObjectBody, resolveTargetUser } from './shared.js';
 
 export function makeTokensRouter({ db, config }) {
   const router = Router();
+  const root = normalizeApiRoot(config.apiRoot);
+  const mount = (path) => `${root ? `/${root}` : ''}${path}`;
 
   // Mints, edits and revocations are a permission in their own right rather
   // than a session privilege, so a token granted this can manage tokens within
@@ -36,7 +40,7 @@ export function makeTokensRouter({ db, config }) {
   router.get('/', manageTokens, async (req, res) => {
     const user = await resolveTargetUser(db, req);
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
 
     const rows = await db.AutomationTokens.findMany({
@@ -59,7 +63,7 @@ export function makeTokensRouter({ db, config }) {
     );
   });
 
-  router.post('/', manageTokens, async (req, res) => {
+  router.post('/', manageTokens, idempotent(db), async (req, res) => {
     requireObjectBody(req);
     const { name, scopes, expiresInDays } = req.body;
 
@@ -100,7 +104,10 @@ export function makeTokensRouter({ db, config }) {
       },
     });
 
-    res.status(201).json({ ...automationTokenToObject(row), token });
+    res
+      .location(mount(`/tokens/${row.Id}`))
+      .status(201)
+      .json({ ...automationTokenToObject(row), token });
   });
 
   router.patch('/:id', manageTokens, async (req, res) => {

@@ -1,18 +1,18 @@
 {
-  "name": "@twextjs/twexthub-api",
-  "version": "3.1.1",
+  "name": "@triflare/marketplace-api",
+  "version": "1.1.0",
   "private": true,
-  "description": "A lightweight registry of Twext-compiled extensions (\"Twexts\") for use in TurboWarp",
-  "homepage": "https://github.com/twextjs/twexthub#readme",
+  "description": "A registry of TurboWarp extensions built with Triflare Extend",
+  "homepage": "https://github.com/triflare/marketplace#readme",
   "bugs": {
-    "url": "https://github.com/twextjs/twexthub/issues"
+    "url": "https://github.com/triflare/marketplace/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/twextjs/twexthub.git"
+    "url": "git+https://github.com/triflare/marketplace.git"
   },
   "license": "Apache-2.0",
-  "author": "Twext Team",
+  "author": "Triflare",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -29,8 +29,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "doctoc": "doctoc --notitle .",
-    "check": "npm run lint && npm run format:check && npm run check:prisma && npm test",
+    "check": "npm run lint && npm run format:check && npm run check:prisma && npm run check:openapi && npm test",
     "check:prisma": "node scripts/check-prisma-usage.mjs",
+    "check:openapi": "node scripts/lint-openapi.mjs",
     "generate": "prisma generate",
     "postinstall": "prisma generate"
   },
@@ -38,7 +39,8 @@
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "@simplewebauthn/server": "^14.0.3",
-    "@twextjs/twext": "^2.2.0",
+    "@triflare/extend": "^0.2.0",
+    "compression": "^1.8.2",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "jose": "^6.2.12",

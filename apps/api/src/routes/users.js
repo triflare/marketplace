@@ -5,22 +5,22 @@ import { hashPassword, verifyPassword } from '../password.js';
 import { isAdmin, requireScope } from '../auth.js';
 import { uniqueViolation } from '../db.js';
 import { withLocks } from '../locks.js';
-import { removeBlobIfUnused } from '../blobs.js';
 import { removeProfileImageBlob } from '../profile-images.js';
 import { removeSourceIfUnused } from '../sources.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { conflict, fieldErrors, forbidden, notFound } from '../errors.js';
 import { profileFieldErrors, profilePatch } from '../profile.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
 import { sessionToObject, userToObject } from '../serialize.js';
 import { notifyUser, roleChangedMessage, tokensRevokedMessage } from '../notify.js';
+import { requireIfMatch, userEtag } from '../validators.js';
 import { createSession, requireObjectBody } from './shared.js';
 import { makeProfileImageRouter } from './profile-images.js';
 import { makeWebhooks, WebhookInputError } from '../webhooks.js';
 import { makeWebhookDeliveryRoutes } from './webhook-deliveries.js';
 import { audit } from '../audit.js';
 
-export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTarget }) {
+export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTarget, blobs }) {
   const root = normalizeApiRoot(config.apiRoot);
   // normalizeApiRoot strips the surrounding slashes, so the prefix is rebuilt
   // here: every path handed back to a client needs exactly one leading slash.
@@ -37,12 +37,15 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
   // with a session already: the response is the user, the session that was
   // opened for it, and the token to use for both.
   router.post('/', async (req, res) => {
-    // IdP-only mode: accounts are created by signing in at the provider, so a
-    // direct password registration is refused.
-    if (config.auth.oidc.required) {
+    // Password registration is refused when the method set leaves it out, so
+    // the provider -- or a passkey, or a link -- is the only way in.
+    if (!config.auth.passwordEnabled) {
       throw forbidden(
         'Registration is turned off. Sign in with the identity provider to get an account.',
       );
+    }
+    if (config.auth.policy.registration === 'closed') {
+      throw forbidden('Registration is closed on this instance.');
     }
     requireObjectBody(req);
     const { namespace, password, displayName } = req.body;
@@ -72,7 +75,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     const effectiveDisplayName =
       typeof displayName === 'string' && displayName.length > 0 ? displayName : namespace;
 
-    await rateLimiter.signupCheck(`signup:${req.ip}`);
+    await rateLimiter.signupCheck(`signup:${req.ip}`, res);
     const passwordHash = await hashPassword(password, scrypt);
 
     let user;
@@ -124,7 +127,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
 
   router.get('/', async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
 
     const rows = await db.Users.findMany({
@@ -148,7 +151,10 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     if (!isValidNamespace(req.params.namespace)) throw notFound();
     const user = await db.Users.findUnique({ where: { Namespace: req.params.namespace } });
     if (!user) throw notFound();
-    res.json(serializePublicUser(user, req));
+    // The revision, not the bytes: the same document serializes differently for
+    // its owner than for a passer-by, and both are editing it through the same
+    // If-Match.
+    res.set('ETag', userEtag(user)).json(serializePublicUser(user, req));
   });
 
   // Avatars and banners are the same three-state problem for an account and for
@@ -157,6 +163,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
   router.use(
     makeProfileImageRouter({
       db,
+      blobs,
       config,
       load: (namespace) => loadUserOr404(db, namespace),
       mayWrite: (row, req) => req.auth.user.Id === row.Id,
@@ -197,6 +204,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       throw forbidden('Only an admin can update another account.');
     }
     requireObjectBody(req);
+    requireIfMatch(req, userEtag(target));
 
     const {
       displayName,
@@ -263,7 +271,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       throw forbidden('Only an admin can change a role.');
     }
 
-    const patch = {};
+    const patch = { UpdatedAt: new Date() };
     const { patch: profileColumns } = profilePatch(req.body);
     Object.assign(patch, profileColumns);
     if (role !== undefined) patch.Role = role;
@@ -328,7 +336,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     });
     if (!updated) throw notFound();
 
-    res.json(userToObject(updated, config));
+    res.set('ETag', userEtag(updated)).json(userToObject(updated, config));
   });
 
   router.delete('/:namespace', manageAccount, async (req, res) => {
@@ -415,11 +423,11 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     try {
       await Promise.all([
         ...owned
-          .map((row) => (row.BlobDigest ? removeBlobIfUnused(db, config, row.BlobDigest) : null))
+          .map((row) => (row.BlobDigest ? blobs.removeIfUnused(db, row.BlobDigest) : null))
           .filter(Boolean),
         ...legacyPaths.map((rel) => rm(path.join(config.dataDir, rel), { force: true })),
         // The row is already gone, so no user can still point at these digests.
-        ...profileDigests.map((digest) => removeProfileImageBlob(db, config, digest)),
+        ...profileDigests.map((digest) => removeProfileImageBlob(db, blobs, digest)),
       ]);
     } catch (error) {
       console.error(`blob cleanup deferred for ${target.Namespace}: ${error.message}`);
@@ -470,7 +478,10 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
         events: created.events,
       },
     );
-    res.status(201).json(created);
+    res
+      .location(mount(`/users/${target.Namespace}/webhooks/${created.id}`))
+      .status(201)
+      .json(created);
   });
 
   router.delete('/:namespace/webhooks/:webhookId', accountWebhookChain, async (req, res) => {

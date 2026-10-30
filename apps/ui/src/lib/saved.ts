@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react"
 
-import type { ExtensionSummary } from "@twextjs/twexthubkit"
+import type { ExtensionSummary } from "@/lib/api"
 
-const STORAGE_KEY = "twexthub.saved"
+const STORAGE_KEY = "triflare.saved"
 
 export interface SavedExtension extends ExtensionSummary {
   savedAt: string

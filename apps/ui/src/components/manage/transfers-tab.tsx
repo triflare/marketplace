@@ -2,7 +2,7 @@ import { SendIcon, XIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { ExtensionDetail } from "@twextjs/twexthubkit"
+import type { ExtensionDetail } from "@/lib/api"
 
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
@@ -13,7 +13,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { manageKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function TransfersTab({ extension }: { extension: ExtensionDetail }) {
   const { user } = useAuth()

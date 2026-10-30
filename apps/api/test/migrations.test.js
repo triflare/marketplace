@@ -11,7 +11,7 @@ import pg from 'pg';
 import { createDb, runMigrations } from '../src/db.js';
 import { makeConfig, TEST_DATABASE_URL } from './helpers.mjs';
 
-const SCRATCH = 'twexthub_migrate_test';
+const SCRATCH = 'triflare_migrate_test';
 
 function urlFor(database) {
   const url = new URL(TEST_DATABASE_URL);
@@ -217,6 +217,8 @@ test('a complete legacy history is adopted in place', async () => {
         '3_mfa',
         '4_reports',
         '5_device_codes',
+        '6_drivers',
+        '7_idempotency_and_tombstones',
       ],
       'the baseline is recorded as applied, without its DDL running again',
     );
@@ -254,6 +256,8 @@ test('a history that stops before the download rollup is adopted and gets the ta
         '3_mfa',
         '4_reports',
         '5_device_codes',
+        '6_drivers',
+        '7_idempotency_and_tombstones',
       ],
       'the baseline is marked applied and the rollup is run after it',
     );
@@ -300,6 +304,8 @@ test('two bootstraps racing for one database serialize', async () => {
         '3_mfa',
         '4_reports',
         '5_device_codes',
+        '6_drivers',
+        '7_idempotency_and_tombstones',
       ],
       'the baseline is applied exactly once',
     );

@@ -2,9 +2,13 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { product } from './product.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_LOG_BYTES = 16384;
+
+// The build tool named in product.yml; a rename there moves the path too.
+const EXTEND_PACKAGE = product.extend?.package ?? '@triflare/extend';
 
 function validatedCompilerPath(command) {
   if (typeof command !== 'string') return null;
@@ -16,15 +20,16 @@ function validatedCompilerPath(command) {
   return resolved;
 }
 
-// The bundled compiler lives behind @twextjs/twext's package "exports" watch,
+// The bundled compiler lives behind Triflare Extend's package "exports" watch,
 // so it cannot be imported by specifier; spawn it by absolute path instead.
-// TWEXTHUB_COMPILER names a Node.js script to run in place of it, so the path is
-// resolved here: the child runs with the project as its cwd, and the read grant
-// below has to be absolute to reach a script outside that directory.
+// compiler.command (TRIFLARE_COMPILER) names a Node.js script to run in place of
+// it, so the path is resolved here: the child runs with the project as its cwd,
+// and the read grant below has to be absolute to reach a script outside that
+// directory.
 export function compilerCommand(config) {
   const command = config.compiler?.command;
   if (command == null) {
-    return path.join(HERE, '..', 'node_modules', '@twextjs', 'twext', 'src', 'cli.js');
+    return path.join(HERE, '..', 'node_modules', ...EXTEND_PACKAGE.split('/'), 'src', 'cli.js');
   }
   const custom = validatedCompilerPath(command);
   if (!custom) {
@@ -37,7 +42,7 @@ export function compilerCommand(config) {
 
 // Uploaded project code runs in this child, so it gets an allowlist rather than
 // the server's environment: the database URL and any other credential the host
-// passes in stay here. `twext build` needs nothing else to do its job.
+// passes in stay here. `extend build` needs nothing else to do its job.
 const ALLOWED_ENV = ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TZ'];
 
 export function compilerEnv(env = process.env) {
@@ -75,19 +80,21 @@ function capLog(text, dropped) {
   }
 }
 
-// Compile an extracted project in place. Runs `twext build` in a child process
+// Compile an extracted project in place. Runs `extend build` in a child process
 // with filesystem, address-space, and wall-time limits; returns the compiled bytes and
-// the build log. `outFile` is forced so a twext.yml with outputPath cannot move
+// the build log. `outFile` is forced so an extend.yml with outputPath cannot move
 // the build outside the sandbox directory.
 export function compileProject(
   config,
   projectDir,
-  { outFile = null, limitShell = '/bin/sh' } = {},
+  { outFile = null, limitShell = '/bin/sh', cli: resolvedCli = null } = {},
 ) {
   return new Promise((resolve) => {
     let cli;
     try {
-      cli = compilerCommand(config);
+      // The compiler driver names the script; the sandbox below is shared by
+      // every compiler, so a custom CLI gets the same limits as the bundled one.
+      cli = resolvedCli ?? compilerCommand(config);
     } catch (error) {
       resolve({ ok: false, error: error.message, log: '', durationMs: 0 });
       return;
@@ -161,7 +168,7 @@ exec ${command}`;
 
     const child = spawn(
       limitShell,
-      ['-c', script, 'twexthub-build', String(addressSpaceMb * 1024)],
+      ['-c', script, 'triflare-build', String(addressSpaceMb * 1024)],
       {
         cwd: projectDir,
         env,

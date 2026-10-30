@@ -1,4 +1,4 @@
-import type { VersionStatus } from "@twextjs/twexthubkit"
+import type { VersionStatus } from "@/lib/api"
 
 import { Badge } from "@/components/ui/badge"
 

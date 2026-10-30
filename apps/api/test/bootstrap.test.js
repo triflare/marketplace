@@ -28,6 +28,7 @@ test('a fresh registry can create its first legal documents, then gates writes',
   // No terms exist yet, so the terms gate is open.
   await request(app)
     .patch(apiPath(`/users/${admin.body.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ displayName: 'Admin' })
     .expect(200);
@@ -58,6 +59,7 @@ test('a fresh registry can create its first legal documents, then gates writes',
   assert.equal(others.body.user.role, 'normal');
   await request(app)
     .patch(apiPath(`/users/${others.body.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(others.body.token))
     .send({ displayName: 'Pledger' })
     .expect(403);
@@ -65,6 +67,7 @@ test('a fresh registry can create its first legal documents, then gates writes',
   await acceptTerms(app, others.body.user.namespace, others.body.token);
   await request(app)
     .patch(apiPath(`/users/${others.body.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(others.body.token))
     .send({ displayName: 'Pledger' })
     .expect(200);

@@ -1,6 +1,6 @@
 import { minify } from 'terser';
 
-// `twext build` emits one self-contained IIFE, so a standard pass over it is
+// `extend build` emits one self-contained IIFE, so a standard pass over it is
 // safe: Terser mangles bindings but not property names, which keeps block
 // opcodes, the "opcode"/"blockType" keys, and the handler method names it
 // dispatches to. Function and class names are kept too, since an extension can

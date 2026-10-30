@@ -1,6 +1,6 @@
 # 🪽 Quick Deploying Guide
 
-> **Important:** You should know at least a little bit of Docker, databases, and Node.js before you deploy an instance of the TwextHub API.
+> **Important:** You should know at least a little bit of Docker, databases, and Node.js before you deploy an instance of Triflare Marketplace.
 
 ## 📕 Table of Contents
 
@@ -19,7 +19,7 @@
 
 ## ⚠️ Prerequisites
 
-To deploy an instance of the TwextHub API, you will need:
+To deploy an instance of Triflare Marketplace, you will need:
 
 1. Node.js v24 or newer.
 2. A reachable PostgreSQL database (v16 recommended).
@@ -27,13 +27,13 @@ To deploy an instance of the TwextHub API, you will need:
 
    > You can either:
    >
-   > 1. Set it in your environment variables: `TWEXTHUB_DATABASE_URL`.
+   > 1. Set it in your environment variables: `TRIFLARE_DATABASE_URL`.
    > 2. Or, set it in `config.yaml`: `database.url`.
 
 4. A database role that may create tables, indexes, functions, and triggers. The schema is applied by the instance itself on first boot.
 5. The `pg_trgm` extension available to that role. The baseline migration runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before the trigram index that uses it, and on a managed PostgreSQL that extension is often restricted to a superuser or a role with `CREATE` on the database. Enable it once as an operator (`CREATE EXTENSION pg_trgm`) if booting with the extension already installed is easier than granting the privilege.
 
-The first user account to sign up is automatically promoted to an administrator. Don't expose the API to the public Internet without creating your first user account. Do so with either [the Twext CLI](https://github.com/twextjs/twext) or an instance of the TwextHub UI.
+The first user account to sign up is automatically promoted to an administrator. Don't expose the API to the public Internet without creating your first user account. Do so with either [the Triflare Extend CLI](https://github.com/triflare/extend) or an instance of the Triflare Marketplace UI.
 
 ## ⬆️ Upgrading from the SQL-migration releases
 
@@ -53,16 +53,16 @@ This is a one-way door. Taking a backup first is not optional — the baseline i
 Recovery, if a deployment is interrupted mid-adoption and leaves the baseline recorded without the rest of the history in place:
 
 ```bash
-DATABASE_URL="$TWEXTHUB_DATABASE_URL" npx prisma migrate resolve --rolled-back 0_baseline --config prisma.config.mjs
+DATABASE_URL="$TRIFLARE_DATABASE_URL" npx prisma migrate resolve --rolled-back 0_baseline --config prisma.config.mjs
 ```
 
-The `DATABASE_URL` prefix matters: `prisma.config.mjs` reads that variable and falls back to a local default when it is unset, so naming it here keeps the command pointed at the database you configured through `TWEXTHUB_DATABASE_URL` rather than one on the host.
+The `DATABASE_URL` prefix matters: `prisma.config.mjs` reads that variable and falls back to a local default when it is unset, so naming it here keeps the command pointed at the database you configured through `TRIFLARE_DATABASE_URL` rather than one on the host.
 
 That removes the baseline's row so the next boot records it again. `--applied` does the opposite, marking it applied without running it, which is what the bridge does for a complete legacy history and should not be needed by hand.
 
 ## ➕ Deploy with Docker Compose
 
-You can run a prebuilt image of the TwextHub API at `ghcr.io/twextjs/twexthub-api`. Although, that image only supports environment variables, **not** `config.yaml`.
+You can run a prebuilt image of Triflare Marketplace at `ghcr.io/triflare/marketplace-api`. Although, that image only supports environment variables, **not** `config.yaml`.
 
 1. Copy the compose file to a directory of your choice:
 
@@ -70,7 +70,7 @@ You can run a prebuilt image of the TwextHub API at `ghcr.io/twextjs/twexthub-ap
    cp compose.example.yml <YOUR_DIRECTORY>/compose.yaml
    ```
 
-2. Set `TWEXTHUB_DATABASE_URL` and `TWEXTHUB_PUBLIC_BASE_URL` in it. The image is configured through `TWEXTHUB_*` variables, and the compose file already carries both keys with values to replace.
+2. Set `TRIFLARE_DATABASE_URL` and `TRIFLARE_PUBLIC_BASE_URL` in it. The image is configured through `TRIFLARE_*` variables, and the compose file already carries both keys with values to replace.
 3. Deploy:
 
    ```bash
@@ -83,32 +83,34 @@ To configure the instance from a file instead, mount one and pass its path as th
 
 ## ⚙️ Configuration
 
-The [configuration reference](./configure.md) has every key you can set in the TwextHub API. These keys matter the most in a production deployment:
+The [configuration reference](./configure.md) has every key you can set in Triflare Marketplace. These keys matter the most in a production deployment:
 
-- `TWEXTHUB_PUBLIC_BASE_URL`: the public URL of the instance.
-- `TWEXTHUB_TRUST_PROXY`: set when the API is running behind a reverse proxy. [See Express' trust proxy values](https://expressjs.com/en/guide/behind-proxies/).
-- `TWEXTHUB_REQUIRE_HTTPS`: reject HTTP requests.
-- `TWEXTHUB_API_ROOT`: the URL prefix all routes are served under (default is the `defaults.apiRoot` in `product.yml`, currently `/v2`).
+- `TRIFLARE_PUBLIC_BASE_URL`: the public URL of the instance.
+- `TRIFLARE_TRUST_PROXY`: set when the API is running behind a reverse proxy. [See Express' trust proxy values](https://expressjs.com/en/guide/behind-proxies/).
+- `TRIFLARE_REQUIRE_HTTPS`: reject HTTP requests.
+- `TRIFLARE_API_ROOT`: the URL prefix all routes are served under (default is the `defaults.apiRoot` in `product.yml`, currently `/v1`).
 
 ## ℹ️ The Build Sandbox
 
-Since [Twext](https://github.com/twextjs/twext) sends an archive of your repository when you publish to the TwextHub API, your deployed instance must compile the code itself, so that code owners can check out their code later (and for future features).
+Since [Triflare Extend](https://github.com/triflare/extend) sends an archive of your repository when you publish, your deployed instance must compile the code itself, so that code owners can check out their code later (and for future features).
 
-When it does, it runs its own instance of Twext to compile the code. But, it does so in a sandboxed environment. That sandbox is:
+When it does, it runs its own copy of Triflare Extend to compile the code. But, it does so in a sandboxed environment. That sandbox is:
 
-- **Filesystem:** The sandbox restricts Twext to only allow it to read and write files to its own temporary directory.
-- **Memory:** By default, Twext is capped at 192 MB of memory. If memory can't be allocated, the build step will fail.
-- **Timeout:** If Twext more than 30 seconds (by default) to compile the extension, it is terminated.
-- **No Secrets:** Twext only shares a few environment variables with the host, but all others are not sent.
+- **Filesystem:** The sandbox restricts Triflare Extend to only allow it to read and write files to its own temporary directory.
+- **Memory:** By default, Triflare Extend is capped at 192 MB of memory. If memory can't be allocated, the build step will fail.
+- **Timeout:** If Triflare Extend takes more than 30 seconds (by default) to compile the extension, it is terminated.
+- **No Secrets:** Triflare Extend only shares a few environment variables with the host, but all others are not sent.
 
 But, one important thing worth noting is that the environment can't sandbox the network. You are in charge of your own network isolation.
 
-You can substitute the default Twext build tool with your own (called by `node <command> build -o <out>`), with the `TWEXTHUB_COMPILER` environment variable.
+You can substitute the default Triflare Extend build tool with your own (called by `node <command> build -o <out>`), with the `TRIFLARE_COMPILER` environment variable.
 
 ## 📊 Data Persistence
 
 Published extension source code is saved to disk, not a database. So, you must mount a persistent Docker volume at `/app/data` (or whatever data directory you have set) to keep the saved data. If you are running your deployed instance on multiple servers, you must find a way to share that persistent storage.
 
+The instance's own `config.yaml` lives there too when you do not pass one: an image configured only through environment variables has no file of its own, so the settings an admin saves from the interface are written to `config.yaml` in the data directory. That file is read on the next boot, so a setting that needs a restart takes effect on the next deploy.
+
 ## ⏭️ What's Next
 
-- [Configuration Reference](./configure.md): see every key you can set in the TwextHub API.
+- [Configuration Reference](./configure.md): see every key you can set in Triflare Marketplace.

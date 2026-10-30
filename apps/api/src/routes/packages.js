@@ -16,8 +16,19 @@ import {
   requireScope,
 } from '../auth.js';
 import { uniqueViolation } from '../db.js';
+import { idempotent } from '../idempotency.js';
+import { parseIncludes } from '../include.js';
+import { requireIfMatch, versionEtag } from '../validators.js';
 import { withLocks } from '../locks.js';
-import { conflict, forbidden, HttpError, fieldErrors, notFound, unauthorized } from '../errors.js';
+import {
+  conflict,
+  forbidden,
+  gone,
+  HttpError,
+  fieldErrors,
+  notFound,
+  unauthorized,
+} from '../errors.js';
 import {
   buildSearchText,
   compareSemver,
@@ -38,6 +49,7 @@ import {
   reviewRejectedMessage,
   withdrawnAsOwnerMessage,
 } from '../notify.js';
+import { extendConfigFilename } from '../product.js';
 import { requireObjectBody } from './shared.js';
 import {
   acceptTransfer,
@@ -50,21 +62,11 @@ import {
   redirectFor,
   withdrawTransfer,
 } from '../transfer.js';
-import {
-  BLOB_GC_LOCK_KEY,
-  blobPathFor,
-  removeBlobIfUnused,
-  removeBlobIfUnusedInTx,
-  sha256Hex,
-  sha512Base64,
-  storeBlob,
-  storeBlobBuffer,
-} from '../blobs.js';
+import { BLOB_GC_LOCK_KEY, sha256Hex, sha512Base64 } from '../blobs.js';
 import { sourcePathFor, removeSourceIfUnusedInTx, storeSource } from '../sources.js';
 import { manifestFromProject } from '../project-manifest.js';
 import { extractTarballBuffer } from '../tarball.js';
 import { compileProject } from '../compiler.js';
-import { scanSourceWarnings } from '../risky-patterns.js';
 import { minifyCode, MINIFY_INPUT_MAX_BYTES } from '../minify.js';
 import {
   totalDownloads,
@@ -75,7 +77,7 @@ import {
 import { makeWebhooks, WebhookInputError } from '../webhooks.js';
 import { makeWebhookDeliveryRoutes } from './webhook-deliveries.js';
 import { audit, auditSoon } from '../audit.js';
-import { decodeCursor, offsetPage, parseLimit } from '../pagination.js';
+import { decodeCursor, offsetPage, pageToken, parseLimit } from '../pagination.js';
 
 // Every state a version row can hold (the CHECK in 0001_init.sql plus 0007's
 // deprecated). A stranger only ever reads the public pair; the rest are what
@@ -89,7 +91,15 @@ const VERSION_STATUSES = new Set([
   'deprecated',
 ]);
 
-export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolveTarget }) {
+export function makePackagesRouter({
+  db,
+  config,
+  termsGate,
+  rateLimiter,
+  resolveTarget,
+  drivers,
+  blobs,
+}) {
   const router = Router();
   const root = normalizeApiRoot(config.apiRoot);
   // normalizeApiRoot strips the surrounding slashes, so the prefix is rebuilt
@@ -171,6 +181,13 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
         ? await loadLatestPublished(namespace, id)
         : await loadVersion(namespace, id, version);
     if (row) return row;
+    // The address outlived its versions: this extension was deleted, so the
+    // version was removed rather than never existing.
+    const tombstone = await db.ExtensionTombstones.findUnique({
+      where: { Namespace_ExtensionId: { Namespace: namespace, ExtensionId: id } },
+      select: { DeletedAt: true },
+    });
+    if (tombstone) throw gone('This extension was deleted, so that version is gone.');
     if (!/^[a-zA-Z0-9-]{1,30}$/.test(version)) throw notFound();
     const tagRow = await db.DistTags.findFirst({
       where: { Namespace: namespace, ExtensionId: id, Tag: version },
@@ -178,6 +195,25 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     });
     if (!tagRow) throw notFound();
     return await loadVersion(namespace, id, tagRow.Version);
+  }
+
+  // Metrics never get in the way of a download, so a failure here costs the
+  // event, not the bytes. Called before the response so a redirect still counts.
+  function recordDownload(row, req) {
+    const userAgent = String(req.headers['user-agent'] ?? '').slice(0, 250);
+    const ip = req.ip;
+    void (async () => {
+      const ipHash = await hashDownloadAddress(db, config, ip).catch(() => null);
+      await db.DownloadEvents.create({
+        data: {
+          Namespace: row.Namespace,
+          ExtensionId: row.ExtensionId,
+          Version: row.Version,
+          UserAgent: userAgent,
+          IpHash: ipHash,
+        },
+      });
+    })().catch(() => {});
   }
 
   // An address that has been transferred away answers with the address that
@@ -218,7 +254,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       }
     }
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { o: 'int' });
+    const cursor = decodeCursor(pageToken(req), { o: 'int' });
     // This list is sorted and filtered in memory, so the cursor is an offset
     // into the result rather than a key to compare against. Paging is still
     // link-driven: `offsetPage` points at the neighbouring offsets, and a
@@ -268,10 +304,11 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     }),
     termsGate,
     requireScope('publish'),
+    idempotent(db),
     async (req, res, next) => {
       try {
         // Counted per account, not per IP: CI runners often share egress IPs.
-        await rateLimiter.publishCheck(`publish:${req.auth.user.Namespace}`)();
+        await rateLimiter.publishCheck(`publish:${req.auth.user.Namespace}`)(res);
         next();
       } catch (error) {
         next(error);
@@ -293,8 +330,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       if (typeof upload !== 'object' || !Buffer.isBuffer(upload) || upload.length === 0) {
         throw new HttpError(415, {
           title: 'Unsupported Media Type',
-          detail:
-            'Publish a gzip tarball (application/gzip) containing twext.yml, src/, and a package.json with "type": "module".',
+          detail: `Publish a gzip tarball (application/gzip) containing ${extendConfigFilename()}, src/, and a package.json with "type": "module".`,
         });
       }
       const tarball = upload;
@@ -336,14 +372,20 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
             detail: error.message,
           });
         }
-        warnings = await scanSourceWarnings(projectDir, files);
+        // Resolved through the host on every publish, so a scanner swapped in
+        // from the admin surface applies to the next upload.
+        warnings = await drivers.get('scanner').scan(projectDir, files);
 
+        const projectFile = extendConfigFilename();
         let projectText;
         try {
-          projectText = await readFile(path.join(projectDir, 'twext.yml'), 'utf8');
+          projectText = await readFile(path.join(projectDir, projectFile), 'utf8');
         } catch {
           throw fieldErrors([
-            { field: 'twext.yml', message: 'The tarball must contain a twext.yml project file.' },
+            {
+              field: projectFile,
+              message: `The tarball must contain an ${projectFile} project file.`,
+            },
           ]);
         }
         let projectConfig;
@@ -351,14 +393,18 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
           projectConfig = YAML.parse(projectText) ?? {};
         } catch (error) {
           throw fieldErrors([
-            { field: 'twext.yml', message: `twext.yml is not valid YAML: ${error.message}` },
+            { field: projectFile, message: `${projectFile} is not valid YAML: ${error.message}` },
           ]);
         }
         const derived = manifestFromProject(projectConfig, id);
         if (derived.errors.length > 0) throw fieldErrors(derived.errors);
         manifest = derived.manifest;
 
-        const build = await compileProject(config, projectDir);
+        // Resolved per publish, so a compiler swapped in from the admin surface
+        // applies to the next upload.
+        const build = await compileProject(config, projectDir, {
+          cli: drivers.get('compiler')?.command(),
+        });
         buildLog = build.log;
         if (!build.ok) {
           throw new HttpError(422, {
@@ -410,7 +456,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
         await rm(jobDir, { recursive: true, force: true });
       }
 
-      const row = await publishVersion(db, config, owner, {
+      const row = await publishVersion(db, config, blobs, owner, {
         id,
         manifest,
         code: compiled,
@@ -426,13 +472,16 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
           actor: req.auth.user.Namespace,
         });
       }
-      res.status(201).json({
-        ...versionToObject(row, config),
-        ...(buildLog ? { buildLog } : {}),
-        ...(row.SourcePath
-          ? { sourceUrl: sourceUrl(config, row.Namespace, row.ExtensionId, row.Version) }
-          : {}),
-      });
+      res
+        .location(mount(`/@${row.Namespace}/${row.ExtensionId}/versions/${row.Version}`))
+        .status(201)
+        .json({
+          ...versionToObject(row, config),
+          ...(buildLog ? { buildLog } : {}),
+          ...(row.SourcePath
+            ? { sourceUrl: sourceUrl(config, row.Namespace, row.ExtensionId, row.Version) }
+            : {}),
+        });
     },
   );
 
@@ -454,7 +503,10 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     requireObjectBody(req);
     try {
       const created = await webhooks.create(namespace, id, req.body);
-      res.status(201).json(created);
+      res
+        .location(mount(`/@${namespace}/${id}/webhooks/${created.id}`))
+        .status(201)
+        .json(created);
     } catch (error) {
       if (error instanceof WebhookInputError) {
         throw fieldErrors(error.fields);
@@ -582,13 +634,15 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     if (!isVisible && !(await maySeeUnpublished(req, req.params.namespace, req.params.id))) {
       throw notFound();
     }
-    res.json(
-      versionToObject(
-        row,
-        config,
-        await versionDownloads(db, row.Namespace, row.ExtensionId, row.Version),
-      ),
-    );
+    res
+      .set('ETag', versionEtag(row))
+      .json(
+        versionToObject(
+          row,
+          config,
+          await versionDownloads(db, row.Namespace, row.ExtensionId, row.Version),
+        ),
+      );
   });
 
   // A deprecation and a moderation decision are both edits to the version's own
@@ -604,6 +658,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       where: { Namespace: namespace, ExtensionId: id, Version: version },
     });
     if (!row || (row.Status !== 'published' && row.Status !== 'deprecated')) throw notFound();
+    requireIfMatch(req, versionEtag(row));
     const canManage = await isExtensionOwner(req.auth.user, namespace, id);
     if (!canManage) {
       throw forbidden('Only an owner or an admin can deprecate this version.');
@@ -647,11 +702,13 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
   async function minifyPendingBlob(row) {
     if (config.compiler?.minify === false) return null;
     const abs = row.BlobDigest
-      ? blobPathFor(config.dataDir, row.BlobDigest)
+      ? blobs.pathFor(row.BlobDigest)
       : path.join(config.dataDir, row.BlobPath);
     let original;
     try {
-      original = await readFile(abs);
+      // A digest-addressed blob comes from the storage driver, which may not be
+      // this filesystem; a legacy BlobPath row is still a file here.
+      original = row.BlobDigest ? await blobs.read(row.BlobDigest) : await readFile(abs);
     } catch {
       return null;
     }
@@ -672,6 +729,9 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     const row = await db.Versions.findFirst({
       where: { Namespace: namespace, ExtensionId: id, Version: version, Status: 'pending' },
     });
+    // Two moderators deciding the same submission is exactly the lost update
+    // If-Match exists to stop: the second decision would overwrite the first.
+    if (row) requireIfMatch(req, versionEtag(row));
     if (!row) throw notFound('No pending version matches that address.');
     if (status !== 'approved' && status !== 'rejected') {
       throw fieldErrors([{ field: 'status', message: 'Must be "approved" or "rejected".' }]);
@@ -735,7 +795,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       if (shrunk) {
         // GC holds the exclusive lock; the promotion shares it until the new
         // digest commits, so a sweep cannot unlink the bytes being promoted.
-        stored = await storeBlobBuffer(config.dataDir, shrunk.code);
+        stored = await blobs.put(shrunk.code);
       }
       const rows = stored
         ? await tx.$queryRaw`
@@ -793,10 +853,10 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     }
     // The unminified digest is no longer referenced once this row points at the
     // minified one, so sweep the old file. A sibling version sharing the
-    // original bytes keeps it (see removeBlobIfUnused).
+    // original bytes keeps it (see the blob store's reference check).
     if (shrunk && row.BlobDigest) {
       try {
-        await removeBlobIfUnused(db, config, row.BlobDigest, null);
+        await blobs.removeIfUnused(db, row.BlobDigest, null);
       } catch {
         // The approval is committed. A leftover unminified blob is harmless.
       }
@@ -863,7 +923,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
 
   router.get('/@:namespace/:id/versions/:version/download', async (req, res, next) => {
     try {
-      await rateLimiter.downloadCheck(`download:${req.ip}`)();
+      await rateLimiter.downloadCheck(`download:${req.ip}`)(res);
     } catch (error) {
       return next(error);
     }
@@ -874,27 +934,29 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
     const isPublished =
       row.Status === 'published' || row.Status === 'yanked' || row.Status === 'deprecated';
     if (!isPublished && !(row.Status === 'pending' && isAdmin(req.auth))) throw notFound();
-    const abs = row.BlobDigest
-      ? blobPathFor(config.dataDir, row.BlobDigest)
-      : path.join(config.dataDir, row.BlobPath);
-    if (existsSync(abs)) {
-      res.type('application/javascript');
-      res.sendFile(abs);
-      // Metrics never get in the way of a download, so a failure here costs the
-      // event, not the blob.
-      const ipHash = await hashDownloadAddress(db, config, req.ip).catch(() => null);
-      void db.DownloadEvents.create({
-        data: {
-          Namespace: row.Namespace,
-          ExtensionId: row.ExtensionId,
-          Version: row.Version,
-          UserAgent: String(req.headers['user-agent'] ?? '').slice(0, 250),
-          IpHash: ipHash,
-        },
-      }).catch(() => {});
-    } else {
-      throw notFound('Compiled output is missing.');
+
+    // The bytes are served from their content address, which never changes, so
+    // the download URL stays the thing that is checked and counted while the
+    // blob URL is the thing a CDN can hold forever. A row from before digests
+    // were recorded -- or one whose digest-keyed object is not in the store --
+    // has nowhere to redirect to and is streamed here.
+    if (row.BlobDigest) {
+      const storedAt = blobs.pathFor(row.BlobDigest);
+      const stored = storedAt ? existsSync(storedAt) : Boolean(await blobs.stat(row.BlobDigest));
+      if (stored) {
+        recordDownload(row, req);
+        return res.redirect(302, mount(`/blobs/${row.BlobDigest}`));
+      }
     }
+
+    const abs = path.join(config.dataDir, row.BlobPath);
+    // A local backend streams the file; a remote one has to hand over the
+    // bytes it read, because there is no path to send. A legacy BlobPath row
+    // is still a file under the data directory either way.
+    if (!existsSync(abs)) throw notFound('Compiled output is missing.');
+    recordDownload(row, req);
+    res.type('application/javascript');
+    res.sendFile(abs);
   });
 
   router.get(
@@ -1363,6 +1425,24 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       versions.map((row) => versionToObject(row, config, totals.get(row.Version) ?? 0n)),
     );
     summary.downloads = await totalDownloads(db, namespace, id);
+
+    // The two relations an extension page would otherwise fetch with a second
+    // request. The owner is reduced to what a header shows: the public account
+    // view is the account's own business, not every reader's.
+    const includes = parseIncludes(req.query.include, ['owner', 'latestVersion']);
+    if (includes?.includes('owner')) {
+      const owner = await db.Users.findUnique({
+        where: { Namespace: namespace },
+        select: { Namespace: true, DisplayName: true, Kind: true },
+      });
+      summary.owner = owner
+        ? { namespace: owner.Namespace, displayName: owner.DisplayName, kind: owner.Kind }
+        : null;
+    }
+    if (includes?.includes('latestVersion')) {
+      summary.latestVersion = versionToObject(top, config, totals.get(top.Version) ?? 0n);
+    }
+
     res.json(summary);
   });
 
@@ -1401,6 +1481,14 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       // is the same thing the delete does to every other link in the schema:
       // nothing is taken away, and nothing is put in the way of the delete.
       await tx.Extensions.deleteMany({ where: { Namespace: namespace, ExtensionId: id } });
+      // The address is remembered so a request for a version that used to be
+      // here answers 410 instead of 404. Publishing the address again answers
+      // from the new rows, so the tombstone is only consulted on a miss.
+      await tx.ExtensionTombstones.upsert({
+        where: { Namespace_ExtensionId: { Namespace: namespace, ExtensionId: id } },
+        create: { Namespace: namespace, ExtensionId: id },
+        update: { DeletedAt: new Date() },
+      });
       // An invitation to manage an extension that no longer exists can never
       // be accepted, and the extension_owners rows survive on purpose, so
       // these have to be cleared here rather than left for a cascade.
@@ -1438,7 +1526,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
       await withLocks(db, [lockKey, BLOB_GC_LOCK_KEY], async (tx) => {
         for (const version of rows) {
           if (version.BlobDigest) {
-            await removeBlobIfUnusedInTx(tx, config, version.BlobDigest, null);
+            await blobs.removeIfUnusedInTx(tx, version.BlobDigest, null);
           } else if (version.BlobPath) {
             await rm(path.join(config.dataDir, version.BlobPath), { force: true });
           }
@@ -1472,6 +1560,7 @@ export function makePackagesRouter({ db, config, termsGate, rateLimiter, resolve
 async function publishVersion(
   db,
   config,
+  blobs,
   owner,
   { id, manifest, code, sourceBuffer, buildLog, warnings = [], stagedBy },
 ) {
@@ -1621,7 +1710,7 @@ async function publishVersion(
     });
     const row = await withLocks(db, [{ key: BLOB_GC_LOCK_KEY, shared: true }], async (tx) => {
       // GC holds the exclusive lock; publishers share it through promotion.
-      await storeBlob(config.dataDir, tmpPath, codeBuffer);
+      await blobs.putStaged(tmpPath, codeBuffer);
       const promoted = await tx.Versions.update({
         where: { Id: staged.Id },
         data: {
@@ -1658,7 +1747,7 @@ async function publishVersion(
     }
     throw error;
   } finally {
-    // The upload file is only needed until storeBlob copies it into place;
+    // The upload file is only needed until the blob store copies it into place;
     // drop it on success and failure alike so publishes leave no uncharged
     // compiled copy behind.
     await rm(tmpPath, { force: true });

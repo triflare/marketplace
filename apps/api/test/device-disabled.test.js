@@ -21,7 +21,7 @@ test('the flow is off when no approval page is configured', async () => {
 
   await request(app)
     .post(apiPath('/auth/device/code'))
-    .send({ clientName: 'Twext CLI' })
+    .send({ clientName: 'Triflare Extend CLI' })
     .expect(404);
 
   const account = await signupAndAccept(app, uniqNs());

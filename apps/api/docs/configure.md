@@ -1,6 +1,6 @@
 # ⚙️ Configuration Reference
 
-Every instance of the TwextHub API reads its settings from a YAML file, and most of them can also come from an environment variable that overrides the file. The default file is `config.yaml` in the working directory; the server takes a different path as its first argument (`node src/server.js path/to/config.yaml`), and `node src/migrate.js` takes one as a positional argument or after `--config`.
+Every instance of Triflare Marketplace reads its settings from a YAML file, and most of them can also come from an environment variable that overrides the file. The default file is `config.yaml` in the working directory, and when there is none, `config.yaml` in the data directory — the mounted volume in a container deployment, which is where a settings change has to live to survive a redeploy. The server takes a different path as its first argument (`node src/server.js path/to/config.yaml`), and `node src/migrate.js` takes one as a positional argument or after `--config`.
 
 Settings are applied in three layers:
 
@@ -8,7 +8,10 @@ Settings are applied in three layers:
 2. The configuration file, merged over the defaults.
 3. Environment variables, which override both.
 
-`database.url` is the only required setting. The server refuses to start without one, from either the file or `TWEXTHUB_DATABASE_URL`.
+The variables below are named with the `envPrefix` from `product.yml`
+(`TRIFLARE_` by default), so a rename there renames them all.
+
+`database.url` is the only required setting. The server refuses to start without one, from either the file or `TRIFLARE_DATABASE_URL`.
 
 Here is a configuration that uses every key:
 
@@ -20,7 +23,7 @@ requireHttps: false
 trustProxy: false
 
 database:
-  url: postgres://postgres:postgres@localhost:5432/twexthub
+  url: postgres://postgres:postgres@localhost:5432/triflare
   maxConnections: 10
   connectTimeoutSeconds: 30
   idleTimeoutSeconds: 60
@@ -90,6 +93,8 @@ cors:
   - [Signing in with an identity provider](#signing-in-with-an-identity-provider)
   - [Signing in with a passkey](#signing-in-with-a-passkey)
   - [Signing in from a CLI](#signing-in-from-a-cli)
+  - [Choosing sign-in methods](#choosing-sign-in-methods)
+- [🧩 Driver Kinds](#-driver-kinds)
 - [🚦 Rate Limits](#-rate-limits)
 - [📄 Pagination](#-pagination)
 - [📦 Size Limits](#-size-limits)
@@ -107,7 +112,7 @@ The configuration file is merged over the defaults one key at a time, so a file 
 Environment variables are read last and win over the file. They are typed by the default they override:
 
 - Booleans accept `true` or `1` and `false` or `0`. Anything else fails startup with an error naming the variable.
-- Numbers must be positive integers. A typo like `TWEXTHUB_PORT=3000x` fails startup instead of quietly becoming `3000`.
+- Numbers must be positive integers. A typo like `TRIFLARE_PORT=3000x` fails startup instead of quietly becoming `3000`.
 - The switchable rate-limit buckets also accept `off` or `null`, which sets them to `null`.
 - `cors.allowedOrigins` is a comma-separated list, or `*`.
 - `trustProxy` accepts `true`, `false`, a number of hops, or one of Express's keyword values.
@@ -116,17 +121,19 @@ Not every key has an environment variable: `database.connectTimeoutSeconds`, `da
 
 ## 🌐 Server
 
-- `port`: Port the HTTP server listens on. Defaults to `3000`. `TWEXTHUB_PORT`.
-- `dataDir`: Directory holding everything the instance stores on disk — compiled blobs, retained project sources, build temporary files, and the generated download-address key. Relative paths resolve against the working directory. Defaults to `./data`. `TWEXTHUB_DATA_DIR`. It has to be persistent storage; see [Data Persistence](./deploy.md#-data-persistence).
-- `apiRoot`: URL prefix every route is served under. Leading and trailing slashes are ignored, so `/v1` and `v1` are the same thing; an empty string serves the API at the root. Defaults to the `defaults.apiRoot` value in `product.yml` (`/v2`). `TWEXTHUB_API_ROOT`.
-- `publicBaseUrl`: Absolute URL of the instance, used to build download, source, and profile image links in responses. Defaults to `http://localhost:3000`. `TWEXTHUB_PUBLIC_BASE_URL`.
-- `requireHttps`: Reject plain HTTP requests with a `403`. Turn it on when the instance is served over TLS. Defaults to `false`. `TWEXTHUB_REQUIRE_HTTPS`.
-- `trustProxy`: Handed to Express as its [trust proxy](https://expressjs.com/en/guide/behind-proxies.html) setting. Set it when the API runs behind a reverse proxy, or the rate limits will count the proxy's address instead of each client's. Defaults to `false`. `TWEXTHUB_TRUST_PROXY`.
+- `port`: Port the HTTP server listens on. Defaults to `3000`. `TRIFLARE_PORT`.
+- `dataDir`: Directory holding everything the instance stores on disk — compiled blobs, retained project sources, build temporary files, and the generated download-address key. Relative paths resolve against the working directory. Defaults to `./data`. `TRIFLARE_DATA_DIR`. It has to be persistent storage; see [Data Persistence](./deploy.md#-data-persistence).
+- `apiRoot`: URL prefix every route is served under. Leading and trailing slashes are ignored, so `/v1` and `v1` are the same thing; an empty string serves the API at the root. Defaults to the `defaults.apiRoot` value in `product.yml` (`/v1`). `TRIFLARE_API_ROOT`.
+- `publicBaseUrl`: Absolute URL of the instance, used to build download, source, and profile image links in responses. Defaults to `http://localhost:3000`. `TRIFLARE_PUBLIC_BASE_URL`.
+- `banner.message`: A one-line announcement the web client scrolls across the top of every page — a maintenance window, a sign-in method that just changed. Defaults to `null` (no banner); at most 280 characters, whitespace folded to single spaces. `TRIFLARE_BANNER_MESSAGE`.
+- `banner.link`: Where the banner points for details. An absolute `http` or `https` URL, or `null`; dropped when there is no `banner.message`. `TRIFLARE_BANNER_LINK`.
+- `requireHttps`: Reject plain HTTP requests with a `403`. Turn it on when the instance is served over TLS. Defaults to `false`. `TRIFLARE_REQUIRE_HTTPS`.
+- `trustProxy`: Handed to Express as its [trust proxy](https://expressjs.com/en/guide/behind-proxies.html) setting. Set it when the API runs behind a reverse proxy, or the rate limits will count the proxy's address instead of each client's. Defaults to `false`. `TRIFLARE_TRUST_PROXY`.
 
 ## 🗄️ Database
 
-- `url`: PostgreSQL connection URL. Required, with no default. `TWEXTHUB_DATABASE_URL`.
-- `maxConnections`: Size of the connection pool. Defaults to `10`. `TWEXTHUB_DATABASE_MAX_CONNECTIONS`.
+- `url`: PostgreSQL connection URL. Required, with no default. `TRIFLARE_DATABASE_URL`.
+- `maxConnections`: Size of the connection pool. Defaults to `10`. `TRIFLARE_DATABASE_MAX_CONNECTIONS`.
 - `connectTimeoutSeconds`: How long to wait for a connection before giving up. Defaults to `30`. File-only.
 - `idleTimeoutSeconds`: How long an unused connection is kept before closing. Defaults to `60`. File-only.
 
@@ -136,16 +143,16 @@ Migrations are applied by Prisma Migrate. The server runs `prisma migrate deploy
 
 ## 🔐 Authentication
 
-- `sessionTtlDays`: Lifetime of a sign-in session, in days. It applies to sessions created after the change; existing sessions keep the expiry they were given. Defaults to `7`. `TWEXTHUB_SESSION_TTL_DAYS`.
+- `sessionTtlDays`: Lifetime of a sign-in session, in days. It applies to sessions created after the change; existing sessions keep the expiry they were given. Defaults to `7`. `TRIFLARE_SESSION_TTL_DAYS`.
 - `scrypt`: Cost parameters (`N`, `r`, `p`) for password hashing. File-only, and each stored hash records the parameters it was made with, so changing them affects new passwords without invalidating old ones. The defaults (`16384`, `8`, `1`) are a sensible balance; raising `N` makes every sign-in more expensive for the server.
-- `oidc.issuer`: Base URL of an OpenID Connect provider, with a trailing slash allowed. Setting it (with `clientId`) turns on provider sign-in. Defaults to `null` (off). `TWEXTHUB_OIDC_ISSUER`.
-- `oidc.clientId`: Client identifier registered at the provider. `TWEXTHUB_OIDC_CLIENT_ID`.
-- `oidc.clientSecret`: Client secret for a confidential client. Leave unset for a public client that authenticates with PKCE alone. `TWEXTHUB_OIDC_CLIENT_SECRET`.
-- `oidc.required`: When `true`, password sign-in and registration are refused and the provider is the only way to get an account. Defaults to `false`. `TWEXTHUB_OIDC_REQUIRED`.
-- `device.verificationUrl`: The page a browser visits to approve a CLI sign-in. Defaults to `null`, which turns the device flow off. `TWEXTHUB_DEVICE_VERIFICATION_URL`.
-- `webauthn.rpId`: The domain passkeys are scoped to — the hostname of the site that runs the ceremony, without a scheme or port. Defaults to `null`, which uses the hostname of `publicBaseUrl`. Set it explicitly when the web client is served from a parent domain of the API (for example `example.com` with the API on `api.example.com` and the client on `app.example.com`) or from a different host. `TWEXTHUB_WEBAUTHN_RP_ID`.
-- `webauthn.rpName`: The name an authenticator shows when it offers to store a passkey. Defaults to `null`, which uses the product name. `TWEXTHUB_WEBAUTHN_RP_NAME`.
-- `reauthWindowMinutes`: How long a session counts as recently authenticated for the operations that demand it — adding or removing a passkey, regenerating backup codes. Must be a finite positive number. Defaults to `10`. `TWEXTHUB_REAUTH_WINDOW_MINUTES`.
+- `oidc.issuer`: Base URL of an OpenID Connect provider, with a trailing slash allowed. Setting it (with `clientId`) turns on provider sign-in. Defaults to `null` (off). `TRIFLARE_OIDC_ISSUER`.
+- `oidc.clientId`: Client identifier registered at the provider. `TRIFLARE_OIDC_CLIENT_ID`.
+- `oidc.clientSecret`: Client secret for a confidential client. Leave unset for a public client that authenticates with PKCE alone. `TRIFLARE_OIDC_CLIENT_SECRET`.
+- `oidc.required`: When `true`, password sign-in and registration are refused and the provider is the only way to get an account. Defaults to `false`. `TRIFLARE_OIDC_REQUIRED`.
+- `device.verificationUrl`: The page a browser visits to approve a CLI sign-in. Defaults to `null`, which turns the device flow off. `TRIFLARE_DEVICE_VERIFICATION_URL`.
+- `webauthn.rpId`: The domain passkeys are scoped to — the hostname of the site that runs the ceremony, without a scheme or port. Defaults to `null`, which uses the hostname of `publicBaseUrl`. Set it explicitly when the web client is served from a parent domain of the API (for example `example.com` with the API on `api.example.com` and the client on `app.example.com`) or from a different host. `TRIFLARE_WEBAUTHN_RP_ID`.
+- `webauthn.rpName`: The name an authenticator shows when it offers to store a passkey. Defaults to `null`, which uses the product name. `TRIFLARE_WEBAUTHN_RP_NAME`.
+- `reauthWindowMinutes`: How long a session counts as recently authenticated for the operations that demand it — adding or removing a passkey, regenerating backup codes. Must be a finite positive number. Defaults to `10`. `TRIFLARE_REAUTH_WINDOW_MINUTES`.
 
 `oidc.issuer` and `oidc.clientId` must be set together, and `oidc.required` cannot be turned on without both — the server refuses to start otherwise, so an instance cannot lock itself out of every way in.
 
@@ -157,7 +164,7 @@ Point `oidc.issuer` at the provider's base URL (the same value it publishes as i
 <publicBaseUrl>/<apiRoot>/auth/oidc/callback
 ```
 
-For example, `http://localhost:3000/v2/auth/oidc/callback`. The redirect URI is derived from `publicBaseUrl` and `apiRoot` rather than configured, so it cannot drift from what the instance actually serves.
+For example, `http://localhost:3000/v1/auth/oidc/callback`. The redirect URI is derived from `publicBaseUrl` and `apiRoot` rather than configured, so it cannot drift from what the instance actually serves.
 
 The routes are:
 
@@ -197,7 +204,7 @@ A sign-in that stops at the second step returns `202` with `{ "mfaRequired": tru
 
 ### Signing in from a CLI
 
-`twext login` signs in with a password prompt, and the provider and passkey paths both need a browser on the instance's own origin. A different client — another build tool, a script, anything that would rather not collect a password — cannot run either. The device authorization flow (RFC 8628) is for those: the client asks for a code, the person approves it in a browser, and the client polls until it has a session.
+`extend login` signs in with a password prompt, and the provider and passkey paths both need a browser on the instance's own origin. A different client — another build tool, a script, anything that would rather not collect a password — cannot run either. The device authorization flow (RFC 8628) is for those: the client asks for a code, the person approves it in a browser, and the client polls until it has a session.
 
 Set `auth.device.verificationUrl` to the page that approves a code to turn the flow on. With it unset, the endpoints answer `404` and `GET /auth` reports `device: null`, because a client that asked for a code would otherwise wait for a page nobody can visit. The API serves the endpoints; the page itself belongs to the web client.
 
@@ -210,47 +217,139 @@ The flow runs on five endpoints:
 
 Approval requires a session authenticated within `reauthWindowMinutes` of a sign-in or a completed `POST /auth/mfa/reauth`. An older session receives `403` until the person reauthenticates. The browser has to finish a passkey or provider sign-in before it has a session to approve with, and the client never sees either. A pending `mfaToken` from `POST /sessions` is not a session and is refused. An approved code stays uncollected until the client's next poll, so the page can still decline it in that window; that is also why the approval page should show the client name it got from the lookup.
 
-The session this issues is the same credential `twext login` stores: every scope, `sessionTtlDays` of life, and revocable with `DELETE /sessions/current`. The device code is shown only to the client that asked, both codes are stored as hashes, and they expire after ten minutes.
+The session this issues is the same credential `extend login` stores: every scope, `sessionTtlDays` of life, and revocable with `DELETE /sessions/current`. The device code is shown only to the client that asked, both codes are stored as hashes, and they expire after ten minutes.
+
+### Choosing sign-in methods
+
+By default the method set is derived from the settings above: password (unless `oidc.required` is on), the provider when it is configured, a passkey, and the device flow when it has an approval page. To choose a different set, list the methods under `auth.methods`; the keys above stop being consulted for which methods are on, and are filled in from the instances instead.
+
+```yaml
+auth:
+  methods:
+    - driver: password
+    - driver: oidc
+      options:
+        issuer: https://id.example.com
+        clientId: marketplace
+        clientSecret: ${TRIFLARE_OIDC_CLIENT_SECRET}
+    - driver: passkey
+      options:
+        rpId: example.com
+    - driver: magic-link
+  policy:
+    registration: open
+```
+
+`magic-link` mails a single-use sign-in link and needs a mail driver; `email-otp` mails a six-digit code instead, for a device that cannot open a link; `magic-password` registers with a generated password that is shown once and signs in by address. `passkey` is sign-in with a passkey, not only the second factor. `registration` accepts `open` or `closed` today; `invite` and `allowlist` are refused at startup rather than silently opening registration.
+
+The link lands on the API, which sends the browser on with a one-time `magic_link_code`. Pass `returnTo` to `POST /auth/magic-link` to say where: a path on this instance, or an absolute URL naming an origin in `cors.allowedOrigins`. The web client passes its own origin, so a client on another port or host needs that origin listed — the same requirement a passkey ceremony has.
+
+An account that signs in by address can read it at `GET /auth/email` and move it: `POST /auth/email/change` mails a six-digit code to the new address, and `POST /auth/email/confirm` redeems it before any identity moves. Every mail-backed method on the account — `magic-link`, `email-otp` and `magic-password` today — follows the change, and an address another account already signs in with is refused. Without a mail driver the address is still reported but `changeable` is false and a change is a `403`.
+
+`GET /auth` reports one entry per configured method under `methods`, with the older `passwordAuth`, `oidc` and `device` keys kept for clients that already read them, and `registration` saying whether an unknown person can still become an account. `GET /meta` carries the `banner` (or `null`), which is what the web client renders at the top of the page. The banner and the registration policy are both editable from the admin settings when the configuration file is persistent.
+
+## 🧩 Driver Kinds
+
+Every area with a built-in registry is a kind: `auth`, `mail`, `storage`, `jobs`, `search`, `captcha`, `scanner`, `notify` and `metrics`. Auth and mail have their own sections above; the rest live under `drivers`, one instance per kind:
+
+```yaml
+mail:
+  drivers:
+    - driver: resend
+      options:
+        apiKey: ${TRIFLARE_RESEND_API_KEY}
+        from: no-reply@example.com
+    - driver: smtp
+      options:
+        host: smtp.example.com
+        port: 587
+        from: no-reply@example.com
+
+drivers:
+  storage: { driver: local, options: { dir: ./data } }
+  jobs: { driver: inline }
+  search: { driver: postgres }
+  captcha: { driver: none }
+  scanner: { driver: patterns }
+  notify: { driver: in-app }
+  metrics: { driver: prometheus }
+  compiler: { driver: extend }
+```
+
+A blob store on S3-compatible storage (AWS S3, R2, MinIO) keeps the same digest keys as local disk, so the data directory can be copied into a bucket and the setting changed; leave garbage collection to a bucket lifecycle rule, because the server has no list call on the interface.
+
+```yaml
+drivers:
+  storage:
+    driver: s3
+    options:
+      bucket: marketplace-blobs
+      accessKeyId: ${TRIFLARE_S3_ACCESS_KEY_ID}
+      secretAccessKey: ${TRIFLARE_S3_SECRET_ACCESS_KEY}
+      region: auto
+      endpoint: https://<account>.r2.cloudflarestorage.com
+      pathStyle: true
+  scanner:
+    driver: clamav
+    options: { host: clamav, port: 3310, timeoutMs: 15000 }
+  compiler:
+    driver: custom-cli
+    options: { command: /opt/registry/build.mjs }
+```
+
+`scanner/clamav` streams every extracted file to the daemon and reports a detection in the same warning list the pattern scan produces. `compiler/custom-cli` runs a Node script in place of the bundled builder under the same sandbox, memory and time limits. `email-otp` joins `auth.methods` as a mail-using sign-in method; its codes are six digits, single-use, and bounded per address and per caller.
+
+`mail.drivers` is ordered: a message goes to the first instance, and the next is tried only when the first fails to transport it, never when it rejects the recipient. `none` is no mail, and any auth method that needs mail is refused alongside it. `log` writes the message to the log and is refused when `NODE_ENV=production`.
+
+The sign-in messages are sent as both plain text and HTML under one alternate part: the button and the styled code are what most readers see, and the text is what a client that cannot render HTML falls back to. Both parts name the same single-use link or code, so neither is a weaker copy.
+
+The startup check refuses a mixture it cannot serve, naming each problem: a mail-using method without a mail driver, an OIDC method without its issuer and client id, a passkey without a relying party, two instances sharing an id, or an unknown driver (with the ones this build has).
+
+An admin can read the mixture and replace one kind's instances at runtime through `GET`/`PUT /admin/drivers` and inspect the process through `GET /admin/system`. A change is probed before it is written; a change that would affect existing accounts asks for `confirm: true`, and `?dryRun=1` reports the counts without applying anything. `POST /admin/system/reload` re-reads the file, and `POST /admin/system/restart` drains and exits so a supervisor can start the process again.
+
+Every outbound message is written to the outbox before a provider sees it, so a failed delivery is something an admin can read and retry: `GET /admin/mail/outbox` lists what was sent and how it went, `GET /admin/mail/outbox/:id` shows the body that went out, and `POST /admin/mail/outbox/:id/retry` sends it again on the same row.
+
+The admin UI mirrors this: a **Drivers** tab with the catalog, the schema-driven editor and the reload/restart controls, and an **Outbox** tab with the delivery list, the message body and retry. Registry settings, the broadcast and usage data stay on the Registry tab.
 
 ## 🚦 Rate Limits
 
 Limits are counted in fixed windows aligned to the clock — a 15-minute window resets at :00, :15, :30, and :45 — and rejected requests carry a `Retry-After` header saying when the window rolls over.
 
-- `loginAttemptsPerWindow` / `loginWindowMinutes`: Failed sign-ins, counted per namespace per IP and per IP overall. Defaults to `5` attempts per `15` minutes. `TWEXTHUB_LOGIN_ATTEMPTS_PER_WINDOW`, `TWEXTHUB_LOGIN_WINDOW_MINUTES`.
-- `signupsPerIpPerWindow` / `signupWindowMinutes`: Sign-up attempts from one IP, counting attempts at both accounts and organizations whether they succeed or not. Defaults to `5` per `15` minutes. `TWEXTHUB_SIGNUPS_PER_IP_PER_WINDOW`, `TWEXTHUB_SIGNUP_WINDOW_MINUTES`.
-- `publishPerWindow` / `publishWindowMinutes`: Publishes per account — per account rather than per IP because CI runners often share one. Defaults to `30` per `60` minutes. `TWEXTHUB_PUBLISH_PER_WINDOW`, `TWEXTHUB_PUBLISH_WINDOW_MINUTES`.
-- `downloadsPerIpPerWindow` / `downloadWindowMinutes`: Downloads from one IP. Defaults to `240` per `5` minutes. `TWEXTHUB_DOWNLOADS_PER_IP_PER_WINDOW`, `TWEXTHUB_DOWNLOAD_WINDOW_MINUTES`.
-- `reportsPerWindow` / `reportsWindowMinutes`: Reports filed per account — per account rather than per IP because a report is about somebody else's account, and the rate that matters is the one at which a single account can fill the moderators' queue. Defaults to `10` per `60` minutes. `TWEXTHUB_REPORTS_PER_WINDOW`, `TWEXTHUB_REPORTS_WINDOW_MINUTES`.
-- `routesPerIpPerWindow` / `routeWindowMinutes`: A coarse cap on every route, as a backstop for floods the buckets above don't cover. Loopback addresses are exempt. Both must be positive integers — the server won't start without them. Defaults to `600` per `15` minutes. `TWEXTHUB_ROUTES_PER_IP_PER_WINDOW`, `TWEXTHUB_ROUTE_WINDOW_MINUTES`.
+- `loginAttemptsPerWindow` / `loginWindowMinutes`: Failed sign-ins, counted per namespace per IP and per IP overall. Defaults to `5` attempts per `15` minutes. `TRIFLARE_LOGIN_ATTEMPTS_PER_WINDOW`, `TRIFLARE_LOGIN_WINDOW_MINUTES`.
+- `signupsPerIpPerWindow` / `signupWindowMinutes`: Sign-up attempts from one IP, counting attempts at both accounts and organizations whether they succeed or not. Defaults to `5` per `15` minutes. `TRIFLARE_SIGNUPS_PER_IP_PER_WINDOW`, `TRIFLARE_SIGNUP_WINDOW_MINUTES`.
+- `publishPerWindow` / `publishWindowMinutes`: Publishes per account — per account rather than per IP because CI runners often share one. Defaults to `30` per `60` minutes. `TRIFLARE_PUBLISH_PER_WINDOW`, `TRIFLARE_PUBLISH_WINDOW_MINUTES`.
+- `downloadsPerIpPerWindow` / `downloadWindowMinutes`: Downloads from one IP. Defaults to `240` per `5` minutes. `TRIFLARE_DOWNLOADS_PER_IP_PER_WINDOW`, `TRIFLARE_DOWNLOAD_WINDOW_MINUTES`.
+- `reportsPerWindow` / `reportsWindowMinutes`: Reports filed per account — per account rather than per IP because a report is about somebody else's account, and the rate that matters is the one at which a single account can fill the moderators' queue. Defaults to `10` per `60` minutes. `TRIFLARE_REPORTS_PER_WINDOW`, `TRIFLARE_REPORTS_WINDOW_MINUTES`.
+- `routesPerIpPerWindow` / `routeWindowMinutes`: A coarse cap on every route, as a backstop for floods the buckets above don't cover. Loopback addresses are exempt. Both must be positive integers — the server won't start without them. Defaults to `600` per `15` minutes. `TRIFLARE_ROUTES_PER_IP_PER_WINDOW`, `TRIFLARE_ROUTE_WINDOW_MINUTES`.
 
 The publish, download, and report buckets can be switched off entirely with `null` in the file, or `off` in the environment.
 
 ## 📄 Pagination
 
-- `defaultLimit`: Page size when a client doesn't ask for one. Defaults to `20`. `TWEXTHUB_PAGINATION_DEFAULT_LIMIT`.
-- `maxLimit`: The largest page size a client may request. Defaults to `50`. `TWEXTHUB_PAGINATION_MAX_LIMIT`.
+- `defaultLimit`: Page size when a client doesn't ask for one. Defaults to `20`. `TRIFLARE_PAGINATION_DEFAULT_LIMIT`.
+- `maxLimit`: The largest page size a client may request. Defaults to `50`. `TRIFLARE_PAGINATION_MAX_LIMIT`.
 
 ## 📦 Size Limits
 
-- `maxBlobBytes`: Largest compiled extension the server will store for one version. Defaults to 2 MB. `TWEXTHUB_MAX_BLOB_BYTES`.
-- `maxAccountBlobBytes`: Total bytes one account may have stored across its versions and source archives. An admin can raise or lower it for a single account. Defaults to 64 MB. `TWEXTHUB_MAX_ACCOUNT_BLOB_BYTES`.
-- `maxSourceBytes`: Largest project tarball a publish may upload. Defaults to 1 MB. `TWEXTHUB_MAX_SOURCE_BYTES`.
-- `maxProfileImageBytes`: Largest avatar or banner upload. Defaults to 2 MB. `TWEXTHUB_MAX_PROFILE_IMAGE_BYTES`.
+- `maxBlobBytes`: Largest compiled extension the server will store for one version. Defaults to 2 MB. `TRIFLARE_MAX_BLOB_BYTES`.
+- `maxAccountBlobBytes`: Total bytes one account may have stored across its versions and source archives. An admin can raise or lower it for a single account. Defaults to 64 MB. `TRIFLARE_MAX_ACCOUNT_BLOB_BYTES`.
+- `maxSourceBytes`: Largest project tarball a publish may upload. Defaults to 1 MB. `TRIFLARE_MAX_SOURCE_BYTES`.
+- `maxProfileImageBytes`: Largest avatar or banner upload. Defaults to 2 MB. `TRIFLARE_MAX_PROFILE_IMAGE_BYTES`.
 
 ## 🛠️ The Build Sandbox
 
 Every publish is compiled on the server, in a child process with filesystem, memory, and time limits. The [deploy guide](./deploy.md#-the-build-sandbox) describes what the sandbox does; these keys tune it:
 
-- `command`: Path to a Node.js script (`.js`, `.mjs`, or `.cjs`) used instead of the bundled Twext, called as `node <command> build -o <out>`. Defaults to the Twext that ships with the server. `TWEXTHUB_COMPILER`.
-- `timeoutMs`: Wall-clock limit for one build; the process is killed when it passes. Defaults to `30000`. `TWEXTHUB_COMPILER_TIMEOUT_MS`.
-- `memoryMb`: V8 heap cap for the build, in megabytes. Defaults to `192`. `TWEXTHUB_COMPILER_MEMORY_MB`.
-- `addressSpaceMb`: Address-space limit (`ulimit -v`) for the build, in megabytes. Defaults to `1536`. `TWEXTHUB_COMPILER_ADDRESS_SPACE_MB`.
-- `minify`: Minify compiled extension output with Terser before it is served. A pending version is minified when it is approved; a trusted account's version is minified at publish. The stored digest, size, and integrity hash describe the minified bytes. Defaults to `true`. `TWEXTHUB_COMPILER_MINIFY`.
+- `command`: Path to a Node.js script (`.js`, `.mjs`, or `.cjs`) used instead of the bundled Triflare Extend, called as `node <command> build -o <out>`. Defaults to the Triflare Extend that ships with the server. `TRIFLARE_COMPILER`.
+- `timeoutMs`: Wall-clock limit for one build; the process is killed when it passes. Defaults to `30000`. `TRIFLARE_COMPILER_TIMEOUT_MS`.
+- `memoryMb`: V8 heap cap for the build, in megabytes. Defaults to `192`. `TRIFLARE_COMPILER_MEMORY_MB`.
+- `addressSpaceMb`: Address-space limit (`ulimit -v`) for the build, in megabytes. Defaults to `1536`. `TRIFLARE_COMPILER_ADDRESS_SPACE_MB`.
+- `minify`: Minify compiled extension output with Terser before it is served. A pending version is minified when it is approved; a trusted account's version is minified at publish. The stored digest, size, and integrity hash describe the minified bytes. Defaults to `true`. `TRIFLARE_COMPILER_MINIFY`.
 
 ## 🌍 CORS and Logging
 
-- `cors.allowedOrigins`: Origins allowed to call the API from a browser. Either `*`, or a list of origins compared exactly against the `Origin` header. Defaults to `*`. `TWEXTHUB_CORS_ALLOWED_ORIGINS`, as a comma-separated list or `*`.
-- `logging.requests`: Write one structured JSON line per request, in addition to the in-memory counters. Defaults to `false`. `TWEXTHUB_LOG_REQUESTS`.
+- `cors.allowedOrigins`: Origins allowed to call the API from a browser. Either `*`, or a list of origins compared exactly against the `Origin` header. Defaults to `*`. `TRIFLARE_CORS_ALLOWED_ORIGINS`, as a comma-separated list or `*`.
+- `logging.requests`: Write one structured JSON line per request, in addition to the in-memory counters. Defaults to `false`. `TRIFLARE_LOG_REQUESTS`.
 
 ## 🖥️ Editing Settings at Runtime
 
@@ -258,12 +357,14 @@ An admin can read and change a subset of these settings from the running instanc
 
 The endpoint only accepts its own allowlist: the public base URL, session lifetime, page sizes, size limits, compiler limits, request logging, and allowed origins. The database URL, port, API root, and data directory are not editable there — a typo in those is an instance that won't start, and the form would be an easier way to break one than a text editor.
 
-Each setting is either applied immediately or needs a restart, and the response says which. The endpoint returns `409` if the configuration file isn't writable or wouldn't survive a redeploy — inside a container, that means mounting `config.yaml` as a volume rather than baking it into the image.
+Each setting is either applied immediately or needs a restart, and the response says which. The endpoint returns `409` if the configuration file isn't writable or wouldn't survive a redeploy — inside a container, that means the file has to be on a volume rather than in the image. With no file of your own, that is already the case: the default file sits in the data directory (`/app/data/config.yaml` in the image), which the [deploy guide](./deploy.md#-data-persistence) has you mount, and the first save creates it there.
 
 ## 🔑 Other Environment Variables
 
 These aren't part of the configuration file:
 
-- `TWEXTHUB_DOWNLOAD_HASH_KEY`: Key used to hash client addresses for download statistics, so distinct downloads can be counted without storing the addresses. If unset, one is generated into `dataDir/secrets/download-address.key` on first use. Keep it in your secret store if you manage secrets outside the container.
-- `TWEXTHUB_METRICS_INTERVAL_MS`: How often the daily download rollup runs, in milliseconds. Defaults to one hour.
-- `TWEXTHUB_TEST_DATABASE_URL`: Used only by the test suite; see [Development Guide](./development.md#-tests).
+- `TRIFLARE_DOWNLOAD_HASH_KEY`: Key used to hash client addresses for download statistics, so distinct downloads can be counted without storing the addresses. If unset, one is generated into `dataDir/secrets/download-address.key` on first use. Keep it in your secret store if you manage secrets outside the container.
+- `TRIFLARE_METRICS_INTERVAL_MS`: How often the daily download rollup runs, in milliseconds. Defaults to one hour.
+- `TRIFLARE_SUPERVISED`: Set to `1` when the process is started by something that will start it again (Docker's `restart: unless-stopped`, systemd's `Restart=always`). Without it, `POST /admin/system/restart` answers `409` rather than turning a restart request into an outage.
+- `TRIFLARE_DRAIN_SECONDS`: How long a requested restart waits for in-flight requests before closing their connections. Defaults to `10`.
+- `TRIFLARE_TEST_DATABASE_URL`: Used only by the test suite; see [Development Guide](./development.md#-tests).

@@ -46,6 +46,7 @@ async function approvePending(adminToken, ns, id) {
   assert.ok(entry, 'pending entry present');
   const r = await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/${entry.version}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -222,6 +223,7 @@ test('accepting terms on the user records the version that was read', async () =
   // is refused rather than quietly recorded.
   const stale = await request(app)
     .patch(apiPath(`/users/${user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ termsAcceptedVersion: 99 });
   assert.equal(stale.status, 422);

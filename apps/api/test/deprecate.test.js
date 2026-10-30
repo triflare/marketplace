@@ -27,6 +27,7 @@ function publish(ns, token, version) {
 function approve(adminToken, ns, version) {
   return request(app)
     .patch(apiPath(`/@${ns}/hello/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -49,6 +50,7 @@ test('deprecating flags a version but keeps it listable and downloadable', async
 
   const upgrade = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(ownerToken))
     .send({ deprecationMessage: 'Use the rewritten API surface.' })
     .expect(200);
@@ -64,6 +66,7 @@ test('deprecating flags a version but keeps it listable and downloadable', async
   // the deprecated blob stays downloadable
   const dl = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/2.0.0/download`))
+    .redirects(1)
     .expect(200);
   assert.match(dl.text, /v2\.0\.0/);
 
@@ -82,6 +85,7 @@ test('deprecating flags a version but keeps it listable and downloadable', async
   // clearing the deprecation restores published state
   const cleared = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(ownerToken))
     .send({ deprecationMessage: null })
     .expect(200);
@@ -104,12 +108,14 @@ test('non-owners cannot deprecate; admin can', async () => {
 
   const denied = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(outside.token))
     .send({ deprecationMessage: 'no' });
   assert.equal(denied.status, 403);
 
   const asAdmin = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ deprecationMessage: 'Admin says so.' })
     .expect(200);
@@ -123,6 +129,7 @@ test('the version PATCH refuses an ambiguous or empty body', async () => {
 
   const both = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved', deprecationMessage: 'no longer current' });
   assert.equal(both.status, 422);
@@ -130,12 +137,14 @@ test('the version PATCH refuses an ambiguous or empty body', async () => {
 
   const neither = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({});
   assert.equal(neither.status, 422);
 
   const blank = await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(ownerToken))
     .send({ deprecationMessage: '   ' });
   assert.equal(blank.status, 422);

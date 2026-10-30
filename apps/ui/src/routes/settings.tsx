@@ -9,7 +9,7 @@ export async function loader({ request }: { request: Request }) {
     return { preload: {} }
   }
 
-  const { kit, user } = context
+  const { api, user } = context
   const preload: Record<string, unknown> = {}
 
   async function put(key: string, load: () => Promise<unknown>) {
@@ -21,20 +21,21 @@ export async function loader({ request }: { request: Request }) {
   }
 
   await Promise.all([
-    put(settingsKeys.mfa, () => kit.auth.getMfaState()),
-    put(settingsKeys.sessions, () => kit.sessions.list({ limit: 50 })),
-    put(settingsKeys.auth, () => kit.auth.describe()),
-    put(settingsKeys.tokens, () => kit.tokens.list({ limit: 50 })),
-    put(settingsKeys.webhooks, () => kit.users.webhooks.list(user.namespace)),
-    put(settingsKeys.reports, () => kit.reports.list({ limit: 50 })),
-    put(settingsKeys.organizations, () => kit.orgs.list({ limit: 30 })),
+    put(settingsKeys.email, () => api.auth.getEmail()),
+    put(settingsKeys.mfa, () => api.auth.getMfaState()),
+    put(settingsKeys.sessions, () => api.sessions.list({ limit: 50 })),
+    put(settingsKeys.auth, () => api.auth.describe()),
+    put(settingsKeys.tokens, () => api.tokens.list({ limit: 50 })),
+    put(settingsKeys.webhooks, () => api.users.webhooks.list(user.namespace)),
+    put(settingsKeys.reports, () => api.reports.list({ limit: 50 })),
+    put(settingsKeys.organizations, () => api.orgs.list({ limit: 30 })),
   ])
 
   const auth = preload[settingsKeys.auth] as { oidc?: unknown } | undefined
   if (auth) {
     if (auth.oidc) {
       await put(settingsKeys.identities, async () => {
-        const identities = await kit.auth.listOidcIdentities()
+        const identities = await api.auth.listOidcIdentities()
         return identities.data
       })
     } else {

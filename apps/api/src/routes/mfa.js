@@ -19,6 +19,7 @@ import {
   webauthnSettings,
 } from '../mfa.js';
 import { passkeyToObject, sessionToObject, userToObject } from '../serialize.js';
+import { normalizeApiRoot } from '../util.js';
 import { createSession, requireObjectBody } from './shared.js';
 
 const MAX_LABEL_LENGTH = 80;
@@ -30,6 +31,8 @@ const MAX_TRANSPORTS = 10;
 // anonymous half uses to claim it, and -- once options have been handed out --
 // the challenge an assertion has to answer.
 export function makeMfaRouter({ db, config, rateLimiter }) {
+  const root = normalizeApiRoot(config.apiRoot);
+  const mount = (path) => `${root ? `/${root}` : ''}${path}`;
   const router = Router();
   const requireRecentAuth = makeRequireRecentAuth(config);
   const sessionTtlMs = config.auth.sessionTtlDays * 86_400_000;
@@ -132,7 +135,10 @@ export function makeMfaRouter({ db, config, rateLimiter }) {
       { namespace: user.Namespace },
       { label: name, first: result.codes !== null },
     );
-    res.status(201).json({ passkey: passkeyToObject(result.passkey), backupCodes: result.codes });
+    res
+      .location(mount(`/auth/mfa/passkeys/${result.passkey.Id}`))
+      .status(201)
+      .json({ passkey: passkeyToObject(result.passkey), backupCodes: result.codes });
   });
 
   router.patch('/passkeys/:id', manage, async (req, res) => {
@@ -210,10 +216,18 @@ export function makeMfaRouter({ db, config, rateLimiter }) {
     const pending = await claimPendingSignin(req);
     const { response, backupCode } = req.body;
     if (response !== undefined) {
-      return res.status(201).json(await finishWithPasskey(req, pending, response));
+      const body = await finishWithPasskey(req, pending, response);
+      return res
+        .location(mount(`/sessions/${body.session.id}`))
+        .status(201)
+        .json(body);
     }
     if (typeof backupCode === 'string') {
-      return res.status(201).json(await finishWithBackupCode(req, pending, backupCode));
+      const body = await finishWithBackupCode(req, pending, backupCode);
+      return res
+        .location(mount(`/sessions/${body.session.id}`))
+        .status(201)
+        .json(body);
     }
     throw fieldErrors([
       { field: 'response', message: 'Present a passkey assertion or a backup code.' },

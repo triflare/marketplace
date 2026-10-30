@@ -1,3 +1,5 @@
+import { extend } from "@/lib/product"
+
 export interface SourceFile {
   path: string
   text: string
@@ -120,7 +122,7 @@ function cleanPath(raw: string): string | null {
 }
 
 function fileRank(path: string): number {
-  if (path === "twext.yml") {
+  if (path === extend.configFilename) {
     return 0
   }
   if (path === "package.json") {

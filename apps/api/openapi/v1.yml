@@ -1,20 +1,20 @@
 openapi: '3.1.0'
 info:
-  title: TwextHub API
-  version: '1.0.0'
+  title: Triflare Marketplace API
+  version: '1.1.0'
   license:
     name: Apache-2.0
     identifier: Apache-2.0
   description: >
-    TwextHub is a lightweight registry for publishing and discovering
-    Twext-compiled TurboWarp extensions ("Twexts"). Packages are namespaced
+    Triflare Marketplace is a registry for publishing and discovering
+    TurboWarp extensions built with Triflare Extend. Packages are namespaced
     to their publishing account (`@namespace/id`) and versioned with SemVer.
-    Publishing sends a gzipped tarball of the Twext project (`twext.yml` plus
-    sources); the hub validates the manifest and compiles the extension
-    itself in a sandboxed build, so the reviewed source is exactly what
-    produces the served blob.
+    Publishing sends a gzipped tarball of the extension project (`extend.yml`
+    plus sources); the registry validates the manifest and compiles the
+    extension itself in a sandboxed build, so the reviewed source is exactly
+    what produces the served blob.
 
-    The `/v1` surface documented here is stable as of 1.0.0. Breaking changes
+    The `/v1` surface documented here is stable as of 1.1.0. Breaking changes
     require a new major version; additive changes bump the minor (see
     CHANGELOG.md).
 
@@ -33,7 +33,7 @@ info:
     every scope. **Automation tokens** are created explicitly via
     `POST /tokens`, carry their own expiration or none at all, and hold only
     the scopes they were granted — `publish` and/or `yank` is the usual pair
-    for CI use (e.g. a `twext publish` GitHub Action), while the `manage:*`
+    for CI use (e.g. an `extend publish` GitHub Action), while the `manage:*`
     scopes let one carry out the rest of a session's work. A credential can
     only grant a scope it holds itself, so a token cannot be used to mint a
     stronger one. A caller can revoke the credential it is holding without
@@ -58,11 +58,67 @@ info:
     Because it is only ever acted for by its owners, no
     organization credential exists to leak or revoke, and the account endpoints
     refuse it and point at `/orgs`.
+
+    An account, an organization, or an extension can be reported at
+    `POST /reports` for a moderator to read. A report is a queue entry and
+    nothing more: filing one never suspends, hides, or removes anything, and
+    no number of reports does either. What happens to what was reported is a
+    moderator's decision, taken by hand through `PATCH /admin/reports/{id}`.
+    The reporter may read its own reports and sees only that they were decided
+    and when; what a report said, who reviewed it, and why it was decided are
+    the reviewer's business, and only the `/admin/reports` endpoints hand them
+    out.
+
+    Conventions every endpoint shares:
+
+    - `X-Request-Id` is on every response, errors included, and the problem
+      body repeats it as `requestId`. A caller may send its own (up to 128
+      characters of `A-Za-z0-9._:-`) and the server keeps it.
+    - Errors are `application/problem+json` (RFC 9457). `type` is a relative
+      reference to `/problems/<slug>` that resolves to the catalogue at
+      `GET /problems`; `instance` is the request path; `errors[].pointer` is a
+      JSON Pointer into the request body.
+    - Collections send `Link` headers for `rel="next"` and `rel="prev"`
+      beside the `_links` object, so an HTTP client can page without reading
+      the body.
+    - An anonymous `GET` carries a weak `ETag` and answers `If-None-Match` with
+      `304`. A response carrying a token, password, backup code, or shared
+      secret sends `Cache-Control: no-store`.
+    - A `201` names the created resource in `Location`. A `401` carries a
+      `WWW-Authenticate: Bearer` challenge, and a `429` carries `Retry-After`
+      beside the IETF rate-limit fields (`RateLimit`, `RateLimit-Policy`), which
+      the limited routes send on their successful responses too.
+    - A mutable document — an account, an organization, a version — is edited
+      with `If-Match` naming the `ETag` it was read at. Omitting it is a `428`,
+      and a revision somebody else has already moved past is a `412`; neither
+      is applied. The validator is a revision of the document, not of the bytes
+      one caller happens to receive.
+    - A `POST` that creates something accepts `Idempotency-Key`. The first
+      request with a key does the work and stores its answer; a replay with the
+      same key and the same body answers `Idempotent-Replayed: true` with that
+      first status and body. The same key with a different body is a `422`
+      (`/problems/idempotency-key-reused`) and a key whose request is still
+      running is a `409` (`/problems/idempotency-in-progress`). Keys are scoped
+      to the credential's account and to the route, and expire after a day.
+    - A JSON `GET` accepts `?fields=id,name` to trim the representation to the
+      keys it names; naming keys the resource does not have is a `422`. Detail
+      endpoints accept `?include=` to fold in related resources, and answer a
+      `422` for a relation they do not offer.
+    - A method the path does not accept is a `405` with an `Allow` header, not
+      a `404`. An extension address that was deleted answers `410` for its
+      versions, so a client can tell "removed" from "never existed".
+    - `GET /extensions?q=` is the listing with a text filter. `GET /search` is
+      deprecated and still answers.
+
+    Liveness, readiness, the problem catalogue, the spec, and a links index sit
+    at the origin root rather than under `/v1`: `/health`, `/ready`,
+    `/problems`, `/problems/{slug}`, `/openapi/v1.yml`, and `/docs`. They
+    describe the instance, not a versioned resource.
 servers:
   - url: https://{host}/v1
     variables:
       host:
-        default: hub.twext.dev
+        default: marketplace.triflare.dev
 
 tags:
   - name: Open
@@ -93,7 +149,1120 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ------------------------------------------ Authentication & sign-in
+  /auth:
+    get:
+      summary: Describe how this instance signs users in
+      operationId: getAuthDescriptor
+      tags: [Open]
+      security: []
+      description: >
+        Public, because a sign-in page reads it before anybody has signed in.
+        `passwordAuth` is false when the instance is in identity-provider-only
+        mode; `oidc` is null when no provider is configured.
+      responses:
+        '200':
+          description: The available sign-in methods
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthDescriptor' }
+
+  /auth/oidc/authorize:
+    get:
+      summary: Start a sign-in through the identity provider
+      operationId: oidcAuthorize
+      tags: [Open]
+      security: []
+      description: >
+        Begins the Authorization Code + PKCE flow. A browser (an `Accept:
+        text/html` request) is redirected to the provider; any other client gets
+        the URL to send the browser to itself. `returnTo` is where the browser
+        is sent once the provider hands it back — a path on this instance, or an
+        absolute URL naming an origin in `cors.allowedOrigins`. Anything else is
+        refused, so an authorize link cannot be turned into a way to hand a
+        freshly minted sign-in code to another origin.
+      parameters:
+        - $ref: '#/components/parameters/ReturnTo'
+      responses:
+        '200':
+          description: The authorization URL to send the browser to
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+        '302':
+          description: A browser is redirected to the provider
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/oidc/callback:
+    get:
+      summary: Where the provider sends the browser back
+      operationId: oidcCallback
+      tags: [Open]
+      security: []
+      description: >
+        Completes the sign-in or link started by an authorize request. The
+        `state` is single-use: the callback that claims it is the only one that
+        can, so a replayed callback is refused. A browser is redirected to
+        `returnTo` with a one-time `oidc_code` (and `oidc_linked=1` for a link)
+        or `oidc_error=<slug>` on failure; an API client receives the session
+        directly. The session token is never carried in a URL.
+      parameters:
+        - name: code
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: error
+          in: query
+          schema: { type: string }
+      responses:
+        '201':
+          description: The session that was created, its owner, and its one-time token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '202':
+          description: >
+            An API client signed in an account with MFA on: the provider vouched
+            for the identity, and the second factor is still to come.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '200':
+          description: The identity that was linked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [linked]
+                properties:
+                  linked: { type: boolean }
+                  issuer: { type: string }
+                  subject: { type: string }
+        '302':
+          description: A browser is redirected back to `returnTo`
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /auth/oidc/exchange:
+    post:
+      summary: Trade a browser's one-time code for a session
+      operationId: oidcExchange
+      tags: [Open]
+      security: []
+      description: >
+        The browser cannot read an Authorization header off a redirect, so the
+        callback sends it back with a one-time `code`; this trades that code for
+        the session. The code is consumed on first use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          headers:
+            Location:
+              description: The new session's own URL
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '202':
+          description: The provider vouched for the account, but it has MFA on and the second factor is still to come
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /auth/oidc/link:
+    post:
+      summary: Link the identity provider to the signed-in account
+      operationId: oidcLink
+      tags: [Userspace]
+      description: >
+        Starts an authorize round-trip whose callback links the provider
+        identity to the caller's account. Session-authenticated rather than open
+        to automation tokens: linking is a lasting change to how the account can
+        be signed into, which a credential should not be able to make.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                returnTo: { type: string }
+      responses:
+        '200':
+          description: The authorization URL to send the browser to
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/oidc/identities:
+    get:
+      summary: List the account's linked identities
+      operationId: listOidcIdentities
+      tags: [Userspace]
+      description: >
+        Not gated on the provider still being configured: an operator who turns
+        the provider off leaves accounts needing a way to see and remove what
+        they had linked.
+      responses:
+        '200':
+          description: The caller's linked identities
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/OidcIdentity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/oidc/identities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[0-9]+$' }
+        description: Identity id, as a string so it survives a JSON parser that keeps numbers exact.
+    delete:
+      summary: Remove a linked identity from the account
+      operationId: deleteOidcIdentity
+      tags: [Userspace]
+      description: >
+        Removing the last way into an account is refused with a `409`: a
+        password that still works counts as a way in, but one the instance no
+        longer accepts does not.
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # --------------------------------------- Device sign-in for CLI clients
+  /auth/device/code:
+    post:
+      summary: Ask for a code a CLI can be approved with
+      operationId: createDeviceCode
+      tags: [Open]
+      security: []
+      description: >
+        The first step of RFC 8628. The response carries a long `deviceCode` the
+        client polls with, and a short `userCode` a person types into the
+        approval page. Nothing is signed in until that page approves the code,
+        so the client never handles a password, an OIDC redirect, or a WebAuthn
+        ceremony. `clientName` is shown on the page so the person can see what
+        is asking. The flow is off unless `auth.device.verificationUrl` is
+        configured, and answers `404` when it is not.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                clientName:
+                  type: string
+                  maxLength: 80
+                  description: Shown on the approval page; defaults to "Unnamed client".
+      responses:
+        '200':
+          description: The two codes and where to approve them
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceAuthorization' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/device/lookup:
+    post:
+      summary: Show what a pending code is asking to sign in
+      operationId: lookupDeviceCode
+      tags: [Userspace]
+      description: >
+        What the approval page reads before it renders its button: the client
+        name and whether the code is still open. A code approved by another
+        account is not visible here, so this cannot be used to watch somebody
+        else's sign-in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUserCode' }
+      responses:
+        '200':
+          description: The pending code
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceCodeState' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/device/approve:
+    post:
+      summary: Approve a code the client is showing
+      operationId: approveDeviceCode
+      tags: [Userspace]
+      description: >
+        Binds the pending sign-in to the caller's account. Session-authenticated
+        rather than open to automation tokens, because it mints a credential
+        for the account. Approval does not issue the session — the client's
+        next poll does — so a code can still be declined from the same page
+        before it is collected. Approving the same code twice from the same
+        account answers `200` both times, which is what a page reload looks
+        like; a second account gets `409`. Requires a session authenticated
+        within `auth.reauthWindowMinutes` of sign-in or passkey reauthentication;
+        an older session receives `403`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUserCode' }
+      responses:
+        '200':
+          description: The code is approved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [approved, clientName]
+                properties:
+                  approved: { type: boolean }
+                  clientName: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/device/deny:
+    post:
+      summary: Decline a code the client is showing
+      operationId: denyDeviceCode
+      tags: [Userspace]
+      description: >
+        Ends the pending sign-in, including one that was approved but not yet
+        collected: the client has no session until it polls, so declining
+        before that poll takes the sign-in back.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUserCode' }
+      responses:
+        '200':
+          description: The code is declined
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [denied]
+                properties:
+                  denied: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/device/token:
+    post:
+      summary: Poll for the session behind an approved code
+      operationId: pollDeviceCode
+      tags: [Open]
+      security: []
+      description: >
+        Polled with the `deviceCode` from `/auth/device/code`, no faster than
+        the `interval` it was issued with. Until the page approves the code the
+        answer is `400` with `error: authorization_pending`; a poll inside the
+        interval answers `slow_down`; a declined code answers `access_denied`;
+        an unknown or expired one answers `expired_token`. The first poll after
+        approval answers `200` with the same body as `POST /sessions` and
+        consumes the code, so a replayed device code cannot mint a second
+        session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceCode]
+              properties:
+                deviceCode: { type: string }
+      responses:
+        '200':
+          description: The approved session, its owner, and its one-time token
+          headers:
+            Location:
+              description: The new session's own URL
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400':
+          description: The sign-in is not ready, was declined, or the code is spent
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  # -------------------------------------------------- Multi-factor auth
+  /auth/mfa:
+    get:
+      summary: The account's MFA state
+      operationId: getMfaState
+      tags: [Userspace]
+      description: >
+        Whether MFA is on for the account, the passkeys it has registered, and
+        how many backup codes are left. Session-authenticated: a passkey is
+        something only the person at the keyboard can add, and an automation
+        token cannot.
+      responses:
+        '200':
+          description: The account's MFA state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Passkeys' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /auth/mfa/passkeys/options:
+    post:
+      summary: Start registering a passkey
+      operationId: mfaRegistrationOptions
+      tags: [Userspace]
+      description: >
+        Hands out the WebAuthn options for a registration ceremony. Requires
+        a recently authenticated session. One ceremony per account is kept:
+        a fresh call replaces whatever the last one left.
+      responses:
+        '200':
+          description: Options for `navigator.credentials.create`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options]
+                properties:
+                  options: { $ref: '#/components/schemas/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /auth/mfa/passkeys:
+    post:
+      summary: Register a passkey
+      operationId: mfaRegisterPasskey
+      tags: [Userspace]
+      description: >
+        Verifies the registration ceremony started by
+        `POST /auth/mfa/passkeys/options` and stores the credential. The first
+        passkey turns MFA on and mints ten backup codes in the same write, so
+        MFA never comes on without a way back in; those codes are in this
+        response and nowhere else. A later passkey leaves the codes alone and
+        returns `backupCodes: null`. Requires a recently authenticated session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [response]
+              properties:
+                response:
+                  type: object
+                  description: The `PublicKeyCredential` from `navigator.credentials.create`.
+                  additionalProperties: true
+                label: { type: string, maxLength: 80, description: A name for the passkey. }
+      responses:
+        '201':
+          description: The stored passkey, and backup codes when this turned MFA on
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [passkey, backupCodes]
+                properties:
+                  passkey: { $ref: '#/components/schemas/Passkey' }
+                  backupCodes:
+                    type: ['array', 'null']
+                    items: { type: string }
+                    description: The ten new codes, only when this passkey turned MFA on.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/mfa/passkeys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[0-9]+$' }
+        description: Passkey id, as a string so it survives a JSON parser that keeps numbers exact.
+    patch:
+      summary: Rename a passkey
+      operationId: renamePasskey
+      tags: [Userspace]
+      description: Changes the label only; the credential itself is untouched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, maxLength: 80 }
+      responses:
+        '200':
+          description: The renamed passkey
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Passkey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      summary: Remove a passkey
+      operationId: deletePasskey
+      tags: [Userspace]
+      description: >
+        Removing the last passkey turns MFA off and discards the backup codes
+        and any sign-in waiting on its second factor. Needs a recent sign-in
+        (within `auth.reauthWindowMinutes`), because a session stolen out of a
+        browser should not be able to strip the account's second factor.
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /auth/mfa/backup-codes:
+    post:
+      summary: Replace the account's backup codes
+      operationId: regenerateBackupCodes
+      tags: [Userspace]
+      description: >
+        Replaces every backup code with ten new ones; the old set stops working
+        immediately. Needs a recent sign-in, for the same reason removing a
+        passkey does.
+      responses:
+        '201':
+          description: The new codes, shown only here
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupCodes' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /auth/mfa/options:
+    post:
+      summary: Start finishing a sign-in that stopped at the second factor
+      operationId: mfaSigninOptions
+      tags: [Open]
+      security: []
+      description: >
+        Hands out the WebAuthn options for the passkeys of the account waiting
+        to sign in. Anonymous: the `mfaToken` from the sign-in is what names the
+        account. The challenge it returns is answered by
+        `POST /auth/mfa/verify`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken]
+              properties:
+                mfaToken: { type: string }
+      responses:
+        '200':
+          description: Options for `navigator.credentials.get`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options]
+                properties:
+                  options: { $ref: '#/components/schemas/WebAuthnOptions' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/mfa/verify:
+    post:
+      summary: Finish a sign-in with a passkey or a backup code
+      operationId: mfaVerify
+      tags: [Open]
+      security: []
+      description: >
+        Completes the sign-in the `mfaToken` claims, with either a passkey
+        assertion or a backup code (not both). A backup code is spent as it is
+        checked, so it works exactly once; a passkey assertion answers the
+        challenge from `POST /auth/mfa/options`, which is consumed with it.
+        Failed attempts count against the same login rate limit as a wrong
+        password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken]
+              properties:
+                mfaToken: { type: string }
+                response:
+                  type: object
+                  description: The `PublicKeyCredential` from `navigator.credentials.get`.
+                  additionalProperties: true
+                backupCode:
+                  type: string
+                  description: A backup code, in any case and with or without the grouping.
+      responses:
+        '201':
+          description: The session that was created, its owner, and its one-time token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/mfa/reauth/options:
+    post:
+      summary: Start refreshing a session's authentication
+      operationId: mfaReauthOptions
+      tags: [Userspace]
+      description: >
+        Hands out the WebAuthn options for a passkey step-up on the current
+        session, so an account whose session has aged past the recent-auth
+        window can satisfy the check without signing in again. A `403` when the
+        account has no passkey to verify with.
+      responses:
+        '200':
+          description: Options for `navigator.credentials.get`
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [options]
+                properties:
+                  options: { $ref: '#/components/schemas/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /auth/mfa/reauth:
+    post:
+      summary: Refresh the session's authentication with a passkey
+      operationId: mfaReauth
+      tags: [Userspace]
+      description: >
+        Verifies the assertion for `POST /auth/mfa/reauth/options` and marks the
+        current session as freshly authenticated, which is what the recent-auth
+        checks read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [response]
+              properties:
+                response:
+                  type: object
+                  description: The `PublicKeyCredential` from `navigator.credentials.get`.
+                  additionalProperties: true
+      responses:
+        '200':
+          description: When the session now counts as authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reauthenticatedAt]
+                properties:
+                  reauthenticatedAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ------------------------------------------------ Account email address
+  /auth/email:
+    get:
+      summary: The address this account's email sign-in uses
+      operationId: getAccountEmail
+      tags: [Userspace]
+      description: >
+        `email` is the address the mail-backed sign-in methods hold for this
+        account, or `null` when it has none (a password-only account, or one
+        created through the identity provider). `changeable` is false when there
+        is no address to move or the instance has no mail driver to send a
+        confirmation code with.
+      responses:
+        '200':
+          description: The account's email address, if it has one
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email, changeable]
+                properties:
+                  email: { type: ['string', 'null'], format: email }
+                  changeable: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/email/change:
+    post:
+      summary: Ask for a confirmation code at a new address
+      operationId: requestEmailChange
+      tags: [Userspace]
+      description: >
+        Mails a six-digit code to the new address. Nothing about the account
+        changes until `POST /auth/email/confirm` redeems it. Asking again
+        retires the code that is still on its way. An address another account
+        already signs in with is a `409`; without a mail driver this is a `403`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: The code was handed to the mail chain
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sent]
+                properties:
+                  sent: { type: boolean, enum: [true] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/email/confirm:
+    post:
+      summary: Move the account's email sign-in to the new address
+      operationId: confirmEmailChange
+      tags: [Userspace]
+      description: >
+        Claims the code once and re-keys every mail-backed identity the account
+        holds to the new address, so links and codes now go there. The code is
+        bound to the account that asked for it and to the address it was sent
+        to; a code for another address is refused, as is one already spent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: The address the account now uses
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email]
+                properties:
+                  email: { type: string, format: email }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   # ---------------------------------------------- Sessions & automation tokens
+  /auth/email-otp:
+    post:
+      summary: Mail a sign-in code
+      operationId: requestEmailOtp
+      tags: [Open]
+      security: []
+      description: >
+        Mails a six-digit code to the address. The answer is the same whether or
+        not an address has an account, so this cannot be used to test which
+        addresses are registered. Asking again retires the code that is still
+        on its way. The method has to be in `auth.methods` and the instance
+        needs a mail driver; otherwise this is a `404`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: The code was handed to the mail chain
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sent]
+                properties:
+                  sent: { type: boolean, enum: [true] }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/email-otp/verify:
+    post:
+      summary: Sign in with an emailed code
+      operationId: verifyEmailOtp
+      tags: [Open]
+      security: []
+      description: >
+        Claims the code once and returns the session. A code belongs to the
+        address it was sent to; presenting it for another address is refused,
+        and the same code cannot open a second session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, user, token]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '202':
+          description: The address was proven, but the account has MFA on
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/magic-link:
+    post:
+      summary: Send a sign-in link
+      operationId: requestMagicLink
+      tags: [Open]
+      security: []
+      description: >
+        Mails a single-use sign-in link to the address. The answer is the same
+        whether or not an address has an account, and the message is the same
+        too, so this cannot be used to test which addresses are registered.
+        The method has to be in `auth.methods` and the instance needs a mail
+        driver; otherwise this is a `404`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                returnTo:
+                  type: string
+                  description: >
+                    Where the browser goes after the link proves the address,
+                    usually the web client. A path on this instance, or an
+                    absolute URL naming an origin in `cors.allowedOrigins`;
+                    anything else is refused with a `422`.
+      responses:
+        '202':
+          description: The link was handed to the mail chain
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sent]
+                properties:
+                  sent: { type: boolean, enum: [true] }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/magic-link/verify:
+    get:
+      summary: Complete a sign-in link
+      operationId: verifyMagicLink
+      tags: [Open]
+      security: []
+      description: >
+        The link's own target. An `Accept: text/html` request is redirected to
+        `returnTo` with a one-time `magic_link_code`, which the client trades
+        for a session so the token never lands in a URL. Any other client gets
+        the session directly. A link works once.
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+        - name: returnTo
+          in: query
+          schema: { type: string }
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, user, token]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '202':
+          description: The address was proven, but the account has MFA on
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/magic-link/complete:
+    post:
+      summary: Complete a sign-in link without a browser
+      operationId: completeMagicLink
+      tags: [Open]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, user, token]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '202':
+          description: The address was proven, but the account has MFA on
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/magic-link/exchange:
+    post:
+      summary: Trade the browser's one-time code for a session
+      operationId: exchangeMagicLink
+      tags: [Open]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, user, token]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '202':
+          description: The account has MFA on and the second factor is still to come
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/passkey/options:
+    post:
+      summary: Start a passkey sign-in
+      operationId: passkeySigninOptions
+      tags: [Open]
+      security: []
+      description: >
+        Hands out a WebAuthn challenge for the account's passkeys. The answer is
+        the same for a namespace with no account, so this does not announce
+        which accounts exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [namespace]
+              properties:
+                namespace: { $ref: '#/components/schemas/Namespace' }
+      responses:
+        '200':
+          description: The challenge and the token that claims it
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [flowToken, options]
+                properties:
+                  flowToken: { type: string }
+                  options: { type: object, additionalProperties: true }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/passkey/verify:
+    post:
+      summary: Finish a passkey sign-in
+      operationId: passkeySigninVerify
+      tags: [Open]
+      security: []
+      description: >
+        Verifies the assertion and creates the session. The flow token is spent
+        by the same request, so a captured assertion cannot sign in twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flowToken, response]
+              properties:
+                flowToken: { type: string }
+                response:
+                  type: object
+                  description: The `PublicKeyCredential` from `navigator.credentials.get`.
+                  additionalProperties: true
+      responses:
+        '201':
+          description: The session, its owner, and its one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, user, token]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/magic-password/register:
+    post:
+      summary: Register an account with a generated password
+      operationId: registerMagicPassword
+      tags: [Open]
+      security: []
+      description: >
+        Creates the account, generates its password, and returns it once in the
+        response. The address is the identifier the account signs in with, and
+        the email in `passwordShownOnce` is the only place the password appears.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '201':
+          description: The account, its session, and the password to keep
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, session, token, password, passwordShownOnce]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  session: { $ref: '#/components/schemas/Session' }
+                  token: { type: string }
+                  password: { type: string, writeOnly: true }
+                  passwordShownOnce: { type: boolean, enum: [true] }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/magic-password/rotate:
+    post:
+      summary: Replace the account's generated password
+      operationId: rotateMagicPassword
+      tags: [Userspace]
+      description: Requires a recently authenticated session. The new password is shown once.
+      responses:
+        '201':
+          description: The new password
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [password, passwordShownOnce]
+                properties:
+                  password: { type: string, writeOnly: true }
+                  passwordShownOnce: { type: boolean, enum: [true] }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /sessions:
     post:
       summary: Sign in
@@ -102,20 +1271,26 @@ paths:
       security: []
       description: >
         Signing in is creating a session, so the credentials ride in the body
-        rather than a namespace in the path. The plaintext `token` is shown
+        rather than a namespace in the path.         The plaintext `token` is shown
         once here and never again: only its hash is stored. A namespace that
         belongs to an organization is a `403` here rather than a bad password:
         an organization has no credentials of its own, and is acted for by its
-        owners instead.
+        owners instead. When the instance is in identity-provider-only mode
+        (`auth.oidc.required`), password sign-in is refused with a `403`.
+
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [namespace, password]
+              required: [password]
+              description: >
+                A namespace and password, or -- when the magic-password method
+                is on -- an address and the password generated for it.
               properties:
                 namespace: { $ref: '#/components/schemas/Namespace' }
+                email: { type: string, format: email }
                 password: { type: string, writeOnly: true }
       responses:
         '201':
@@ -133,6 +1308,11 @@ paths:
                   session: { $ref: '#/components/schemas/Session' }
                   user: { $ref: '#/components/schemas/User' }
                   token: { type: string }
+        '202':
+          description: The password was right, but the account has MFA on and the second factor is still to come
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaRequired' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -146,6 +1326,7 @@ paths:
           in: query
           schema: { $ref: '#/components/schemas/Namespace' }
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -212,6 +1393,7 @@ paths:
           in: query
           schema: { $ref: '#/components/schemas/Namespace' }
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -234,7 +1416,13 @@ paths:
       summary: Create an automation token
       operationId: createAutomationToken
       tags: [Userspace]
-      description: Needs the `manage:tokens` scope. Every scope requested must be one the caller already holds. The `token` secret is returned exactly once, in this response.
+      description: >
+        Needs the `manage:tokens` scope. Every scope requested must be one the
+        caller already holds. The `token` secret is returned exactly once, in
+        this response, which is why a retry needs `Idempotency-Key`: a replay
+        answers with the same secret instead of creating a second token.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -253,11 +1441,14 @@ paths:
       responses:
         '201':
           description: Created
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AutomationTokenCreated' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
 
   /tokens/current:
@@ -332,7 +1523,9 @@ paths:
         Creating the account and signing in are the same act, so the response
         carries a session too: the new user, the session opened for it, and the
         plaintext token to use for both. The first account ever created becomes
-        an admin.
+        an admin. When the instance is in identity-provider-only mode
+        (`auth.oidc.required`), registration here is refused with a `403` and
+        accounts are made by signing in through the provider instead.
       requestBody:
         required: true
         content:
@@ -370,6 +1563,7 @@ paths:
       security: []
       parameters:
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -424,6 +1618,12 @@ paths:
         profile or role edit is a `403`, so acceptance cannot be used to carry
         an edit past the gate. A version other than the one `GET /terms`
         reports is a `422`.
+
+        The account is one document behind two addresses: the revision read
+        from `GET /me` is the one this edit names, and `GET /users/{namespace}`
+        serves the same validator.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -475,13 +1675,17 @@ paths:
       responses:
         '200':
           description: Updated
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
       summary: Delete an account
       operationId: deleteUser
@@ -494,6 +1698,135 @@ paths:
         cascade would leave the organization unmanageable.
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /users/{namespace}/webhooks:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    get:
+      summary: List an account's webhooks
+      operationId: listAccountWebhooks
+      tags: [Userspace]
+      description: >
+        The account itself, or an admin. Secrets are never returned here; they
+        are returned once, by the create call.
+      responses:
+        '200':
+          description: The namespace-wide webhooks
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Webhook' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Create an account webhook
+      operationId: createAccountWebhook
+      tags: [Userspace]
+      description: >
+        The account itself, or an admin. A webhook on an account watches every
+        extension in its namespace instead of one `id`, so a publish, yank,
+        deprecation, rejection or owner change under `@{namespace}` reaches it
+        without registering anything per extension. The per-extension webhooks
+        at `/@{namespace}/{id}/webhooks` are a separate collection and are
+        unaffected; the two do not see each other. A namespace that belongs to
+        an organization is a `403`; manage its webhooks at
+        `/orgs/{namespace}/webhooks`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookInput' }
+      responses:
+        '201':
+          description: Created, with the signing secret returned once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /users/{namespace}/webhooks/{webhookId}:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+    delete:
+      summary: Delete an account webhook
+      operationId: deleteAccountWebhook
+      tags: [Userspace]
+      description: >
+        The account itself, or an admin. An id belonging to a per-extension
+        webhook is a `404` here, since the two collections do not overlap.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{namespace}/webhooks/{webhookId}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+    get:
+      summary: List an account webhook's recent deliveries
+      operationId: listAccountWebhookDeliveries
+      tags: [Userspace]
+      description: >
+        The account itself, or an admin. Newest first, cursor-paged. The signed
+        body is not returned; `payload` is the object it was built from.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WebhookDelivery' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{namespace}/webhooks/{webhookId}/deliveries/{deliveryId}/redeliver:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+      - $ref: '#/components/parameters/DeliveryIdPath'
+    post:
+      summary: Redeliver an account webhook's delivery
+      operationId: redeliverAccountWebhook
+      tags: [Userspace]
+      description: >
+        The account itself, or an admin. Queues the same signed body as another
+        delivery instead of resetting the original, so the attempt it re-runs
+        stays in the log. A delivery still queued or in flight is a `409`.
+      responses:
+        '202':
+          description: Queued for delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -700,6 +2033,8 @@ paths:
         The namespace is shared with accounts, so a name already used by an
         account is a `409`. Creation is rate limited like a signup and needs the
         current Terms of Service accepted, like a publish.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -724,6 +2059,7 @@ paths:
             Location:
               description: The new organization's own URL
               schema: { type: string }
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Organization' }
@@ -739,6 +2075,7 @@ paths:
       security: []
       parameters:
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -778,6 +2115,8 @@ paths:
         Any owner, or an admin. Only the profile fields exist here: an
         organization has no password, no role and no terms of its own, and its
         members are changed through `/orgs/{namespace}/owners`.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -797,13 +2136,17 @@ paths:
       responses:
         '200':
           description: Updated
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Organization' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
       summary: Delete an organization
       operationId: deleteOrganization
@@ -890,6 +2233,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/LicenseFilter'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -963,10 +2307,7 @@ paths:
   /orgs/{namespace}/webhooks/{webhookId}:
     parameters:
       - $ref: '#/components/parameters/NamespacePath'
-      - name: webhookId
-        in: path
-        required: true
-        schema: { type: integer }
+      - $ref: '#/components/parameters/WebhookIdPath'
     delete:
       summary: Delete an organization webhook
       operationId: deleteOrganizationWebhook
@@ -979,6 +2320,64 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /orgs/{namespace}/webhooks/{webhookId}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+    get:
+      summary: List an organization webhook's recent deliveries
+      operationId: listOrganizationWebhookDeliveries
+      tags: [Userspace]
+      description: >
+        Any owner, or an admin. Newest first, cursor-paged. The signed body is
+        not returned; `payload` is the object it was built from.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WebhookDelivery' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orgs/{namespace}/webhooks/{webhookId}/deliveries/{deliveryId}/redeliver:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+      - $ref: '#/components/parameters/DeliveryIdPath'
+    post:
+      summary: Redeliver an organization webhook's delivery
+      operationId: redeliverOrganizationWebhook
+      tags: [Userspace]
+      description: >
+        Any owner, or an admin. Queues the same signed body as another delivery
+        instead of resetting the original, so the attempt it re-runs stays in
+        the log. A delivery still queued or in flight is a `409`.
+      responses:
+        '202':
+          description: Queued for delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /orgs/{namespace}/avatar:
     parameters:
@@ -1118,6 +2517,7 @@ paths:
           schema: { type: string, enum: ['true'] }
           description: Only return unread notifications. Any other value is rejected.
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1199,6 +2599,122 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ------------------------------------------------------------- Reports
+  /reports:
+    post:
+      summary: Report an account, organization, or extension
+      operationId: createReport
+      tags: [Userspace]
+      description: >
+        Files a report for a moderator to read. The target has to be something
+        that is there: an account that exists, an organization that exists, or
+        an extension that was published, so a report is always about something
+        a reviewer could act on. A target of the wrong kind is a `404` rather
+        than a report filed against something else.
+
+        The report names its target by address, so it outlives what it is
+        about: deleting the reported account or the reported extension leaves
+        the report standing, still saying what was reported. An extension that
+        has been transferred is reported against the address it lives at now,
+        and a report filed against the old address follows it there.
+
+        The report is linked to the target as well as naming it, and the link
+        is what the database checks: it is cleared, and only the link is
+        cleared, when the target goes away. Nothing about a report stands in
+        the way of the account or extension it is about being deleted.
+
+        A report is a queue entry and nothing more. Filing one never suspends,
+        hides, or removes anything, and no number of reports does either: what
+        happens to what was reported is a moderator's decision, taken by hand
+        through `PATCH /admin/reports/{id}`.
+
+        One open report per reporter per target. A second one while the first
+        is still open is a `409`; once the first has been decided, a fresh one
+        may be filed. Submissions are rate limited per reporter.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, targetNamespace, reason, description]
+              properties:
+                targetType:
+                  $ref: '#/components/schemas/ReportTargetType'
+                targetNamespace:
+                  $ref: '#/components/schemas/Namespace'
+                targetExtensionId:
+                  $ref: '#/components/schemas/ExtensionId'
+                reason: { $ref: '#/components/schemas/ReportReason' }
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: What the reporter saw, in their own words.
+      responses:
+        '201':
+          description: The report was filed
+          headers:
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportOwnerView' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    get:
+      summary: List the caller's own reports
+      operationId: listOwnReports
+      tags: [Userspace]
+      description: >
+        The caller's own reports, newest first. Each one is the reduced view:
+        it says what was reported and whether the report has been decided, but
+        not what the report said, who reviewed it, or why it was decided. Those
+        are the reviewer's business. A reviewer reads the queue through
+        `GET /admin/reports`.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated reports
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReportOwnerView' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+    get:
+      summary: Read one of the caller's own reports
+      operationId: getOwnReport
+      tags: [Userspace]
+      description: >
+        The same reduced view the list gives. A report filed by another account
+        is a `404`, so the call does not reveal that it exists.
+      responses:
+        '200':
+          description: The report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportOwnerView' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------------------------------------- Discovery
   /extensions:
     get:
@@ -1210,12 +2726,16 @@ paths:
         Latest published version per `(namespace, id)`. Defaults to
         newest-first; `sort` changes the ranking. `namespace` narrows the
         listing to one account or organization, which is also what
-        `GET /orgs/{namespace}/extensions` does.
+        `GET /orgs/{namespace}/extensions` does. `q` filters on id, name,
+        namespace, and description, case- and diacritic-insensitively; it is
+        the same filter `/search` applies, and the supported way to search.
       parameters:
+        - $ref: '#/components/parameters/TextQuery'
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/LicenseFilter'
         - $ref: '#/components/parameters/NamespaceFilter'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1235,11 +2755,17 @@ paths:
 
   /search:
     get:
-      summary: Search published extensions
+      summary: Search published extensions (deprecated)
       operationId: searchExtensions
       tags: [Open]
       security: []
-      description: Matches id, name, namespace, and description. Omit `query` for a recency-ordered fallback.
+      deprecated: true
+      description: >
+        Superseded by `GET /extensions?q=`, which applies the same filter to the
+        same listing. This operation still answers and sends `Deprecation: true`,
+        a `Sunset` date, and a `Link` with `rel="successor-version"`; it goes
+        away in 2.0.0. Matches id, name, namespace, and description. Omit
+        `query` for a recency-ordered fallback.
       parameters:
         - name: query
           in: query
@@ -1247,6 +2773,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/LicenseFilter'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1398,6 +2925,261 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LegalDocument' }
 
+  /admin/drivers:
+    get:
+      summary: List the driver kinds, their instances, and what could run
+      operationId: listDrivers
+      tags: [Adminspace]
+      description: >
+        The instance's driver mixture. Secret options are masked to `{ set: true }`.
+        An admin token needs the `admin` scope on top of the role.
+      responses:
+        '200':
+          description: One entry per kind, plus the revision each was built from
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [drivers, revision]
+                properties:
+                  drivers: { type: object, additionalProperties: true }
+                  revision: { type: object, additionalProperties: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/drivers/{kind}:
+    put:
+      summary: Replace one kind's instances
+      operationId: replaceDrivers
+      tags: [Adminspace]
+      description: >
+        Validates the mixture against the rest of the configuration, probes any
+        driver that can be probed, writes the change to `config.yaml`, and swaps
+        the live instances in. A change that would affect existing accounts --
+        removing a method with linked identities, or changing the passkey
+        relying party -- is a `409` until `confirm: true` is sent. `?dryRun=1`
+        returns the same numbers without writing.
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string }
+        - name: dryRun
+          in: query
+          schema: { type: string, enum: ['1'] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instances]
+              properties:
+                instances:
+                  type: array
+                  items:
+                    type: object
+                    required: [driver]
+                    properties:
+                      id: { type: string }
+                      driver: { type: string }
+                      options: { type: object, additionalProperties: true }
+                confirm: { type: boolean }
+      responses:
+        '200':
+          description: The instances as they now stand
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [kind, applied, revision]
+                properties:
+                  kind: { type: string }
+                  applied: { type: string, enum: [live, restart] }
+                  revision: { type: integer }
+                  instances: { type: array, items: { type: object, additionalProperties: true } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /admin/mail/outbox:
+    get:
+      summary: List outbound mail and how each delivery went
+      operationId: listMailOutbox
+      tags: [Adminspace]
+      description: >
+        Every outbound message is written to the outbox before a provider sees
+        it, so a refused or failed delivery is a row rather than a log line.
+        Newest first. The message body is not included here; fetch one entry to
+        read it.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, sent, failed] }
+        - name: purpose
+          in: query
+          schema: { type: string }
+          description: 'Why it was sent, e.g. `magic-link`.'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated outbox entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/MailOutboxEntry' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /admin/mail/outbox/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Read one outbound message, body included
+      operationId: getMailOutboxEntry
+      tags: [Adminspace]
+      description: >
+        The body is exactly what was sent, so for a sign-in notice it includes
+        the one-time link. It is kept out of the collection for that reason.
+      responses:
+        '200':
+          description: The message and its delivery outcome
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MailOutboxEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/mail/outbox/{id}/retry:
+    post:
+      summary: Send a message from the outbox again
+      operationId: retryMailOutboxEntry
+      tags: [Adminspace]
+      description: >
+        Sends the stored message down the mail chain again and records the
+        attempt on the same row, so one message stays one entry. A message that
+        was already delivered is a `409`: sending it again would duplicate it at
+        the recipient. A message the provider refuses answers `502` with the
+        provider's own words, and the row keeps the failure.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: The message as it now stands, plus what the send returned
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/MailOutboxEntry'
+                  - type: object
+                    properties:
+                      result: { type: ['object', 'null'], additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /admin/system:
+    get:
+      summary: Describe the running process
+      operationId: getSystem
+      tags: [Adminspace]
+      responses:
+        '200':
+          description: Process facts and the current driver revisions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [supervised, startedAt, configPath, driversRevision, lastReload]
+                properties:
+                  supervised: { type: boolean }
+                  startedAt: { type: string, format: date-time }
+                  configPath: { type: ['string', 'null'] }
+                  driversRevision: { type: object, additionalProperties: { type: integer } }
+                  lastReload: { type: ['string', 'null'], format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/system/reload:
+    post:
+      summary: Re-read the configuration and rebuild what can be rebuilt
+      operationId: reloadSystem
+      tags: [Adminspace]
+      description: >
+        For a hand-edited file or a shared volume. The listening socket never
+        closes; the next request reaches the rebuilt app. A changed database URL
+        needs a restart instead.
+      responses:
+        '200':
+          description: The rebuild happened
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reloaded]
+                properties:
+                  reloaded: { type: boolean }
+                  driversRevision: { type: object, additionalProperties: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/system/restart:
+    post:
+      summary: Drain and exit so a supervisor can start the process again
+      operationId: restartSystem
+      tags: [Adminspace]
+      description: >
+        Answers `202` and then stops accepting connections, drains for the
+        configured window, closes the drivers and the pool, and exits 0. Refused
+        with a `409` unless the process is supervised: exiting unsupervised ends
+        the service rather than restarting it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm: { type: string, enum: [restart] }
+      responses:
+        '202':
+          description: The process is draining
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [restarting]
+                properties:
+                  restarting: { type: boolean, enum: [true] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
   /admin/terms:
     patch:
       summary: Publish a new Terms of Service version
@@ -1485,7 +3267,17 @@ paths:
       operationId: getExtension
       tags: [Open]
       security: []
-      description: Latest metadata plus every published version (SemVer descending). 404 if nothing is published yet.
+      description: >
+        Latest metadata plus every published version (SemVer descending). 404
+        if nothing is published yet.
+
+        `include=owner,latestVersion` folds those two relations in, so a page
+        that renders the publisher and the install line needs one request: the
+        owner is reduced to `{namespace, displayName, kind}`, and
+        `latestVersion` is the full version the listing treats as current. A
+        relation this endpoint does not offer is a `422`.
+      parameters:
+        - $ref: '#/components/parameters/Include'
       responses:
         '200':
           description: Extension found
@@ -1493,6 +3285,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ExtensionDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
     delete:
       summary: Delete an extension and all of its versions
       operationId: deleteExtension
@@ -1518,6 +3311,11 @@ paths:
         SemVer first, so the first entry is the one a range resolution
         returns. Yanked versions are excluded, and a range that matches
         nothing is an empty list rather than a `404`.
+
+        An owner or an admin may instead name a `status` to read the
+        versions in that state -- most often `pending` for the build awaiting
+        review, or `rejected` for one that was turned down, whose
+        `rejectionReason` then rides along on the version.
       parameters:
         - name: range
           in: query
@@ -1526,7 +3324,16 @@ paths:
             A SemVer range such as `^1.2` or `>=2.0.0 <3`. Omit it for every
             version. A prerelease satisfies a range only when the range names
             one or is `*`.
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [staging, pending, published, rejected, yanked, deprecated]
+          description: >
+            Return only versions in this state. Owner or admin only, because
+            the states outside the default pair are unpublished.
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -1542,6 +3349,8 @@ paths:
                     type: array
                     items: { $ref: '#/components/schemas/VersionInfo' }
                   _links: { $ref: '#/components/schemas/PageLinks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
     post:
@@ -1549,18 +3358,26 @@ paths:
       operationId: publishVersion
       tags: [Userspace]
       description: >
-        Uploads a gzipped tarball of the Twext project (`twext.yml`, sources,
+        Uploads a gzipped tarball of the extension project (`extend.yml`, sources,
         `package.json` with `"type": "module"`). The server validates the
         manifest against the path, compiles the project in a sandboxed child
         process (no network, bounded filesystem/memory/time), and stages the
-        result for moderation; the build log rides along in the queue entry.
+        result for moderation; the build log and any static-analysis `warnings`
+        ride along in the queue entry.
         A caller's first-ever publish is held as `pending`; once an admin
         approves it, later publishes go straight to `published`. Only one
         `pending`/`staging` version per owner may exist at a time. The
-        version in `twext.yml` must be valid SemVer strictly greater than
+        version in `extend.yml` must be valid SemVer strictly greater than
         the current highest version for this package. Requires the `publish`
         scope (sessions satisfy this implicitly). A legacy JSON body gets
         `415`.
+
+        A publish is the request most likely to time out after the registry has
+        already done the work, so `Idempotency-Key` is what makes retrying it
+        safe: the replay answers the first status and body rather than a second
+        `409`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1576,6 +3393,9 @@ paths:
       responses:
         '201':
           description: Version created (status reflects moderation state); includes the build log and a source URL
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
@@ -2009,7 +3829,8 @@ paths:
       tags: [Userspace]
       description: >
         Owner or admin. The `secret` is returned exactly once; deliveries are
-        signed with `X-TwextHub-Signature` (HMAC-SHA256 over the raw body).
+        signed with `X-Triflare-Marketplace-Signature` (HMAC-SHA256 over the raw
+        body).
         URLs resolving to private or loopback addresses are rejected.
         Each delivery body carries a pre-rendered `message`, repeated under
         `content` and `text` so a Discord or Slack endpoint accepts it as sent.
@@ -2031,10 +3852,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/NamespacePath'
       - $ref: '#/components/parameters/ExtensionIdPath'
-      - name: webhookId
-        in: path
-        required: true
-        schema: { type: integer }
+      - $ref: '#/components/parameters/WebhookIdPath'
     delete:
       summary: Delete a webhook
       operationId: deleteWebhook
@@ -2044,6 +3862,64 @@ paths:
         '204': { description: Deleted }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /@{namespace}/{id}/webhooks/{webhookId}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/ExtensionIdPath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+    get:
+      summary: List a webhook's recent deliveries
+      operationId: listWebhookDeliveries
+      tags: [Userspace]
+      description: >
+        Owner or admin. Newest first, cursor-paged. The signed body is not
+        returned; `payload` is the object it was built from.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WebhookDelivery' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /@{namespace}/{id}/webhooks/{webhookId}/deliveries/{deliveryId}/redeliver:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+      - $ref: '#/components/parameters/ExtensionIdPath'
+      - $ref: '#/components/parameters/WebhookIdPath'
+      - $ref: '#/components/parameters/DeliveryIdPath'
+    post:
+      summary: Redeliver a delivery
+      operationId: redeliverWebhook
+      tags: [Userspace]
+      description: >
+        Owner or admin. Queues the same signed body as another delivery instead
+        of resetting the original, so the attempt it re-runs stays in the log.
+        A delivery still queued or in flight is a `409`.
+      responses:
+        '202':
+          description: Queued for delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /@{namespace}/{id}/versions/{version}:
     parameters:
@@ -2059,13 +3935,20 @@ paths:
         `version` may be a literal SemVer string, a dist-tag, or the literal
         `latest` (highest published SemVer, not most-recently-published).
         Non-owners never see `pending`, `rejected`, or `staging` versions.
+
+        The `ETag` this serves is the revision `PATCH` on the same path expects.
+        An address whose extension was deleted is a `410` rather than a `404`,
+        because a version that was removed is not one that never existed.
       responses:
         '200':
           description: Version found
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
     patch:
       summary: Review or deprecate a version
       operationId: reviewVersion
@@ -2077,12 +3960,19 @@ paths:
 
         `status` applies to a `pending` version and needs the admin role on the
         account plus the `admin` scope on the credential, which is how an
-        automation token gets to review. `deprecationMessage` is open to the
+        automation token gets to review.        `deprecationMessage` is open to the
         owner or an admin and requires the `publish` scope (sessions satisfy
         this implicitly). A non-null message
         marks the version `deprecated` — still listable and downloadable, but
         flagged — and `null` clears the deprecation. Yanked versions cannot be
         deprecated.
+
+        Both edits change the version's own fields, so both name the revision
+        they are based on: two moderators deciding the same submission is the
+        lost update `If-Match` exists to stop. The validator is the one
+        `GET` on this version serves.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
@@ -2106,13 +3996,17 @@ paths:
       responses:
         '200':
           description: Updated
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/PreconditionFailed' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
       summary: Yank a version
       operationId: deleteVersion
@@ -2153,6 +4047,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /@{namespace}/{id}/versions/{version}/download:
     parameters:
@@ -2172,7 +4067,8 @@ paths:
         published, yanked, and deprecated versions are public, while an admin
         may fetch a `pending` version for review -- that being the admin role on
         the account and the `admin` scope on the credential together, as on the
-        review route. 404 for any other status or a missing blob.
+        review route. 404 for any other status or a missing blob, and 410 when
+        the address held an extension that has since been deleted.
       responses:
         '200':
           description: Compiled extension
@@ -2180,6 +4076,7 @@ paths:
             application/javascript:
               schema: { type: string }
         '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /blobs/{digest}:
     parameters:
@@ -2234,6 +4131,7 @@ paths:
         owner changes, quota changes and role changes, newest first.
       parameters:
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -2308,9 +4206,9 @@ paths:
               examples:
                 registry:
                   value: |
-                    # HELP twexthub_versions_total Versions by review status.
-                    # TYPE twexthub_versions_total gauge
-                    twexthub_versions_total{status="published"} 42
+                    # HELP triflare_marketplace_versions_total Versions by review status.
+                    # TYPE triflare_marketplace_versions_total gauge
+                    triflare_marketplace_versions_total{status="published"} 42
         '403': { $ref: '#/components/responses/Forbidden' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
@@ -2452,6 +4350,118 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
 
+  /admin/reports:
+    get:
+      summary: The report queue
+      operationId: listReports
+      tags: [Adminspace]
+      description: >
+        The queue of reports awaiting a decision, newest first. Unlike the
+        reporter's own view, a report read here carries everything: what the
+        reporter said and who said it. Only admins read reports this way.
+
+        The queue holds what was reported and nothing about what was done
+        about it. Deciding a report does not act on the target — no report, and
+        no number of reports, suspends or removes anything. Enforcement is
+        taken separately, by hand, and it is the moderator's decision to make.
+
+        A report outlives the account or extension it is about, so a report
+        whose target has since been deleted is still here for a decision. A
+        report about a transferred extension names the address the extension
+        lives at now.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [open, resolved, dismissed] }
+          description: Only reports in this state.
+        - name: targetType
+          in: query
+          required: false
+          schema: { type: string, enum: [user, organization, extension] }
+          description: Only reports about this kind of target.
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
+        - $ref: '#/components/parameters/Dir'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated reports, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, _links]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Report' }
+                  _links: { $ref: '#/components/schemas/PageLinks' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /admin/reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ReportIdPath'
+    get:
+      summary: Read one report
+      operationId: getReport
+      tags: [Adminspace]
+      description: The full record, as the queue lists it.
+      responses:
+        '200':
+          description: The report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Decide a report
+      operationId: decideReport
+      tags: [Adminspace]
+      description: >
+        Records the outcome: the report is `resolved` (something was done
+        about what was reported) or `dismissed` (nothing was, or there was
+        nothing to act on). There is no way back to `open`; a decided report
+        stays decided, and a later complaint about the same target is a new
+        report.
+
+        The decision records who made it, when, and the note the reviewer
+        wrote about it, and it is written to the audit trail. A decision may be
+        revised; the trail keeps the earlier one.
+
+        Deciding a report does not act on the target. Nothing here suspends,
+        hides, or removes anything — that is a separate action, taken by hand.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [resolved, dismissed]
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+                  description: Why the report was decided the way it was.
+      responses:
+        '200':
+          description: The decided report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
   /versions:
     get:
       summary: Cross-owner moderation queue
@@ -2464,6 +4474,7 @@ paths:
           required: true
           schema: { type: string, enum: [pending] }
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Fields'
         - $ref: '#/components/parameters/Dir'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -2484,6 +4495,35 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
 
 components:
+  headers:
+    Location:
+      description: Path of the resource the request created.
+      schema: { type: string, format: uri-reference }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+    ETag:
+      description: >
+        The revision of the document this response describes, quoted as an
+        entity tag. An edit sends it back in `If-Match`; it moves whenever the
+        document does.
+      schema: { type: string }
+    Allow:
+      description: The methods this path accepts, comma separated.
+      schema: { type: string }
+    IdempotentReplayed:
+      description: Present and `true` when this answer was replayed from an earlier request with the same `Idempotency-Key`.
+      schema: { type: string, enum: ['true'] }
+    RateLimit:
+      description: >
+        The remaining quota of the bucket this request counted against, in the
+        structured-field form of the IETF rate-limit draft: `r` is what is left
+        and `t` is seconds until the window resets.
+      schema: { type: string }
+    RateLimitPolicy:
+      description: 'The quota the bucket enforces: `q` requests per `w` seconds.'
+      schema: { type: string }
+
   parameters:
     Cursor:
       name: cursor
@@ -2506,6 +4546,51 @@ components:
       in: query
       schema: { type: integer, minimum: 1, default: 20 }
       description: Values above the server cap are clamped to the cap, not rejected. The default cap is 50.
+    Fields:
+      name: fields
+      in: query
+      required: false
+      schema: { type: string }
+      description: >
+        Comma-separated keys to keep in the response, e.g. `id,name,downloads`.
+        A collection keeps its `data`/`_links` envelope and projects each item;
+        naming a key the resource does not have is a `422`. At most 20 keys. A
+        projection changes the representation, so the `ETag` is not shared with
+        the untrimmed one.
+    Include:
+      name: include
+      in: query
+      required: false
+      schema: { type: string }
+      description: >
+        Comma-separated relations to fold into a detail response, so one
+        request hydrates a page: `owner,latestVersion` on an extension. A
+        relation the endpoint does not offer is a `422`.
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string }
+      description: >
+        The `ETag` of the document this edit is based on, or `*` for
+        last-write-wins on purpose. Omitting it is a `428`; naming a revision
+        that has been superseded is a `412`.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[\x21-\x7e]{8,128}$'
+      description: >
+        Makes a creation safe to retry: a replay with the same key and the same
+        body answers the first request's status and body instead of creating a
+        second resource, with `Idempotent-Replayed: true`. Scoped to the
+        credential's account and to the route, and expires after 24 hours. The
+        same key with a different body is a `422`
+        (`/problems/idempotency-key-reused`).
     NamespacePath:
       name: namespace
       in: path
@@ -2546,12 +4631,37 @@ components:
       schema:
         type: string
         description: SemVer string, a dist-tag name, or the literal `latest`.
+    WebhookIdPath:
+      name: webhookId
+      in: path
+      required: true
+      schema: { type: integer }
+    DeliveryIdPath:
+      name: deliveryId
+      in: path
+      required: true
+      schema: { type: integer }
     NotificationId:
       name: id
       in: path
       required: true
       schema: { type: string, pattern: '^[0-9]+$' }
       description: Notification id, as a string so it survives a JSON parser that keeps numbers exact.
+    ReportIdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9]+$' }
+      description: Report id, as a string so it survives a JSON parser that keeps numbers exact.
+    TextQuery:
+      name: q
+      in: query
+      required: false
+      schema: { type: string, maxLength: 200 }
+      description: >
+        Case- and diacritic-insensitive substring match against id, name,
+        namespace, and description. An empty or whitespace-only value is the
+        same as omitting it.
     Sort:
       name: sort
       in: query
@@ -2567,6 +4677,16 @@ components:
       in: query
       schema: { $ref: '#/components/schemas/Namespace' }
       description: Only extensions published under this account or organization.
+    ReturnTo:
+      name: returnTo
+      in: query
+      required: false
+      schema: { type: string }
+      description: >
+        Where the browser is sent once the provider hands it back. Either a path
+        on this instance (starting with a single `/`), or an absolute URL whose
+        origin is this instance's `publicBaseUrl` or one listed in
+        `cors.allowedOrigins`. Anything else is refused with a `422`.
 
   schemas:
     Namespace:
@@ -2578,9 +4698,9 @@ components:
       description: >
         Matches TurboWarp's own documented rule for extension `id`s: only
         `a-z` and `0-9`, no spaces or special characters. The 64-char cap
-        is TwextHub's own storage/URL-length limit, not a TurboWarp
-        requirement. twext.yml's `extension.id` field has no pattern
-        constraint today; the `twext` CLI's own validation should be
+        is Triflare Marketplace's own storage/URL-length limit, not a TurboWarp
+        requirement. extend.yml's `extension.id` field has no pattern
+        constraint today; the `extend` CLI's own validation should be
         tightened to match this rather than the other way around.
     Role:
       type: string
@@ -2660,6 +4780,84 @@ components:
         read: { type: boolean }
         createdAt: { type: string, format: date-time }
 
+    ReportTargetType:
+      type: string
+      enum: [user, organization, extension]
+      description: >
+        What a report is about. `user` and `organization` name an account in
+        the `Users` table; `extension` names a published extension at
+        `@namespace/id`.
+    ReportReason:
+      type: string
+      enum: [spam, harassment, malicious_code, copyright, impersonation, other]
+      description: >
+        The category the report falls under. A fixed list rather than free
+        text, because sorting the queue is the first thing a reviewer does
+        with it.
+    ReportStatus:
+      type: string
+      enum: [open, resolved, dismissed]
+      description: >
+        `open` is a report waiting for a decision; `resolved` and `dismissed`
+        are the two outcomes a moderator records.
+    ReportTarget:
+      type: object
+      required: [type, namespace]
+      properties:
+        type: { $ref: '#/components/schemas/ReportTargetType' }
+        namespace: { $ref: '#/components/schemas/Namespace' }
+        id:
+          type: ['string', 'null']
+          description: The extension id, for an extension report; null for the account-shaped targets.
+    Report:
+      type: object
+      description: >
+        A report as a reviewer sees it: the whole record, including who filed
+        it and what they wrote. Only the admin endpoints hand this out.
+      required: [id, reporter, target, reason, description, status, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        reporter:
+          type: string
+          description: The namespace of the account that filed the report.
+        target: { $ref: '#/components/schemas/ReportTarget' }
+        reason: { $ref: '#/components/schemas/ReportReason' }
+        description:
+          type: string
+          description: What the reporter wrote.
+        status: { $ref: '#/components/schemas/ReportStatus' }
+        reviewedBy:
+          type: ['string', 'null']
+          description: The namespace of the reviewer who decided the report; null while it is open.
+        reviewedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When the report was decided; null while it is open.
+        resolutionNote:
+          type: ['string', 'null']
+          description: Why the reviewer decided it this way; null while it is open.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ReportOwnerView:
+      type: object
+      description: >
+        A report as the account that filed it sees it. What the report said,
+        who reviewed it, and why it was decided are the reviewer's business, so
+        they are left out; the reporter learns that the report was decided, and
+        when.
+      required: [id, target, reason, status, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        target: { $ref: '#/components/schemas/ReportTarget' }
+        reason: { $ref: '#/components/schemas/ReportReason' }
+        status: { $ref: '#/components/schemas/ReportStatus' }
+        reviewedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When the report was decided; null while it is open.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
     Session:
       type: object
       required: [id, createdAt, expiresAt, lastUsedAt]
@@ -2668,6 +4866,197 @@ components:
         createdAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time, description: '7 days after creation.' }
         lastUsedAt: { type: ['string', 'null'], format: date-time }
+
+    AuthSession:
+      type: object
+      required: [session, user, token]
+      properties:
+        session: { $ref: '#/components/schemas/Session' }
+        user: { $ref: '#/components/schemas/User' }
+        token:
+          type: string
+          description: The bearer token secret. Shown only in this one response.
+
+    MfaRequired:
+      type: object
+      description: >
+        What a sign-in returns instead of a session when the account has MFA
+        on: the password or the provider proved the first factor, and a passkey
+        or a backup code still has to prove the second. The `mfaToken` is the
+        claim on the pending sign-in and is shown only in this one response,
+        like a session token.
+      required: [mfaRequired, mfaToken, methods]
+      properties:
+        mfaRequired: { type: boolean, enum: [true] }
+        mfaToken:
+          type: string
+          description: Credential for `POST /auth/mfa/options` and `POST /auth/mfa/verify`.
+        methods:
+          type: array
+          items: { type: string, enum: [passkey, backup_code] }
+          description: >
+            What the waiting sign-in can still be finished with. `backup_code`
+            drops off the list once every code has been used.
+
+    Passkey:
+      type: object
+      description: A registered passkey, as its owner sees it.
+      required: [id, label, createdAt, lastUsedAt]
+      properties:
+        id: { type: string, description: "The passkey row's own id." }
+        label: { type: string, description: What the account named it. }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: ['string', 'null'], format: date-time }
+
+    Passkeys:
+      type: object
+      required: [enabled, passkeys, backupCodesRemaining]
+      properties:
+        enabled:
+          type: boolean
+          description: True once the account has at least one passkey.
+        passkeys:
+          type: array
+          items: { $ref: '#/components/schemas/Passkey' }
+        backupCodesRemaining:
+          type: integer
+          description: How many backup codes have not been used yet.
+
+    WebAuthnOptions:
+      type: object
+      description: >
+        The options the client hands to `navigator.credentials`. Pass it back
+        as the `options` value in the `create` or `get` call for the ceremony
+        the endpoint name says -- registration through `POST /auth/mfa/passkeys`
+        or an assertion through `POST /auth/mfa/verify` or `POST /auth/mfa/reauth`.
+      additionalProperties: true
+
+    BackupCodes:
+      type: object
+      required: [backupCodes]
+      properties:
+        backupCodes:
+          type: array
+          items: { type: string }
+          description: >
+            Ten codes, grouped as `XXXX-XXXX-XXXX`. Shown only in this one
+            response; the server stores hashes, and a code may be typed back in
+            any case, with or without the grouping.
+
+    AuthDescriptor:
+      type: object
+      required: [methods, passwordAuth, oidc, device]
+      properties:
+        methods:
+          type: array
+          description: One entry per configured sign-in method, in the order the instance offers them.
+          items:
+            type: object
+            required: [kind, id, label, capabilities, requirements]
+            properties:
+              kind: { type: string }
+              id: { type: string }
+              label: { type: string }
+              capabilities: { type: object, additionalProperties: true }
+              requirements: { type: object, additionalProperties: true }
+        passwordAuth:
+          type: boolean
+          description: Whether namespace/password sign-in and registration are offered.
+        registration:
+          type: string
+          enum: [open, closed]
+          description: >
+            Whether an unknown person can still become an account. A page reads
+            this before offering a form the server would refuse.
+        oidc:
+          type: ['object', 'null']
+          description: The configured identity provider, or `null` when none is set.
+          required: [issuer, required]
+          properties:
+            issuer: { type: string, format: uri }
+            required:
+              type: boolean
+              description: When true, the provider is the only way to get an account.
+        device:
+          type: ['object', 'null']
+          description: >
+            Where a browser approves a CLI sign-in, or `null` when the device
+            flow is off.
+          required: [verificationUrl]
+          properties:
+            verificationUrl: { type: string, format: uri }
+
+    DeviceAuthorization:
+      type: object
+      required:
+        - deviceCode
+        - userCode
+        - verificationUri
+        - verificationUriComplete
+        - expiresIn
+        - interval
+      properties:
+        deviceCode:
+          type: string
+          description: The secret the client polls with. Shown once.
+        userCode:
+          type: string
+          description: The short code a person reads off the terminal and types into the approval page.
+          example: ABCD-EFGH
+        verificationUri:
+          type: string
+          format: uri
+          description: The approval page, for a person opening it on another device.
+        verificationUriComplete:
+          type: string
+          format: uri
+          description: The approval page with the user code already filled in.
+        expiresIn:
+          type: integer
+          description: Seconds the code stays usable.
+          example: 600
+        interval:
+          type: integer
+          description: Seconds the client must wait between polls.
+          example: 5
+
+    DeviceUserCode:
+      type: object
+      required: [userCode]
+      properties:
+        userCode:
+          type: string
+          description: >
+            The code from the client, in any case and with or without the
+            hyphen.
+          example: ABCD-EFGH
+
+    DeviceCodeState:
+      type: object
+      required: [clientName, expiresAt, approved, denied]
+      properties:
+        clientName: { type: string }
+        expiresAt: { type: string, format: date-time }
+        approved:
+          type: boolean
+          description: Whether this code has been approved by the caller and is waiting to be collected.
+        denied:
+          type: boolean
+          description: Whether the code was declined and can no longer be approved.
+
+    OidcIdentity:
+      type: object
+      required: [id, issuer, subject, email, createdAt]
+      properties:
+        id: { type: string }
+        issuer: { type: string, format: uri }
+        subject:
+          type: string
+          description: The provider's `sub`. Together with `issuer` this is what identifies the account.
+        email:
+          type: ['string', 'null']
+          description: Kept for reference only; accounts are never matched or linked by email.
+        createdAt: { type: string, format: date-time }
 
     AutomationToken:
       type: object
@@ -2807,7 +5196,7 @@ components:
     Manifest:
       type: object
       required: [id, name, version, license, description]
-      description: Mirrors the fields in twext.yml that TwextHub needs to store; not the whole manifest.
+      description: Mirrors the fields in extend.yml that Triflare Marketplace needs to store; not the whole manifest.
       properties:
         id: { $ref: '#/components/schemas/ExtensionId' }
         name: { type: string }
@@ -2815,6 +5204,9 @@ components:
         license: { type: string, description: SPDX identifier. }
         description: { type: string }
         author: { type: string }
+        isUnsandboxed:
+          type: ['boolean', 'null']
+          description: Verbatim `extension.isUnsandboxed`; null when undeclared.
         color1: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
         color2: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
         color3: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
@@ -2841,13 +5233,18 @@ components:
             color1: { type: string }
             color2: { type: string }
             color3: { type: string }
+            isUnsandboxed:
+              type: ['boolean', 'null']
+              description: >
+                Whether extend.yml declared `extension.isUnsandboxed: true`. `null` means the
+                project did not declare the field.
             versions:
               type: array
               items: { $ref: '#/components/schemas/VersionInfo' }
 
     VersionInfo:
       type: object
-      required: [namespace, id, version, status, createdAt]
+      required: [namespace, id, version, status, createdAt, downloads]
       properties:
         namespace: { $ref: '#/components/schemas/Namespace' }
         id: { $ref: '#/components/schemas/ExtensionId' }
@@ -2858,11 +5255,19 @@ components:
         description: { type: string }
         author: { type: ['string', 'null'] }
         createdAt: { type: string, format: date-time }
+        downloads:
+          type: integer
+          description: >
+            Total recorded downloads of this version. Zero for a version that
+            has never been downloaded, including one still awaiting review.
         publishedAt:
           { type: string, format: date-time, description: Absent while pending or rejected. }
         deprecation:
           type: ['string', 'null']
           description: Deprecation message; present only while status is `deprecated`.
+        rejectionReason:
+          type: ['string', 'null']
+          description: Why a reviewer turned the version down; present only while status is `rejected`.
         dist:
           type: object
           description: Absent while pending or rejected.
@@ -2874,6 +5279,23 @@ components:
         buildLog:
           type: string
           description: Compiler output; returned on publish responses and queue entries.
+        warnings:
+          type: array
+          description: >
+            Static-analysis hits from the uploaded source, present only when the
+            scan found something. Returned on the publish response and on
+            review queue entries so an author or reviewer can see the risky
+            patterns without reading every file.
+          items:
+            type: object
+            required: [code, file, line, message]
+            properties:
+              code:
+                type: string
+                enum: [fetch, eval, new-function, xmlhttprequest, insecure-http]
+              file: { type: string, description: Path within the uploaded tarball. }
+              line: { type: integer }
+              message: { type: string }
         sourceUrl:
           type: string
           format: uri
@@ -2916,12 +5338,23 @@ components:
 
     Meta:
       type: object
-      required: [name, version, tagline, homepage]
+      required: [name, version, tagline, homepage, banner]
       properties:
         name: { type: string }
         version: { type: string, description: Product version from product.yml. }
         tagline: { type: string }
         homepage: { type: string }
+        banner:
+          type: ['object', 'null']
+          description: >
+            The instance announcement to show across the top of the web client,
+            or `null` when there is none.
+          required: [message, link]
+          properties:
+            message: { type: string }
+            link:
+              type: ['string', 'null']
+              description: Where the banner points for details, when it points anywhere.
 
     WebhookEvent:
       type: string
@@ -2978,6 +5411,45 @@ components:
             secret:
               { type: string, description: Signs deliveries; shown only in this one response. }
 
+    WebhookDelivery:
+      type: object
+      description: >
+        One event scheduled for one webhook, with the outcome of its attempts so
+        far. `attempt` counts attempts on this row, so it starts at `0`; a
+        retry writes the same row and raises it. The signed body is not part of
+        the representation.
+      required:
+        [
+          id,
+          event,
+          payload,
+          attempt,
+          max_attempts,
+          status,
+          next_attempt_at,
+          last_error,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: integer }
+        event: { $ref: '#/components/schemas/WebhookEvent' }
+        payload: { type: object, description: The event payload the signed body was built from. }
+        attempt: { type: integer, description: Attempts made so far. }
+        max_attempts:
+          { type: integer, description: Attempts allowed before the delivery is failed. }
+        status:
+          type: string
+          enum: [pending, delivering, retrying, delivered, failed]
+        next_attempt_at:
+          type: ['string', 'null']
+          format: date-time
+          description: When the next attempt is due, or `null` once it has finished.
+        last_error:
+          { type: ['string', 'null'], description: Why the last attempt failed, or `null`. }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
     AuditEntry:
       type: object
       required: [id, actor, action, target, detail, createdAt]
@@ -2994,7 +5466,9 @@ components:
             extension.transfer.withdraw, extension.transfer,
             role.change, extension.delete, org.create, org.update, org.delete,
             organization.owner.add, organization.owner.remove,
-            organization.webhook.create, organization.webhook.delete
+            organization.webhook.create, organization.webhook.delete,
+            account.webhook.create, account.webhook.delete,
+            report.resolve, report.dismiss, mail.retry
         target:
           type: object
           properties:
@@ -3003,6 +5477,47 @@ components:
             version: { type: ['string', 'null'] }
         detail: { type: object }
         createdAt: { type: string, format: date-time }
+
+    MailOutboxEntry:
+      type: object
+      required:
+        [
+          id,
+          to,
+          subject,
+          purpose,
+          driver,
+          status,
+          attempts,
+          lastError,
+          createdAt,
+          updatedAt,
+          sentAt,
+        ]
+      properties:
+        id: { type: string }
+        to: { type: string, description: 'The recipients the message was addressed to.' }
+        subject: { type: string }
+        purpose: { type: ['string', 'null'], description: 'Why it was sent, e.g. `magic-link`.' }
+        driver:
+          {
+            type: ['string', 'null'],
+            description: The instance that accepted it,
+            or `null` if none did.,
+          }
+        status: { type: string, enum: [pending, sent, failed] }
+        attempts: { type: integer, description: 'How many times it has been tried.' }
+        lastError: { type: ['string', 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        sentAt: { type: ['string', 'null'], format: date-time }
+        message:
+          type: object
+          additionalProperties: true
+          description: >-
+            The message as it was sent -- `to`, `subject`, `text`, `html`,
+            `replyTo`, `purpose`. Detail responses only, because a body can
+            carry a one-time link.
 
     Quota:
       type: object
@@ -3046,7 +5561,7 @@ components:
         help: { type: ['string', 'null'] }
         type:
           type: string
-          enum: [string, number, bytes, boolean, url, origins]
+          enum: [string, longtext, number, bytes, boolean, url, origins]
         min: { type: ['integer', 'null'] }
         max: { type: ['integer', 'null'] }
         restartRequired:
@@ -3058,20 +5573,42 @@ components:
 
     Problem:
       type: object
+      description: >
+        An RFC 9457 problem document. `type` resolves against the origin to the
+        catalogue entry at `GET /problems/{slug}`, so a client can read what a
+        failure means without the spec. Slugs are stable; adding one is not a
+        breaking change.
       required: [type, title, status]
       properties:
-        type: { type: string, format: uri, example: 'about:blank' }
+        type:
+          type: string
+          format: uri-reference
+          example: '/problems/validation-error'
+          description: Relative reference to the catalogue entry for this failure.
         title: { type: string, example: 'Validation Error' }
         status: { type: integer, example: 422 }
-        detail: { type: string }
-        instance: { type: string, format: uri }
+        detail: { type: string, description: What went wrong this time.' }
+        instance:
+          { type: string, format: uri-reference, description: The path of the failed request. }
+        requestId:
+          type: string
+          description: Matches the `X-Request-Id` response header; quote it in a bug report.
         errors:
           type: array
           items:
             type: object
             properties:
-              field: { type: string }
+              field: { type: string, description: Dotted name of the field, e.g. 'auth.methods'. }
+              pointer:
+                type: string
+                description: JSON Pointer into the request body naming the same place, e.g. '/auth/methods'.
               message: { type: string }
+        error:
+          type: string
+          description: >
+            A machine-readable failure name. Device sign-in uses the RFC 8628
+            values `authorization_pending`, `slow_down`, `access_denied`, and
+            `expired_token`.
 
   responses:
     BadRequest:
@@ -3107,10 +5644,37 @@ components:
     UnprocessableEntity:
       description: Semantically invalid input (e.g. non-SemVer version, id mismatch)
       content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    MethodNotAllowed:
+      description: The path exists but does not accept this method. `Allow` names the ones it does.
+      headers:
+        Allow: { $ref: '#/components/headers/Allow' }
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    Gone:
+      description: >
+        The extension at this address was deleted, so the version is gone rather
+        than never having existed. Publishing the address again answers from the
+        new rows.
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    PreconditionFailed:
+      description: >
+        The `If-Match` validator no longer describes the document: somebody else
+        saved after this client read it. Read it again and reapply the change.
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    PreconditionRequired:
+      description: >
+        This edit changes a document that is edited with `If-Match`, and the
+        request named no revision. The refusal is deliberate: without it, the
+        change would silently overwrite whatever is there now.
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
     TooManyRequests:
       description: Rate limit exceeded
       headers:
-        Retry-After: { schema: { type: integer } }
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+        RateLimit: { $ref: '#/components/headers/RateLimit' }
+        RateLimit-Policy: { $ref: '#/components/headers/RateLimitPolicy' }
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    BadGateway:
+      description: The identity provider could not be reached, refused the request, or returned a token that failed verification
       content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
 
   securitySchemes:

@@ -8,6 +8,94 @@ const PORT = Number(process.env.MOCK_API_PORT ?? 3200)
 const ORIGIN = `http://127.0.0.1:${PORT}`
 const UI_ORIGIN = process.env.MOCK_UI_ORIGIN ?? "http://127.0.0.1:3101"
 
+// What each auth driver says about itself on GET /auth. Mutable through
+// /__auth so a journey can start from a registry that leaves a driver out, the
+// way removing it in the admin panel does.
+const AUTH_DRIVERS = {
+  password: {
+    label: "Password",
+    capabilities: { signIn: true, register: true, link: false, mfa: false },
+    requirements: {},
+  },
+  oidc: {
+    label: "OpenID Connect",
+    capabilities: { signIn: true, register: true, link: true, mfa: false },
+    requirements: {},
+  },
+  passkey: {
+    label: "Passkey",
+    capabilities: { signIn: true, register: true, link: true, mfa: true },
+    requirements: {},
+  },
+  "device-code": {
+    label: "Device code",
+    capabilities: {
+      signIn: true,
+      register: false,
+      link: false,
+      mfa: false,
+      browser: true,
+    },
+    requirements: {},
+  },
+  "magic-link": {
+    label: "Email link",
+    capabilities: { signIn: true, register: true, link: false, mfa: false },
+    requirements: { mail: true },
+  },
+  "email-otp": {
+    label: "Email code",
+    capabilities: { signIn: true, register: true, link: false, mfa: false },
+    requirements: { mail: true },
+  },
+  "magic-password": {
+    label: "Generated password",
+    capabilities: { signIn: true, register: true, link: false, mfa: false },
+    requirements: { mail: true },
+  },
+}
+
+function initialAuthDrivers() {
+  return ["password", "oidc", "passkey", "device-code"]
+}
+
+let authDrivers = initialAuthDrivers()
+let registration = "open"
+
+// The announcement banner the root loader reads from GET /meta. Null is the
+// ordinary state; a journey that wants one sets it and clears it again.
+let banner = null
+
+// The address the account's mail-backed sign-in methods hold, and the change a
+// confirmation code is waiting on. Mutable so the security journey can walk the
+// whole two-step change without a real mail provider.
+const INITIAL_ACCOUNT_EMAIL = "kamixfox@example.test"
+let accountEmail = INITIAL_ACCOUNT_EMAIL
+let pendingEmailChange = null
+
+// The shipped answer, plus the older keys kept for the clients that read them.
+function authDescription() {
+  const oidc = authDrivers.includes("oidc")
+  const device = authDrivers.includes("device-code")
+  const describe = {
+    oidc: { issuer: `${ORIGIN}/idp`, required: false },
+    "device-code": { verificationUrl: `${UI_ORIGIN}/device` },
+  }
+  return {
+    methods: authDrivers.map((driver) => ({
+      kind: "auth",
+      driver,
+      id: driver,
+      ...AUTH_DRIVERS[driver],
+      describe: describe[driver] ?? {},
+    })),
+    passwordAuth: authDrivers.includes("password"),
+    registration,
+    oidc: oidc ? { issuer: `${ORIGIN}/idp`, required: false } : null,
+    device: device ? { verificationUrl: `${UI_ORIGIN}/device` } : null,
+  }
+}
+
 const account = {
   namespace: "kamixfox",
   displayName: "Testing Account",
@@ -73,6 +161,178 @@ function initialQuotas() {
 
 let quotas = initialQuotas()
 
+// Mutable so the drivers journey can change a driver's settings and read them
+// back. Options are stored the way the registry stores them: secret ones masked
+// to `{ set: true }`, the rest as written.
+function initialDriverCatalog() {
+  return {
+    drivers: {
+      auth: {
+        label: "Auth",
+        instances: [
+          {
+            id: "password",
+            driver: "password",
+            label: "Password",
+            capabilities: { password: true },
+            requirements: {},
+            options: {},
+            state: "active",
+          },
+          {
+            id: "oidc",
+            driver: "oidc",
+            label: "OpenID Connect",
+            capabilities: { redirect: true },
+            requirements: {},
+            options: {
+              issuer: "https://id.example.com",
+              clientId: "triflare",
+              clientSecret: { set: true },
+            },
+            state: "active",
+          },
+        ],
+        available: [
+          {
+            driver: "password",
+            label: "Password",
+            capabilities: {},
+            requirements: {},
+            options: [],
+          },
+          {
+            driver: "magic-link",
+            label: "Magic link",
+            capabilities: {},
+            requirements: {},
+            options: [],
+          },
+          {
+            driver: "oidc",
+            label: "OpenID Connect",
+            capabilities: { redirect: true },
+            requirements: {},
+            options: [
+              { key: "issuer", label: "Issuer", type: "url", required: true },
+              {
+                key: "clientId",
+                label: "Client ID",
+                type: "text",
+                required: true,
+              },
+              {
+                key: "clientSecret",
+                label: "Client secret",
+                type: "secret",
+                required: true,
+                secret: true,
+              },
+            ],
+          },
+        ],
+      },
+      mail: {
+        label: "Mail",
+        instances: [
+          {
+            id: "file",
+            driver: "file",
+            label: "File",
+            capabilities: { deliver: false, file: true },
+            requirements: {},
+            options: { dir: null },
+            state: "active",
+          },
+        ],
+        available: [
+          {
+            driver: "file",
+            label: "File",
+            capabilities: { deliver: false, file: true },
+            requirements: {},
+            options: [
+              { key: "dir", label: "Directory", type: "text", default: null },
+            ],
+          },
+          {
+            driver: "resend",
+            label: "Resend",
+            capabilities: { deliver: true },
+            requirements: {},
+            options: [
+              {
+                key: "apiKey",
+                label: "API key",
+                type: "secret",
+                required: true,
+                secret: true,
+              },
+              {
+                key: "from",
+                label: "From address",
+                type: "text",
+                required: true,
+              },
+            ],
+          },
+        ],
+      },
+    },
+    revision: { auth: 1, mail: 1 },
+  }
+}
+
+const driverCatalog = initialDriverCatalog()
+
+// Mutable so the outbox journey can read an entry, retry it, and see the result
+// the registry reports. Newest first, the way the endpoint lists them.
+function initialOutboxEntries() {
+  return [
+    {
+      id: "2",
+      to: "reader@example.test",
+      subject: "Sign in to the registry",
+      purpose: "magic-link",
+      driver: "file",
+      status: "sent",
+      attempts: 1,
+      lastError: null,
+      createdAt: "2026-10-26T10:00:00.000Z",
+      updatedAt: "2026-10-26T10:00:02.000Z",
+      sentAt: "2026-10-26T10:00:02.000Z",
+      message: {
+        to: "reader@example.test",
+        subject: "Sign in to the registry",
+        purpose: "magic-link",
+        text: "Open this link to sign in: https://registry.example.test/magic?token=abc123",
+        html: '<!doctype html><html><body style="font-family:sans-serif"><h1>Sign in</h1><p>Use the button below to sign in as reader@example.test.</p><p><a href="https://registry.example.test/magic?token=abc123">Sign in</a></p></body></html>',
+      },
+    },
+    {
+      id: "1",
+      to: "author@example.test",
+      subject: "Your extension was reviewed",
+      purpose: "review",
+      driver: null,
+      status: "failed",
+      attempts: 2,
+      lastError: "The mail provider answered 502.",
+      createdAt: "2026-10-25T08:00:00.000Z",
+      updatedAt: "2026-10-25T08:05:00.000Z",
+      sentAt: null,
+      message: {
+        to: "author@example.test",
+        subject: "Your extension was reviewed",
+        purpose: "review",
+        text: "greeter@1.2.0 was approved and is live.",
+      },
+    },
+  ]
+}
+
+let outboxEntries = initialOutboxEntries()
+
 // The account list the admin journeys read and moderate. An entry edited or
 // removed here replaces the list entry rather than the `account` and
 // `otherAccount` objects that sign-in, profiles, and embeds hand out, so a
@@ -126,8 +386,8 @@ const versions = [
     publishedAt: "2026-10-26T09:01:00.000Z",
     downloads: 1,
     _links: {
-      source: `${ORIGIN}/v2/@kamixfox/myextension/versions/0.2.0/source`,
-      download: `${ORIGIN}/v2/@kamixfox/myextension/versions/0.2.0/download`,
+      source: `${ORIGIN}/v1/@kamixfox/myextension/versions/0.2.0/source`,
+      download: `${ORIGIN}/v1/@kamixfox/myextension/versions/0.2.0/download`,
     },
   },
   {
@@ -142,8 +402,8 @@ const versions = [
     publishedAt: "2026-10-25T19:42:56.079Z",
     downloads: 4,
     _links: {
-      source: `${ORIGIN}/v2/@kamixfox/myextension/versions/0.1.0/source`,
-      download: `${ORIGIN}/v2/@kamixfox/myextension/versions/0.1.0/download`,
+      source: `${ORIGIN}/v1/@kamixfox/myextension/versions/0.1.0/source`,
+      download: `${ORIGIN}/v1/@kamixfox/myextension/versions/0.1.0/download`,
     },
   },
 ]
@@ -160,7 +420,7 @@ const pendingVersion = {
   createdAt: "2026-10-26T10:00:00.000Z",
   downloads: 0,
   _links: {
-    source: `${ORIGIN}/v2/@kamixfox/myextension/versions/0.3.0/source`,
+    source: `${ORIGIN}/v1/@kamixfox/myextension/versions/0.3.0/source`,
   },
 }
 
@@ -189,8 +449,8 @@ const secondPublished = {
   publishedAt: "2026-10-24T09:00:00.000Z",
   downloads: 2,
   _links: {
-    source: `${ORIGIN}/v2/@kamixfox/secondproject/versions/0.1.0/source`,
-    download: `${ORIGIN}/v2/@kamixfox/secondproject/versions/0.1.0/download`,
+    source: `${ORIGIN}/v1/@kamixfox/secondproject/versions/0.1.0/source`,
+    download: `${ORIGIN}/v1/@kamixfox/secondproject/versions/0.1.0/download`,
   },
 }
 
@@ -206,7 +466,7 @@ const secondPending = {
   createdAt: "2026-10-27T08:00:00.000Z",
   downloads: 0,
   _links: {
-    source: `${ORIGIN}/v2/@kamixfox/secondproject/versions/0.2.0/source`,
+    source: `${ORIGIN}/v1/@kamixfox/secondproject/versions/0.2.0/source`,
   },
 }
 
@@ -226,7 +486,7 @@ const rejectedVersion = {
   rejectionReason: "Remove the network call before this can be published.",
   downloads: 0,
   _links: {
-    source: `${ORIGIN}/v2/@kamixfox/changes-requested/versions/0.1.0/source`,
+    source: `${ORIGIN}/v1/@kamixfox/changes-requested/versions/0.1.0/source`,
   },
 }
 
@@ -242,7 +502,7 @@ const submittedVersion = {
   createdAt: "2026-10-27T09:00:00.000Z",
   downloads: 0,
   _links: {
-    source: `${ORIGIN}/v2/@kamixfox/newproject/versions/0.1.0/source`,
+    source: `${ORIGIN}/v1/@kamixfox/newproject/versions/0.1.0/source`,
   },
 }
 
@@ -314,16 +574,16 @@ function sourceArchive(files) {
 
 const archives = {
   "0.1.0": sourceArchive({
-    "twext.yml": "id: myextension\n",
+    "extend.yml": "id: myextension\n",
     "src/index.ts": 'export const greeting = "hello"\n',
   }),
   "0.2.0": sourceArchive({
-    "twext.yml": "id: myextension\n",
+    "extend.yml": "id: myextension\n",
     "src/index.ts": 'export const greeting = "hello world"\n',
     "src/extra.ts": "export const extra = true\n",
   }),
   "0.3.0": sourceArchive({
-    "twext.yml": "id: myextension\n",
+    "extend.yml": "id: myextension\n",
     "src/index.ts": 'export const greeting = "hello reviewers"\n',
     "src/extra.ts": "export const extra = true\n",
   }),
@@ -337,9 +597,57 @@ const builds = {
 
 const flows = new Map()
 
-function json(res, status, body) {
-  res.writeHead(status, { "content-type": "application/json" })
+// The sign-in links the email driver handed out, by address, for the journey
+// that opens one the way a reader would. The real endpoints mail it; here the
+// test asks the mock for it, which is the same information the inbox carries.
+const magicLinks = new Map()
+
+function json(res, status, body, headers = {}) {
+  res.writeHead(status, { "content-type": "application/json", ...headers })
   res.end(JSON.stringify(body))
+}
+
+// The revision of each account document, one counter per namespace. The API
+// refuses an account edit that does not name the revision it is based on (428)
+// or one that names a superseded revision (412), so the mock does too — an
+// ETag is only ever compared with itself, which a counter is enough for.
+const revisions = new Map()
+
+function accountEtag(namespace) {
+  return `"${namespace}-${revisions.get(namespace) ?? 1}"`
+}
+
+/** Answers with the account document and the revision that produced it. */
+function accountJson(res, namespace, body) {
+  json(res, 200, body, { etag: accountEtag(namespace) })
+}
+
+/**
+ * The precondition an account edit needs. Returns true when it wrote the
+ * refusal itself, so the handler can stop there.
+ */
+function refuseStaleWrite(req, res, namespace) {
+  const provided = String(req.headers["if-match"] ?? "").trim()
+  if (!provided) {
+    json(res, 428, {
+      type: "/problems/precondition-required",
+      title: "Precondition Required",
+      detail: "Send If-Match with the ETag of the document this change is based on.",
+      status: 428,
+    })
+    return true
+  }
+  if (provided !== accountEtag(namespace)) {
+    json(res, 412, {
+      type: "/problems/precondition-failed",
+      title: "Precondition Failed",
+      detail:
+        "The document changed since it was read. Read it again and reapply the change.",
+      status: 412,
+    })
+    return true
+  }
+  return false
 }
 
 function readBody(req) {
@@ -373,7 +681,7 @@ function beginFlow(req, res, link, returnToOverride) {
   flows.set(state, { returnTo, link })
   res.setHeader(
     "set-cookie",
-    `mock_oidc_flow=${state}; Path=/v2/auth; HttpOnly; SameSite=Lax`
+    `mock_oidc_flow=${state}; Path=/v1/auth; HttpOnly; SameSite=Lax`
   )
 
   const authorizationUrl = `${ORIGIN}/idp/authorize?state=${state}`
@@ -386,20 +694,44 @@ function beginFlow(req, res, link, returnToOverride) {
 
 function handle(req, res) {
   const url = new URL(req.url, ORIGIN)
-  const path = url.pathname.replace(/^\/v2/, "")
+  const path = url.pathname.replace(/^\/v1/, "")
 
   // Test-only: a journey that moderates accounts starts from the state above
   // rather than from whatever an earlier run left behind.
   if (path === "/__reset" && req.method === "POST") {
     users = initialUsers()
     quotas = initialQuotas()
+    outboxEntries = initialOutboxEntries()
+    authDrivers = initialAuthDrivers()
+    registration = "open"
+    accountEmail = INITIAL_ACCOUNT_EMAIL
+    pendingEmailChange = null
+    // The announcement is not reset here: a noise-free reset is what other
+    // specs call mid-run, and it must not take down a banner a journey is
+    // looking at. Clearing one is the /__banner post with no message.
+    magicLinks.clear()
     return json(res, 200, { reset: true })
+  }
+
+  // Test-only: replace the advertised method set, as removing a driver in the
+  // admin panel would. Unknown names are dropped rather than advertised.
+  if (path === "/__auth" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = JSON.parse(body || "{}")
+      if (Array.isArray(payload.drivers)) {
+        authDrivers = payload.drivers.filter((driver) => AUTH_DRIVERS[driver])
+      }
+      if (payload.registration === "open" || payload.registration === "closed") {
+        registration = payload.registration
+      }
+      return json(res, 200, authDescription())
+    })
   }
 
   if (url.pathname === "/idp/authorize") {
     const state = url.searchParams.get("state") ?? ""
     res.writeHead(302, {
-      location: `${ORIGIN}/v2/auth/oidc/callback?state=${encodeURIComponent(state)}&code=test-code`,
+      location: `${ORIGIN}/v1/auth/oidc/callback?state=${encodeURIComponent(state)}&code=test-code`,
     })
     return res.end()
   }
@@ -423,11 +755,7 @@ function handle(req, res) {
   }
 
   if (path === "/auth" && req.method === "GET") {
-    return json(res, 200, {
-      passwordAuth: true,
-      oidc: { issuer: `${ORIGIN}/idp`, required: false },
-      device: null,
-    })
+    return json(res, 200, authDescription())
   }
 
   if (path === "/auth/oidc/authorize" && req.method === "GET") {
@@ -455,6 +783,172 @@ function handle(req, res) {
 
   if (path === "/auth/oidc/identities" && req.method === "GET") {
     return json(res, 200, { data: [] })
+  }
+
+  if (path === "/auth/email" && req.method === "GET") {
+    if (!req.headers.authorization) {
+      return json(res, 401, { detail: "Missing session token" })
+    }
+    return json(res, 200, { email: accountEmail, changeable: true })
+  }
+
+  if (path === "/auth/email/change" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      const email = String(payload.email ?? "")
+        .trim()
+        .toLowerCase()
+      if (!email.includes("@")) {
+        return json(res, 422, {
+          title: "Validation Error",
+          errors: [
+            { field: "email", message: "A valid email address is required." },
+          ],
+        })
+      }
+      if (email === accountEmail) {
+        return json(res, 422, {
+          title: "Validation Error",
+          errors: [
+            {
+              field: "email",
+              message: "That is already the address on this account.",
+            },
+          ],
+        })
+      }
+      pendingEmailChange = { email, code: "123456" }
+      return json(res, 202, { sent: true })
+    })
+  }
+
+  if (path === "/auth/email/confirm" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      if (
+        !pendingEmailChange ||
+        String(payload.code ?? "") !== pendingEmailChange.code
+      ) {
+        // A wrong code is a validation problem, not a missing session: the
+        // account is still signed in.
+        return json(res, 422, {
+          title: "Unprocessable Entity",
+          detail: "That code is invalid or has expired.",
+        })
+      }
+      accountEmail = pendingEmailChange.email
+      pendingEmailChange = null
+      return json(res, 200, { email: accountEmail })
+    })
+  }
+
+  // Test-only: the address a journey starts from, so a rerun does not depend on
+  // what an earlier one left behind.
+  if (path === "/__email" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      accountEmail = String(payload.email ?? INITIAL_ACCOUNT_EMAIL)
+      pendingEmailChange = null
+      return json(res, 200, { email: accountEmail })
+    })
+  }
+
+  // Test-only: what the sign-in link sent to an address carried, so a journey
+  // can open it the way the recipient would.
+  if (path === "/__magic-link" && req.method === "GET") {
+    const email = String(url.searchParams.get("email") ?? "").toLowerCase()
+    return json(
+      res,
+      200,
+      magicLinks.get(email) ?? { code: null, returnTo: null }
+    )
+  }
+
+  // The email, passkey, and generated-password drivers. Their endpoints answer
+  // whether or not the page advertises them, so a journey can decide what the
+  // page offers in the browser without changing state another spec reads.
+  if (path === "/auth/magic-link" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      magicLinks.set(String(payload.email ?? "").toLowerCase(), {
+        email: payload.email,
+        returnTo: payload.returnTo ?? null,
+        code: "magic-link-code",
+      })
+      return json(res, 202, { sent: true })
+    })
+  }
+
+  if (path === "/auth/magic-link/exchange" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      if (payload.code !== "magic-link-code") {
+        return json(res, 401, {
+          detail: "That code is invalid or has expired.",
+        })
+      }
+      return json(res, 201, {
+        token: `test-token-${account.namespace}`,
+        user: account,
+      })
+    })
+  }
+
+  if (path === "/auth/email-otp" && req.method === "POST") {
+    return json(res, 202, { sent: true })
+  }
+
+  if (path === "/auth/email-otp/verify" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      if (String(payload.code ?? "") !== "123456") {
+        return json(res, 401, {
+          detail: "That code is invalid or has expired.",
+        })
+      }
+      return json(res, 201, {
+        token: `test-token-${account.namespace}`,
+        user: account,
+      })
+    })
+  }
+
+  if (path === "/auth/passkey/options" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      if (!payload.namespace) {
+        return json(res, 422, {
+          title: "Unprocessable Entity",
+          errors: [{ field: "namespace", message: "A namespace is required." }],
+        })
+      }
+      return json(res, 200, {
+        flowToken: "passkey-flow",
+        options: {
+          challenge: "dGVzdC1jaGFsbGVuZ2U",
+          rpId: "127.0.0.1",
+          allowCredentials: [],
+          timeout: 60_000,
+          userVerification: "required",
+        },
+      })
+    })
+  }
+
+  if (path === "/auth/passkey/verify" && req.method === "POST") {
+    return json(res, 201, {
+      token: `test-token-${account.namespace}`,
+      user: account,
+    })
+  }
+
+  if (path === "/auth/magic-password/register" && req.method === "POST") {
+    return json(res, 201, {
+      token: `test-token-${account.namespace}`,
+      user: account,
+      password: "generated-password-for-test",
+      passwordShownOnce: true,
+    })
   }
 
   // One token per account, so a browser can hold several signed-in accounts
@@ -489,13 +983,70 @@ function handle(req, res) {
     if (!token) {
       return json(res, 401, { detail: "Missing session token" })
     }
-    return json(res, 200, token.endsWith("-otheruser") ? otherAccount : account)
+    const self = token.endsWith("-otheruser") ? otherAccount : account
+    return accountJson(res, self.namespace, self)
+  }
+
+  // Test-only: move an account's revision on, the way another editor's save
+  // would, without going through the page that is being tested.
+  const bumpMatch = /^\/__revision\/([^/]+)$/.exec(path)
+  if (bumpMatch && req.method === "POST") {
+    const namespace = bumpMatch[1]
+    revisions.set(namespace, (revisions.get(namespace) ?? 1) + 1)
+    return json(res, 200, { namespace, etag: accountEtag(namespace) })
   }
 
   if (path === "/meta") {
     return json(res, 200, {
-      name: "TwextHub",
+      name: "Triflare Marketplace",
       tagline: "Extensions for TurboWarp",
+      banner,
+    })
+  }
+
+  // Test-only: the announcement the root loader reads with GET /meta.
+  if (path === "/__banner" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      banner = payload.message
+        ? { message: String(payload.message), link: payload.link ?? null }
+        : null
+      return json(res, 200, { banner })
+    })
+  }
+
+  // The browser half of a passkey ceremony is stubbed in the journey; these
+  // endpoints hand out a challenge and accept whatever assertion comes back.
+  if (path === "/auth/mfa/passkeys/options" && req.method === "POST") {
+    return json(res, 200, {
+      options: {
+        challenge: "cmVnaXN0ZXItY2hhbGxlbmdl",
+        rp: { id: "127.0.0.1", name: "Triflare Marketplace" },
+        user: { id: "dXNlci0x", name: "kamixfox", displayName: "Testing Account" },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        timeout: 60_000,
+        attestation: "none",
+        excludeCredentials: [],
+        authenticatorSelection: {
+          residentKey: "preferred",
+          userVerification: "required",
+        },
+      },
+    })
+  }
+
+  if (path === "/auth/mfa/passkeys" && req.method === "POST") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      return json(res, 201, {
+        passkey: {
+          id: "7",
+          label: payload.label ?? "This device",
+          createdAt: new Date().toISOString(),
+          lastUsedAt: null,
+        },
+        backupCodes: ["AAAA-BBBB-CCCC", "DDDD-EEEE-FFFF"],
+      })
     })
   }
 
@@ -532,7 +1083,7 @@ function handle(req, res) {
 
   if (path === "/auth/device/lookup") {
     return json(res, 200, {
-      clientName: "Twext CLI",
+      clientName: "Triflare Extend CLI",
       expiresAt: "2026-10-25T20:10:00.000Z",
       approved: false,
       denied: false,
@@ -540,7 +1091,7 @@ function handle(req, res) {
   }
 
   if (path === "/auth/device/approve") {
-    return json(res, 200, { approved: true, clientName: "Twext CLI" })
+    return json(res, 200, { approved: true, clientName: "Triflare Extend CLI" })
   }
 
   if (path === "/auth/device/deny") {
@@ -573,7 +1124,7 @@ function handle(req, res) {
   if (path === "/feed.atom") {
     res.writeHead(200, { "content-type": "application/atom+xml" })
     return res.end(
-      '<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>TwextHub</title></feed>'
+      '<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Triflare Marketplace</title></feed>'
     )
   }
 
@@ -644,6 +1195,26 @@ function handle(req, res) {
       configPath: "/srv/config.yaml",
       settings: [
         {
+          key: "banner.message",
+          label: "Announcement banner",
+          help: "Scrolled across the top of every page. Leave empty to hide it.",
+          type: "longtext",
+          min: null,
+          max: 280,
+          restartRequired: false,
+          value: banner?.message ?? null,
+        },
+        {
+          key: "banner.link",
+          label: "Banner link",
+          help: "Optional page the banner points to.",
+          type: "url",
+          min: null,
+          max: null,
+          restartRequired: false,
+          value: banner?.link ?? null,
+        },
+        {
           key: "publicBaseUrl",
           label: "Public base URL",
           help: "Used to build download and source links.",
@@ -687,6 +1258,199 @@ function handle(req, res) {
     })
   }
 
+  // The admin settings save. Only the announcement is modelled here, since
+  // that is the setting a browser journey changes and then reads back from
+  // GET /meta; the rest are refused like the real allowlist refuses unknown
+  // keys.
+  if (path === "/admin/config" && req.method === "PUT") {
+    return readBody(req).then((body) => {
+      const payload = body ? JSON.parse(body) : {}
+      const settings = payload.settings ?? {}
+      const changes = {}
+      const errors = []
+
+      let message = banner?.message ?? null
+      let link = banner?.link ?? null
+
+      if ("banner.message" in settings) {
+        const text = String(settings["banner.message"] ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+        if (text.length > 280) {
+          errors.push({
+            field: "banner.message",
+            message: "Must be at most 280 characters.",
+          })
+        } else {
+          message = text || null
+          // A link with nothing to open is dropped, as the real config does.
+          if (!message) link = null
+          changes["banner.message"] = message
+        }
+      }
+
+      if ("banner.link" in settings) {
+        const text = String(settings["banner.link"] ?? "").trim()
+        if (text && !/^https?:\/\//i.test(text)) {
+          errors.push({
+            field: "banner.link",
+            message: "Must be an http or https URL.",
+          })
+        } else {
+          link = message ? text || null : null
+          changes["banner.link"] = link
+        }
+      }
+
+      const unknown = Object.keys(settings).filter(
+        (key) => key !== "banner.message" && key !== "banner.link"
+      )
+      if (unknown.length) {
+        errors.push(
+          ...unknown.map((key) => ({
+            field: key,
+            message: "This setting cannot be changed from the admin interface.",
+          }))
+        )
+      }
+
+      if (errors.length) {
+        return json(res, 422, { errors })
+      }
+
+      banner = message ? { message, link } : null
+
+      return json(res, 200, {
+        changes,
+        restartRequired: [],
+      })
+    })
+  }
+
+  if (path === "/admin/system" && req.method === "GET") {
+    return json(res, 200, {
+      supervised: true,
+      startedAt: "2026-10-20T09:00:00.000Z",
+      configPath: "/srv/config.yaml",
+      driversRevision: driverCatalog.revision,
+      lastReload: null,
+    })
+  }
+
+  if (path === "/admin/system/reload" && req.method === "POST") {
+    return json(res, 200, {
+      reloaded: true,
+      driversRevision: driverCatalog.revision,
+    })
+  }
+
+  if (path === "/admin/system/restart" && req.method === "POST") {
+    return json(res, 202, { restarting: true })
+  }
+
+  if (path === "/admin/mail/outbox" && req.method === "GET") {
+    const status = url.searchParams.get("status")
+    const rows = outboxEntries.filter(
+      (entry) => !status || entry.status === status
+    )
+    return json(res, 200, {
+      data: rows.map(({ message, ...entry }) => entry),
+      _links: { self: path, next: null, prev: null },
+    })
+  }
+
+  const outboxRetryMatch = /^\/admin\/mail\/outbox\/([^/]+)\/retry$/.exec(path)
+  if (outboxRetryMatch && req.method === "POST") {
+    const entry = outboxEntries.find(
+      (candidate) => candidate.id === outboxRetryMatch[1]
+    )
+    if (!entry) {
+      return json(res, 404, { title: "Not Found", status: 404 })
+    }
+    if (entry.status === "sent") {
+      return json(res, 409, {
+        title: "Already Sent",
+        status: 409,
+        detail:
+          "This message was delivered; sending it again would duplicate it.",
+      })
+    }
+    const now = new Date().toISOString()
+    entry.status = "sent"
+    entry.driver = "file"
+    entry.attempts += 1
+    entry.lastError = null
+    entry.sentAt = now
+    entry.updatedAt = now
+    return json(res, 200, {
+      ...entry,
+      result: { file: "/srv/data/mail/mock.eml" },
+    })
+  }
+
+  const outboxMatch = /^\/admin\/mail\/outbox\/([^/]+)$/.exec(path)
+  if (outboxMatch && req.method === "GET") {
+    const entry = outboxEntries.find(
+      (candidate) => candidate.id === outboxMatch[1]
+    )
+    return entry
+      ? json(res, 200, entry)
+      : json(res, 404, { title: "Not Found", status: 404 })
+  }
+
+  if (path === "/admin/drivers" && req.method === "GET") {
+    return json(res, 200, structuredClone(driverCatalog))
+  }
+
+  const driverKindMatch = /^\/admin\/drivers\/([^/]+)$/.exec(path)
+  if (driverKindMatch) {
+    const kindId = driverKindMatch[1]
+    const entry = driverCatalog.drivers[kindId]
+    if (!entry) {
+      return json(res, 404, { title: "Not Found", status: 404 })
+    }
+    if (req.method === "PUT") {
+      return readBody(req).then((body) => {
+        const payload = body ? JSON.parse(body) : {}
+        const incoming = Array.isArray(payload.instances)
+          ? payload.instances
+          : []
+        entry.instances = incoming.map((instance, index) => {
+          const candidate = entry.available.find(
+            (driver) => driver.driver === instance.driver
+          )
+          const options = {}
+          for (const option of candidate?.options ?? []) {
+            const value = instance.options?.[option.key]
+            if (value === undefined) continue
+            options[option.key] = option.secret ? { set: true } : value
+          }
+          return {
+            id:
+              instance.id ??
+              (index === 0
+                ? instance.driver
+                : `${instance.driver}-${index + 1}`),
+            driver: instance.driver,
+            label: candidate?.label ?? instance.driver,
+            capabilities: candidate?.capabilities ?? {},
+            requirements: candidate?.requirements ?? {},
+            options,
+            state: "active",
+          }
+        })
+        driverCatalog.revision[kindId] =
+          (driverCatalog.revision[kindId] ?? 0) + 1
+        return json(res, 200, {
+          kind: kindId,
+          applied: "live",
+          revision: driverCatalog.revision[kindId],
+          instances: entry.instances,
+        })
+      })
+    }
+  }
+
   const quotaMatch = /^\/admin\/users\/([^/]+)\/quota$/.exec(path)
   if (quotaMatch) {
     const namespace = quotaMatch[1]
@@ -727,24 +1491,26 @@ function handle(req, res) {
       if (index === -1) {
         return json(res, 404, { title: "Not Found", status: 404 })
       }
+      if (refuseStaleWrite(req, res, namespace)) return
       return readBody(req).then((body) => {
         const payload = body ? JSON.parse(body) : {}
         const next = { ...users[index], ...profileEdits(payload) }
         users = users.map((entry, at) => (at === index ? next : entry))
-        return json(res, 200, next)
+        revisions.set(namespace, (revisions.get(namespace) ?? 1) + 1)
+        return accountJson(res, namespace, next)
       })
     }
 
     if (namespace === "kamixfox") {
-      return json(res, 200, account)
+      return accountJson(res, namespace, account)
     }
     if (namespace === "otheruser") {
-      return json(res, 200, otherAccount)
+      return accountJson(res, namespace, otherAccount)
     }
     if (index !== -1) {
-      return json(res, 200, users[index])
+      return accountJson(res, namespace, users[index])
     }
-    return json(res, 200, otherAccount)
+    return accountJson(res, namespace, otherAccount)
   }
 
   if (/^\/users\/[^/]+\/webhooks$/.test(path)) {
@@ -762,7 +1528,7 @@ function handle(req, res) {
         id: randomUUID(),
         name: payload.name ?? "Token",
         scopes: payload.scopes ?? ["publish"],
-        token: "twexthub_test_secret_value",
+        token: "triflare_test_secret_value",
         createdAt: new Date().toISOString(),
         expiresAt: null,
         lastUsedAt: null,
@@ -837,7 +1603,7 @@ function handle(req, res) {
               createdAt: new Date().toISOString(),
               downloads: 0,
               _links: {
-                source: `${ORIGIN}/v2/@${namespace}/${id}/versions/0.4.0/source`,
+                source: `${ORIGIN}/v1/@${namespace}/${id}/versions/0.4.0/source`,
               },
             })
           })

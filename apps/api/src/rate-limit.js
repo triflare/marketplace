@@ -8,6 +8,19 @@ function windowStartFor(now, windowMinutes) {
 export function makeRateLimiter(db, config) {
   const limits = config.rateLimits;
 
+  // The IETF draft the coarse limiter already speaks: `r` is what is left, `t`
+  // is seconds until the window rolls over, and the policy names the quota and
+  // its length. A route passes the response so a client can pace itself instead
+  // of discovering the ceiling by hitting it.
+  function setHeaders(res, max, count, windowMinutes) {
+    if (!res || max === null || max === undefined) return;
+    res.set(
+      'RateLimit',
+      `"default";r=${Math.max(0, max - count)};t=${secondsUntilReset(windowMinutes)}`,
+    );
+    res.set('RateLimit-Policy', `"default";q=${max};w=${windowMinutes * 60}`);
+  }
+
   function secondsUntilReset(windowMinutes) {
     const windowStart = windowStartFor(new Date(), windowMinutes);
     const remaining = windowStart.getTime() + windowMinutes * 60_000 - Date.now();
@@ -41,16 +54,18 @@ export function makeRateLimiter(db, config) {
     if (existing && Number(existing.Count) >= max) {
       throw tooManyRequests(secondsUntilReset(windowMinutes));
     }
-    return async () => {
+    return async (res) => {
       const count = await record(bucket, windowMinutes);
+      setHeaders(res, max, count, windowMinutes);
       if (count > max) throw tooManyRequests(secondsUntilReset(windowMinutes));
     };
   }
 
-  async function signupCheck(bucket) {
+  async function signupCheck(bucket, res) {
     const max = limits.signupsPerIpPerWindow;
     const windowMinutes = limits.signupWindowMinutes;
     const count = await record(bucket, windowMinutes);
+    setHeaders(res, max, count, windowMinutes);
     if (count > max) throw tooManyRequests(secondsUntilReset(windowMinutes));
   }
 
@@ -59,8 +74,9 @@ export function makeRateLimiter(db, config) {
   // server did), and a null limit disables the bucket entirely.
   function windowedCheck(bucket, max, windowMinutes) {
     if (max === null || max === undefined) return async () => {};
-    return async () => {
+    return async (res) => {
       const count = await record(bucket, windowMinutes);
+      setHeaders(res, max, count, windowMinutes);
       if (count > max) throw tooManyRequests(secondsUntilReset(windowMinutes));
     };
   }

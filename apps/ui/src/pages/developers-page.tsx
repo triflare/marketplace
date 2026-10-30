@@ -4,32 +4,32 @@ import type { ReactNode } from "react"
 import { CopyButton } from "@/components/common/copy-button"
 import { PageHeader } from "@/components/common/page-header"
 import { ButtonLink } from "@/components/common/button-link"
-import { product } from "@/lib/product"
+import { extend, product } from "@/lib/product"
 import {
   API_BASE_URL,
   CLI_HUB_URL_FLAG,
   IS_OFFICIAL_INSTANCE,
-} from "@/lib/twexthub"
+} from "@/lib/registry"
 
-const INSTALL = "npm install -g @twextjs/twext"
-const INIT = "twext init"
-const BUILD = "twext build"
-const DEV = "twext dev"
-const SIGNUP = `twext signup${CLI_HUB_URL_FLAG}`
-const LOGIN = `twext login${CLI_HUB_URL_FLAG}`
-const PUBLISH = `twext publish${CLI_HUB_URL_FLAG}`
-const TOKEN_CREATE = `twext token create --name ci --scope publish${CLI_HUB_URL_FLAG}`
+const INSTALL = `npm install -g ${extend.package}`
+const INIT = `${extend.command} init`
+const BUILD = `${extend.command} build`
+const DEV = `${extend.command} dev`
+const SIGNUP = `${extend.command} signup${CLI_HUB_URL_FLAG}`
+const LOGIN = `${extend.command} login${CLI_HUB_URL_FLAG}`
+const PUBLISH = `${extend.command} publish${CLI_HUB_URL_FLAG}`
+const TOKEN_CREATE = `${extend.command} token create --name ci --scope publish${CLI_HUB_URL_FLAG}`
 const CI_PUBLISH = `${
-  IS_OFFICIAL_INSTANCE ? "" : `TWEXTHUB_URL=${API_BASE_URL} `
-}TWEXTHUB_TOKEN=twext_... twext publish`
+  IS_OFFICIAL_INSTANCE ? "" : `TRIFLARE_URL=${API_BASE_URL} `
+}TRIFLARE_TOKEN=<token> ${extend.command} publish`
 
 export function DevelopersPage() {
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
         eyebrow="For developers"
-        title="Build and publish with Twext"
-        description="Twext turns a small JavaScript project into a TurboWarp extension. Use the Twext CLI to build it, preview it, and publish it here."
+        title={`Build and publish with ${extend.name}`}
+        description={`${extend.name} turns a small JavaScript project into a TurboWarp extension. Use its CLI to build it, preview it, and publish it here.`}
       />
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -37,7 +37,7 @@ export function DevelopersPage() {
           <GuideStep
             step="1"
             title="Create a project"
-            description="Install the CLI, then create a project in an empty folder. Twext writes the configuration and a working starter block."
+            description={`Install the CLI, then create a project in an empty folder. ${extend.name} writes the configuration and a working starter block.`}
           >
             <Command value={INSTALL} />
             <Command value={INIT} />
@@ -59,7 +59,7 @@ export function DevelopersPage() {
           <GuideStep
             step="3"
             title="Publish a release"
-            description="Sign in once, then publish from the project folder. Twext validates and builds the project before it uploads anything."
+            description={`Sign in once, then publish from the project folder. ${extend.name} validates and builds the project before it uploads anything.`}
           >
             <Command value={LOGIN} />
             <Command value={PUBLISH} />
@@ -97,19 +97,21 @@ export function DevelopersPage() {
             <h2 className="text-sm font-medium">Release commands</h2>
             <dl className="mt-3 flex flex-col gap-2 text-sm">
               <div>
-                <dt className="font-mono text-xs">twext tag set</dt>
+                <dt className="font-mono text-xs">{extend.command} tag set</dt>
                 <dd className="text-muted-foreground">
                   Point a label such as beta at a release.
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-xs">twext deprecate</dt>
+                <dt className="font-mono text-xs">
+                  {extend.command} deprecate
+                </dt>
                 <dd className="text-muted-foreground">
                   Recommend a newer release without removing the old one.
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-xs">twext yank</dt>
+                <dt className="font-mono text-xs">{extend.command} yank</dt>
                 <dd className="text-muted-foreground">
                   Remove a broken release from the registry.
                 </dd>
@@ -121,16 +123,16 @@ export function DevelopersPage() {
             <h2 className="text-sm font-medium">Documentation</h2>
             <div className="mt-2 flex flex-col gap-2 text-sm">
               <ExternalLink
-                href="https://github.com/twextjs/twext/blob/main/docs/cli.md"
+                href="https://github.com/triflare/extend#readme"
                 label="CLI reference"
               />
               <ExternalLink
-                href="https://github.com/twextjs/twext/blob/main/docs/twexthub.md"
+                href="https://github.com/triflare/marketplace#readme"
                 label={`Publishing to ${product.name}`}
               />
               <ExternalLink
-                href="https://github.com/twextjs/twext"
-                label="Twext on GitHub"
+                href="https://github.com/triflare/extend"
+                label={`${extend.name} on GitHub`}
               />
             </div>
           </section>

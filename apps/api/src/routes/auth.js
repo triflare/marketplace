@@ -1,15 +1,19 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import { hashToken, requireSession } from '../auth.js';
 import { beginSigninMfa, hasPasskeys } from '../mfa.js';
 import { makeOidcClient, newSecret, oidcEnabled, OidcError } from '../oidc.js';
+import { methodSummaries } from '../drivers/auth.js';
 import { deviceEnabled } from '../device.js';
 import { conflict, fieldErrors, HttpError, notFound } from '../errors.js';
+import { productSlug } from '../product.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
 import { sessionToObject, userToObject } from '../serialize.js';
 import { createSession, requireObjectBody } from './shared.js';
 import { audit } from '../audit.js';
 import { withLocks } from '../locks.js';
+import { freeNamespace } from '../accounts.js';
+import { returnToPath } from '../return-to.js';
 
 // How long a sign-in may sit between the authorize redirect and the callback,
 // and how long the browser then has to redeem its one-time code for the
@@ -33,7 +37,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   // is actually served over TLS, for the same reason the instance allows plain
   // HTTP at all. The cookie is named by the flow's state so concurrent flows
   // do not overwrite each other's binding.
-  const flowCookieBase = 'twexthub_oidc_flow';
+  const flowCookieBase = `${productSlug()}_oidc_flow`;
   const flowCookieOptions = {
     httpOnly: true,
     sameSite: 'lax',
@@ -49,12 +53,18 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     res.cookie(flowCookieName(state), secret, flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 
-  // What a sign-in page needs to render: whether password sign-in is offered,
-  // and where the button for the provider should lead. Public, because it is
-  // read before anybody has signed in.
+  // What a sign-in page needs to render: one entry per configured method, in
+  // the order the instance offers them. The older keys stay because clients
+  // already read them; they say the same thing for the two methods that had
+  // them before the registry. Public, because it is read before anybody has
+  // signed in.
   router.get('/', (req, res) => {
     res.json({
-      passwordAuth: !oidc.required,
+      methods: methodSummaries({ config }),
+      passwordAuth: config.auth.passwordEnabled,
+      // Whether an unknown person can still become an account. A page reads
+      // this before offering a form that the server would refuse.
+      registration: config.auth.policy.registration,
       oidc: enabled ? { issuer: oidc.issuer, required: Boolean(oidc.required) } : null,
       // A client that cannot run a browser flow reads this to know it can ask
       // for a code instead of prompting for a password.
@@ -245,8 +255,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   });
 
   router.get('/oidc/identities', requireSession, async (req, res) => {
-    const rows = await db.UserIdentities.findMany({
-      where: { UserId: req.auth.user.Id },
+    const rows = await db.AuthIdentities.findMany({
+      where: { UserId: req.auth.user.Id, Driver: 'oidc' },
       select: { Id: true, Issuer: true, Subject: true, Email: true, CreatedAt: true },
       orderBy: { Id: 'asc' },
     });
@@ -261,15 +271,17 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     if (!Number.isSafeInteger(id) || id <= 0) throw notFound();
     await db.$transaction(async (tx) => {
       const [identity] = await tx.$queryRaw`
-        SELECT * FROM "UserIdentities" WHERE "Id" = ${id} AND "UserId" = ${req.auth.user.Id} FOR UPDATE
+        SELECT * FROM "AuthIdentities"
+        WHERE "Id" = ${id} AND "UserId" = ${req.auth.user.Id} AND "Driver" = 'oidc'
+        FOR UPDATE
       `;
       if (!identity) throw notFound('No such linked identity.');
       const [user] =
         await tx.$queryRaw`SELECT * FROM "Users" WHERE "Id" = ${req.auth.user.Id} FOR UPDATE`;
-      const count = await tx.UserIdentities.count({ where: { UserId: req.auth.user.Id } });
+      const count = await tx.AuthIdentities.count({ where: { UserId: req.auth.user.Id } });
       // Unlinking the last way in would strand the account: a password that
       // still works is a way in, but one the instance no longer accepts is not.
-      const canUsePassword = Boolean(user.PasswordHash) && !oidc.required;
+      const canUsePassword = Boolean(user.PasswordHash) && config.auth.passwordEnabled;
       if (!canUsePassword && count <= 1) {
         throw conflict(
           user.PasswordHash
@@ -277,7 +289,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
             : 'This link is the only way into the account. Ask an admin for a password before removing it.',
         );
       }
-      await tx.UserIdentities.delete({ where: { Id: id } });
+      await tx.AuthIdentities.delete({ where: { Id: id } });
       await audit(
         tx,
         user,
@@ -325,13 +337,23 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   }
 
   async function finishSignin(req, res, flow, exchangeCode, { issuer, subject, claims }) {
-    const existing = await db.UserIdentities.findUnique({
-      where: { Issuer_Subject: { Issuer: issuer, Subject: subject } },
+    const existing = await db.AuthIdentities.findUnique({
+      where: { Driver_Issuer_Subject: { Driver: 'oidc', Issuer: issuer, Subject: subject } },
     });
     let user;
     if (existing) {
       user = await db.Users.findUnique({ where: { Id: existing.UserId } });
     } else {
+      if (config.auth.policy.registration === 'closed') {
+        return failFlow(
+          req,
+          res,
+          flow,
+          403,
+          'signup_closed',
+          'Registration is closed on this instance.',
+        );
+      }
       user = await createAccountFromClaims(db, rateLimiter, req, {
         issuer,
         subject,
@@ -385,7 +407,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   return router;
 }
 
-// An account is created for an identity the provider vouches for and the hub
+// An account is created for an identity the provider vouches for and the registry
 // has never seen. Roles stay local -- the first account is an admin exactly as
 // it is for password sign-up -- and the namespace comes from the provider's
 // preferred name when it can, with a digest-based fallback that cannot collide
@@ -398,8 +420,8 @@ async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, 
   return withLocks(db, ['signup-bootstrap'], async (tx) => {
     // Another callback for the same identity may have created the account
     // while this one waited for the lock.
-    const existing = await tx.UserIdentities.findFirst({
-      where: { Issuer: issuer, Subject: subject },
+    const existing = await tx.AuthIdentities.findFirst({
+      where: { Driver: 'oidc', Issuer: issuer, Subject: subject },
       include: { Users: true },
     });
     if (existing) return existing.Users;
@@ -410,8 +432,15 @@ async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, 
     const user = await tx.Users.create({
       data: { Namespace: namespace, DisplayName: displayName, Role: role },
     });
-    await tx.UserIdentities.create({
-      data: { UserId: user.Id, Issuer: issuer, Subject: subject, Email: claimEmail(claims) },
+    await tx.AuthIdentities.create({
+      data: {
+        UserId: user.Id,
+        Driver: 'oidc',
+        Issuer: issuer,
+        Subject: subject,
+        Email: claimEmail(claims),
+        VerifiedAt: new Date(),
+      },
     });
     return user;
   });
@@ -424,31 +453,15 @@ async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, 
 // `RETURNING`.
 async function attachIdentity(db, userId, issuer, subject, email) {
   const inserted = await db.$queryRaw`
-    INSERT INTO "UserIdentities" ("UserId", "Issuer", "Subject", "Email")
-    VALUES (${userId}, ${issuer}, ${subject}, ${email})
-    ON CONFLICT ("Issuer", "Subject") DO NOTHING
+    INSERT INTO "AuthIdentities" ("UserId", "Driver", "Issuer", "Subject", "Email", "VerifiedAt")
+    VALUES (${userId}, 'oidc', ${issuer}, ${subject}, ${email}, now())
+    ON CONFLICT ("Driver", "Issuer", "Subject") DO NOTHING
     RETURNING *
   `;
   if (inserted[0]) return { ...inserted[0], created: true };
-  return db.UserIdentities.findUnique({
-    where: { Issuer_Subject: { Issuer: issuer, Subject: subject } },
+  return db.AuthIdentities.findUnique({
+    where: { Driver_Issuer_Subject: { Driver: 'oidc', Issuer: issuer, Subject: subject } },
   });
-}
-
-async function freeNamespace(tx, base) {
-  const taken = (namespace) =>
-    tx.Users.findFirst({ where: { Namespace: namespace }, select: { Id: true } });
-  if (base) {
-    if (!(await taken(base))) return base;
-    for (let suffix = 2; suffix <= 50; suffix += 1) {
-      const candidate = `${base.slice(0, 36)}-${suffix}`;
-      if (!(await taken(candidate))) return candidate;
-    }
-  }
-  for (;;) {
-    const candidate = `user-${randomBytes(6).toString('hex')}`;
-    if (!(await taken(candidate))) return candidate;
-  }
 }
 
 function namespaceFromClaims(claims, issuer, subject) {
@@ -516,76 +529,6 @@ function readCookie(req, name) {
     }
   }
   return null;
-}
-
-// Where the browser is sent once the provider hands it back. A path is
-// resolved against publicBaseUrl and has to stay on that origin; an absolute
-// URL has to name an origin the instance already trusts. Either way the stored
-// value is the resolved URL, because otherwise an authorize link with an
-// attacker's returnTo would hand that attacker a freshly minted sign-in code.
-function returnToPath(value, config) {
-  if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string' || value.length > 1024) {
-    throw fieldErrors([{ field: 'returnTo', message: 'Must be a path or an allowed origin.' }]);
-  }
-  // Control characters are stripped by the URL parser rather than encoded, so
-  // "/<tab>/evil.example" would first pass the leading-slash check here and
-  // then resolve to "//evil.example" off-origin. Backslashes are refused for
-  // the same reason on the browsers that treat them as slashes.
-  if (hasControlChars(value) || value.includes('\\')) {
-    throw fieldErrors([{ field: 'returnTo', message: 'Must be a path on this instance.' }]);
-  }
-  const base = URL.parse(config.publicBaseUrl);
-  if (value.startsWith('/')) {
-    const target = resolveAgainst(value, config.publicBaseUrl);
-    if (!base || !target || target.origin !== base.origin) {
-      throw fieldErrors([{ field: 'returnTo', message: 'Must be a path on this instance.' }]);
-    }
-    return `${target.pathname}${target.search}${target.hash}`;
-  }
-  const parsed = URL.parse(value);
-  if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
-    throw fieldErrors([{ field: 'returnTo', message: 'Must be a path or an allowed origin.' }]);
-  }
-  if (!allowedReturnOrigins(config).has(parsed.origin)) {
-    throw fieldErrors([
-      {
-        field: 'returnTo',
-        message:
-          "Must be a path on this instance, or an origin in the instance's cors.allowedOrigins.",
-      },
-    ]);
-  }
-  return parsed.toString();
-}
-
-function resolveAgainst(value, base) {
-  try {
-    return new URL(value, base);
-  } catch {
-    return null;
-  }
-}
-
-function hasControlChars(value) {
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code <= 0x1f || code === 0x7f) return true;
-  }
-  return false;
-}
-
-function allowedReturnOrigins(config) {
-  const origins = new Set();
-  const base = URL.parse(config.publicBaseUrl);
-  if (base) origins.add(base.origin);
-  for (const origin of Array.isArray(config.cors.allowedOrigins)
-    ? config.cors.allowedOrigins
-    : []) {
-    const parsed = URL.parse(origin);
-    if (parsed) origins.add(parsed.origin);
-  }
-  return origins;
 }
 
 function redirectTarget(returnTo, config) {

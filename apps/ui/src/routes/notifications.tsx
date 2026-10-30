@@ -10,7 +10,7 @@ export async function loader({ request }: { request: Request }) {
   }
 
   try {
-    const page = await context.kit.notifications.list({ limit: 20 })
+    const page = await context.api.notifications.list({ limit: 20 })
     return { preload: { [notificationsKey("all")]: page } }
   } catch {
     return { preload: {} }

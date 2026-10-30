@@ -19,10 +19,10 @@ export async function loader({ request }: { request: Request }) {
   }
 
   try {
-    const kit = serverApi()
+    const api = serverApi()
     const page = query
-      ? await kit.extensions.search(query, options)
-      : await kit.extensions.list(options)
+      ? await api.extensions.search(query, options)
+      : await api.extensions.list(options)
     return { preload: { [exploreKey(query, sort, license)]: page } }
   } catch {
     return { preload: {} }

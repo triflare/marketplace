@@ -1,6 +1,6 @@
 import { hashToken, newToken } from '../auth.js';
 import { forbidden, HttpError, notFound } from '../errors.js';
-import { isPlainObject } from '../util.js';
+import { isPlainObject, normalizeApiRoot } from '../util.js';
 
 export function requireObjectBody(req) {
   if (!isPlainObject(req.body)) {
@@ -24,6 +24,13 @@ export async function createSession(db, userId, sessionTtlMs) {
     },
   });
   return { token, session };
+}
+
+// Every sign-in route creates the session it hands back, so each one names it
+// in Location the way POST /sessions does.
+export function sessionPath(config, session) {
+  const root = normalizeApiRoot(config.apiRoot);
+  return `${root ? `/${root}` : ''}/sessions/${session.Id}`;
 }
 
 export async function resolveTargetUser(db, req) {

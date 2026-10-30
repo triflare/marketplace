@@ -21,11 +21,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 
-import type { ExtensionSummary } from "@twextjs/twexthubkit"
+import type { ExtensionSummary } from "@/lib/api"
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { useAuth } from "@/context/auth"
-import { th } from "@/lib/twexthub"
+import { extend } from "@/lib/product"
+import { th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 interface PaletteItem {
@@ -76,7 +77,7 @@ const COMMANDS: Command[] = [
     label: "Developer guide",
     to: "/developers",
     icon: BookOpenIcon,
-    keywords: "docs cli build publish twext",
+    keywords: `docs cli build publish ${extend.command}`,
   },
   {
     id: "embeds",

@@ -40,6 +40,7 @@ test('a queued publish waits for the delete to finish its cleanup', async () => 
   await publishProject(app, ns, 'hello', owner.token, { code });
   await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -87,6 +88,7 @@ test('a queued publish waits for the delete to finish its cleanup', async () => 
   );
   await request(app)
     .get(apiPath(`/@${ns}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .set(bearer(owner.token))
     .expect(200);
 });

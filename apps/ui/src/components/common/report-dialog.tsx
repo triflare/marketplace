@@ -2,7 +2,7 @@ import { FlagIcon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { ReportReason, ReportTargetType } from "@twextjs/twexthubkit"
+import type { ReportReason, ReportTargetType } from "@/lib/api"
 
 import { ButtonLink } from "@/components/common/button-link"
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/context/auth"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const REASONS: Array<{ value: ReportReason; label: string }> = [
   { value: "spam", label: "Spam" },

@@ -38,6 +38,7 @@ test('a trusted publish is accepted when minification brings the build under the
   await publishProject(app, ns, 'seed', owner.token, { code: '// seed' });
   await request(app)
     .patch(apiPath(`/@${ns}/seed/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -75,6 +76,7 @@ test('a trusted build that cannot minify under the limit is rejected on its fina
   await publishProject(app, ns, 'seed', owner.token, { code: '// seed' });
   await request(app)
     .patch(apiPath(`/@${ns}/seed/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);

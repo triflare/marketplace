@@ -9,7 +9,7 @@ import { useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { User, UserRole } from "@twextjs/twexthubkit"
+import type { User, UserRole } from "@/lib/api"
 
 import { AccountStorageDialog } from "@/components/admin/account-storage-dialog"
 import {
@@ -32,7 +32,7 @@ import { useAuth } from "@/context/auth"
 import { usePagedList } from "@/hooks/use-paged-list"
 import { formatDate } from "@/lib/format"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const PAGE_SIZE = 20
 

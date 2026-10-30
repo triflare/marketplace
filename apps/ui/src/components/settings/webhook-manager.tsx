@@ -10,7 +10,7 @@ import type {
   WebhookDelivery,
   WebhookEvent,
   WebhookInput,
-} from "@twextjs/twexthubkit"
+} from "@/lib/api"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { CopyButton } from "@/components/common/copy-button"
@@ -30,7 +30,7 @@ import { Label } from "@/components/ui/label"
 import { product } from "@/lib/product"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
-import { errorMessage } from "@/lib/twexthub"
+import { errorMessage } from "@/lib/registry"
 
 const EVENTS: Array<{ value: WebhookEvent; label: string }> = [
   { value: "version.published", label: "Release published" },
@@ -195,7 +195,7 @@ export function WebhookManager({
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 required
-                placeholder="https://example.com/hooks/twexthub"
+                placeholder="https://example.com/hooks/marketplace"
               />
             </div>
             <fieldset className="flex flex-col gap-2">

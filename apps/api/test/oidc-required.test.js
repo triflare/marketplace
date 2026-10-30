@@ -10,7 +10,7 @@ let idp;
 before(async () => {
   idp = await startFakeIdp();
   ({ app } = await boot({
-    auth: { oidc: { issuer: idp.issuer, clientId: 'twexthub-test', required: true } },
+    auth: { oidc: { issuer: idp.issuer, clientId: 'triflare-test', required: true } },
     rateLimits: { signupsPerIpPerWindow: 10_000 },
   }));
 });

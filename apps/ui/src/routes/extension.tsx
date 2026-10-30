@@ -21,19 +21,19 @@ export async function loader({
 
   const session = await readSession(request)
   const token = session.get("token")
-  const kit = serverApi(token)
+  const api = serverApi(token)
 
   let viewer: string | undefined
   if (token) {
     try {
-      viewer = (await kit.users.me()).namespace
+      viewer = (await api.users.me()).namespace
     } catch {
       viewer = undefined
     }
   }
 
   try {
-    const data = await loadExtensionData(kit, namespace, id, viewer)
+    const data = await loadExtensionData(api, namespace, id, viewer)
     return { preload: { [extensionKey(namespace, id, viewer)]: data } }
   } catch {
     return { preload: {} }

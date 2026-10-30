@@ -46,6 +46,7 @@ export function notificationsKey(filter: "all" | "unread"): string {
 }
 
 export const settingsKeys = {
+  email: "settings.email",
   mfa: "settings.mfa",
   sessions: "settings.sessions",
   auth: "settings.auth",
@@ -61,6 +62,9 @@ export const adminKeys = {
   queue: "admin.queue",
   audit: "admin.audit",
   config: "admin.config",
+  drivers: "admin.drivers",
+  system: "admin.system",
+  outbox: "admin.outbox",
   legal: "admin.legal",
   reports: (status: string) => `admin.reports|${status}`,
 } as const

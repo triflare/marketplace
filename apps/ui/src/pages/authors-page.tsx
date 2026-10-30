@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { usePagedList } from "@/hooks/use-paged-list"
 import { formatDate } from "@/lib/format"
 import { AUTHORS_KEY } from "@/lib/preload"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 export function AuthorsPage() {
   const authors = usePagedList(

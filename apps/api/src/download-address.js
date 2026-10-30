@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { envName } from './product.js';
 
 // Set this to manage the key yourself (Kubernetes secret, config management);
 // it is read once per process.
-const KEY_ENV = 'TWEXTHUB_DOWNLOAD_HASH_KEY';
+const KEY_ENV = envName('DOWNLOAD_HASH_KEY');
 
 const resolved = new Map();
 

@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router"
 import { toast } from "sonner"
 
-import type { Organization } from "@twextjs/twexthubkit"
+import type { Organization } from "@/lib/api"
 
 import {
   EmptyState,
@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { organizationKeys } from "@/lib/preload"
-import { assetUrl, errorMessage, th } from "@/lib/twexthub"
+import { assetUrl, errorMessage, th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 const ORG_TABS = ["profile", "owners", "webhooks", "settings"] as const

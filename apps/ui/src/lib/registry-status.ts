@@ -13,7 +13,7 @@ function emit() {
 
 /**
  * A transport failure, or a status the registry only produces when the request
- * never got an answer: the kit keeps 0 for "never reached the server", and the
+ * never got an answer: the client keeps 0 for "never reached the server", and the
  * gateway forwards that, plus its own 502 while it cannot reach the registry.
  * A 4xx and a 500 are the registry answering, so they stay page-local errors.
  */

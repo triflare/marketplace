@@ -8,11 +8,11 @@ import {
 } from "react"
 import { useNavigate } from "react-router"
 
-import type { AuthSession, MfaRequired, User } from "@twextjs/twexthubkit"
+import type { AuthSession, MfaRequired, User } from "@/lib/api"
 import { toast } from "sonner"
 
 import type { AccountSummary } from "@/lib/accounts"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 export interface SignInInput {
   namespace: string

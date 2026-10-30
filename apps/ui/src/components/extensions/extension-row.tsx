@@ -9,7 +9,7 @@ import {
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { ExtensionSummary } from "@twextjs/twexthubkit"
+import type { ExtensionSummary } from "@/lib/api"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"

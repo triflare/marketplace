@@ -26,6 +26,7 @@ async function publishAndApprove(adminToken, owner, id, code = `// ${id}`) {
   await publishProject(app, ns, id, owner.token, { code });
   await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -46,29 +47,29 @@ test('admin metrics renders Prometheus text with registry counters and telemetry
   assert.match(res.headers['content-type'], /text\/plain/);
 
   const body = res.text;
-  assert.match(body, /^# HELP twexthub_versions_total /m);
-  assert.match(body, /^twexthub_versions_total\{status="published"\} 1$/m);
-  assert.match(body, /^twexthub_users_total \d+$/m);
-  assert.match(body, /^twexthub_downloads_total \d+$/m);
-  assert.match(body, /^twexthub_storage_bytes\{kind="blob"\} \d+$/m);
-  assert.match(body, /^twexthub_storage_integrity_errors 0$/m);
+  assert.match(body, /^# HELP triflare_marketplace_versions_total /m);
+  assert.match(body, /^triflare_marketplace_versions_total\{status="published"\} 1$/m);
+  assert.match(body, /^triflare_marketplace_users_total \d+$/m);
+  assert.match(body, /^triflare_marketplace_downloads_total \d+$/m);
+  assert.match(body, /^triflare_marketplace_storage_bytes\{kind="blob"\} \d+$/m);
+  assert.match(body, /^triflare_marketplace_storage_integrity_errors 0$/m);
   // The route label carries the apiRoot prefix.
   const statsRoute = apiPath('/stats').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   assert.match(
     body,
     new RegExp(
-      `^twexthub_http_requests_total\\{method="GET",route="${statsRoute}",status="200"\\} \\d+$`,
+      `^triflare_marketplace_http_requests_total\\{method="GET",route="${statsRoute}",status="200"\\} \\d+$`,
       'm',
     ),
   );
   assert.match(
     body,
     new RegExp(
-      `^twexthub_http_request_duration_seconds_count\\{method="GET",route="${statsRoute}"\\} \\d+$`,
+      `^triflare_marketplace_http_request_duration_seconds_count\\{method="GET",route="${statsRoute}"\\} \\d+$`,
       'm',
     ),
   );
-  assert.match(body, /^twexthub_process_uptime_seconds \d+$/m);
+  assert.match(body, /^triflare_marketplace_process_uptime_seconds \d+$/m);
 });
 
 test('admin metrics is admin-only and counts unmatched paths without leaking them', async () => {
@@ -86,7 +87,7 @@ test('admin metrics is admin-only and counts unmatched paths without leaking the
     .expect(200);
   assert.match(
     res.text,
-    /^twexthub_http_requests_total\{method="GET",route="unmatched",status="404"\} \d+$/m,
+    /^triflare_marketplace_http_requests_total\{method="GET",route="unmatched",status="404"\} \d+$/m,
   );
   assert.ok(!res.text.includes('definitely-not-a-route'), 'raw paths stay out of the exposition');
 });

@@ -22,6 +22,7 @@ export function productConfig() {
     tagline: loaded.tagline,
     author: loaded.author,
     homepage: loaded.homepage,
+    extend: loaded.extend ?? {},
     branding: loaded.branding ?? {},
     symbols: loaded.symbols ?? {},
     defaults: loaded.defaults ?? {},
@@ -36,6 +37,32 @@ export function productName() {
 
 export function configFilename() {
   return product.defaults?.configFilename ?? 'config.yaml';
+}
+
+// The project file an extension is published with, named by the build tool that
+// reads it.
+export function extendConfigFilename() {
+  return product.extend?.configFilename ?? 'extend.yml';
+}
+
+// The prefix of every environment variable this server reads, so a rename moves
+// the operator-facing surface along with the rest of the brand.
+export function envPrefix() {
+  return product.envPrefix ?? 'TRIFLARE';
+}
+
+export function envName(suffix) {
+  return `${envPrefix()}_${suffix}`;
+}
+
+// A header-safe, metric-safe, lowercase form of the product name. Renaming the
+// product in product.yml carries through to the user agent, the webhook headers,
+// and the Prometheus metric prefix.
+export function productSlug() {
+  return product.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 const FALLBACK_COLORS = {

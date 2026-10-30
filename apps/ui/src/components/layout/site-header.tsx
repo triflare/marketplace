@@ -28,7 +28,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { useSearchShortcut } from "@/hooks/use-search-shortcut"
 import { product } from "@/lib/product"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [

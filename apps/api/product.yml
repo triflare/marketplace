@@ -1,19 +1,36 @@
-name: 'TwextHub'
-version: '3.1.1'
-tagline: 'A lightweight registry of Twext-compiled extensions ("Twexts") for use in TurboWarp'
-author: 'Twext Team'
-homepage: 'https://github.com/twextjs/twexthub'
+# Identity
+name: 'Triflare Marketplace'
+version: '1.1.0'
+tagline: 'Find extensions, and share yours.'
+author: 'Triflare'
+homepage: 'https://github.com/triflare/marketplace'
+
+# The compiler and CLI that build the extensions this registry serves.
+extend:
+  name: 'Triflare Extend'
+  package: '@triflare/extend'
+  command: 'extend'
+  configFilename: 'extend.yml'
+
+# The prefix every environment variable this server reads starts with.
+envPrefix: 'TRIFLARE'
+
+# Branding
 branding:
   colors:
     primary: '#16A34A'
     secondary: '#12823B'
     tertiary: '#0D602C'
+
+# Terminal Glyphs
 symbols:
   success: '✓'
   error: '✗'
   progress: '~'
   bullet: '•'
+
+# Defaults
 defaults:
   configFilename: 'config.yaml'
-  apiRoot: '/v2'
+  apiRoot: '/v1'
   fallbackColor: '#0070F3'

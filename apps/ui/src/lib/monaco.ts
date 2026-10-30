@@ -76,13 +76,13 @@ monaco.languages.setLanguageConfiguration("json", {
   ],
 })
 
-export type MonacoTheme = "twexthub-light" | "twexthub-dark"
+export type MonacoTheme = "triflare-light" | "triflare-dark"
 
 const FONT_FAMILY = "ui-monospace, SFMono-Regular, Menlo, monospace"
 
 // Colors mirror the CSS syntax variables in index.css, inlined because Monaco
 // themes are resolved by the editor rather than by the cascade.
-monaco.editor.defineTheme("twexthub-light", {
+monaco.editor.defineTheme("triflare-light", {
   base: "vs",
   inherit: true,
   rules: [
@@ -115,7 +115,7 @@ monaco.editor.defineTheme("twexthub-light", {
   },
 })
 
-monaco.editor.defineTheme("twexthub-dark", {
+monaco.editor.defineTheme("triflare-dark", {
   base: "vs-dark",
   inherit: true,
   rules: [
@@ -163,8 +163,8 @@ export const EDITOR_OPTIONS = {
 
 export function themeForDocument(): MonacoTheme {
   return document.documentElement.classList.contains("dark")
-    ? "twexthub-dark"
-    : "twexthub-light"
+    ? "triflare-dark"
+    : "triflare-light"
 }
 
 export { monaco }

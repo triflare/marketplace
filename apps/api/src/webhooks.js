@@ -4,6 +4,7 @@ import https from 'node:https';
 import { isIP } from 'node:net';
 import { Prisma } from '../prisma/generated/client/index.js';
 import { conflict, notFound } from './errors.js';
+import { productSlug } from './product.js';
 
 export const WEBHOOK_EVENTS = Object.freeze([
   'version.published',
@@ -17,6 +18,14 @@ export const WEBHOOK_EVENTS = Object.freeze([
 
 // Index 0 is the initial attempt; the rest are retry delays.
 const RETRY_DELAYS_MS = [0, 5_000, 30_000, 300_000];
+// The payload's own version. A receiver dispatches on it, and it changes only
+// when the payload shape does.
+export const WEBHOOK_PAYLOAD_VERSION = 1;
+// The longest a delivery can sit between attempts, so a receiver can bound how
+// stale an accepted event may be. The signed body carries the event's own
+// timestamp, and a retry re-sends that same body.
+export const WEBHOOK_REPLAY_WINDOW_MS =
+  RETRY_DELAYS_MS.slice(1).reduce((sum, delay) => sum + delay, 0) + 5 * 60_000;
 const POLL_INTERVAL_MS = 15_000;
 const DELIVERY_BATCH = 50;
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -27,7 +36,12 @@ const DELIVERY_LEASE_MS = 60_000;
 // Discord's edge is fronted by Cloudflare, which answers a request carrying no
 // User-Agent at all with a 403 before the body is read, and other protected
 // hosts do the same. Node does not send one on its own.
-const USER_AGENT = 'TwextHub-Webhooks';
+//
+// It names the product, so a receiver can tell which registry a delivery came
+// from. The header prefix follows the same slug.
+const PRODUCT_SLUG = productSlug();
+const USER_AGENT = `${PRODUCT_SLUG}-Webhooks`;
+const webhookHeader = (suffix) => `X-${PRODUCT_SLUG}-${suffix}`;
 
 function isPrivateIp(ip) {
   const version = isIP(ip);
@@ -348,16 +362,23 @@ export function makeWebhooks({ db, resolveTarget = assertPublicWebhookUrl }) {
       });
       for (const hook of hooks) {
         const message = renderWebhookMessage(event, namespace, extensionId, basePayload);
+        // `payloadVersion` is the webhook payload's own version, independent of
+        // the extension's. A receiver dispatches on it before reading anything
+        // else, so a later payload shape can arrive at the same URL.
+        // `timestamp` is when the event happened, not when the attempt was
+        // made: the stored body is re-sent on a retry, signature and all.
         const payload = {
+          payloadVersion: WEBHOOK_PAYLOAD_VERSION,
           event,
           namespace,
           id: extensionId,
+          timestamp: new Date(basePayload.occurredAt ?? Date.now()).toISOString(),
           ...basePayload,
           message,
           // A Discord endpoint reads `content` and a Slack one reads `text`;
           // both ignore every other key, so repeating the line under each name
           // is what lets either accept a delivery unmodified. Nothing here
-          // inspects the destination -- the hub still does not know which
+          // inspects the destination -- the registry still does not know which
           // provider a URL points at.
           content: message,
           text: message,
@@ -421,7 +442,7 @@ export function makeWebhooks({ db, resolveTarget = assertPublicWebhookUrl }) {
 // with the webhook's url attached, already flipped to 'delivering'.
 //
 // Selecting due rows and only then updating them left two windows for a second
-// worker -- a second hub process, or the next poll of this one while an attempt
+// worker -- a second registry process, or the next poll of this one while an attempt
 // is still in flight -- to read the same row and POST the same body twice. The
 // claim takes the rows under FOR UPDATE SKIP LOCKED and parks them as
 // 'delivering' with the lease in next_attempt_at, so a concurrent claim skips
@@ -484,9 +505,11 @@ function postToTarget(target, delivery) {
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': USER_AGENT,
-          'X-TwextHub-Event': delivery.Event,
-          'X-TwextHub-Signature': delivery.Signature,
-          'X-TwextHub-Delivery': String(delivery.Id),
+          [webhookHeader('Event')]: delivery.Event,
+          [webhookHeader('Signature')]: delivery.Signature,
+          [webhookHeader('Delivery')]: String(delivery.Id),
+          [webhookHeader('Payload-Version')]: String(WEBHOOK_PAYLOAD_VERSION),
+          [webhookHeader('Timestamp')]: String(delivery.Payload?.timestamp ?? ''),
           'Content-Length': Buffer.byteLength(delivery.Body),
         },
         // Undefined outside the test receiver, which supplies the CA for its

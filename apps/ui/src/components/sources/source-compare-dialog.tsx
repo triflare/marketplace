@@ -6,7 +6,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
-import type { VersionInfo } from "@twextjs/twexthubkit"
+import type { VersionInfo } from "@/lib/api"
 
 import { ErrorState } from "@/components/common/async-state"
 import { DiffCode } from "@/components/sources/source-code"
@@ -36,7 +36,7 @@ import {
   type FileDiff,
   type SourceChange,
 } from "@/lib/source-diff"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 type SourceVersion = Pick<VersionInfo, "version" | "status">

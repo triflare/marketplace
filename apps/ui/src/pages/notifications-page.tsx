@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { Notification } from "@twextjs/twexthubkit"
+import type { Notification } from "@/lib/api"
 
 import {
   EmptyState,
@@ -17,9 +17,9 @@ import { useAuth } from "@/context/auth"
 import { usePagedList } from "@/hooks/use-paged-list"
 import { formatRelative, humanizeKind } from "@/lib/format"
 import { notificationsKey } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
-const FILTER_KEY = "twexthub.notifications.filter"
+const FILTER_KEY = "triflare.notifications.filter"
 
 export function NotificationsPage() {
   const { user } = useAuth()

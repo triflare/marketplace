@@ -9,7 +9,9 @@ test("an extension embed renders without the site chrome", async ({ page }) => {
   await expect(page.getByText("@kamixfox/myextension")).toBeVisible()
   await expect(page.getByText("v0.2.0")).toBeVisible()
   await expect(page.getByText(/downloads · MIT/)).toBeVisible()
-  await expect(page.getByRole("link", { name: "TwextHub" })).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "Triflare Marketplace" })
+  ).toBeVisible()
 
   await expect(page.getByRole("navigation", { name: "Footer" })).toHaveCount(0)
   await expect(page.getByRole("banner")).toHaveCount(0)

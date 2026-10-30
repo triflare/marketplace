@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 
-import { TwextHubError } from "@twextjs/twexthubkit"
+import { ApiError } from "@/lib/api/errors"
 
 import { usePreloaded } from "@/lib/preload"
-import { errorMessage } from "@/lib/twexthub"
+import { errorMessage } from "@/lib/registry"
 
 type AsyncStatus = "loading" | "success" | "error"
 
@@ -68,8 +68,7 @@ export function useAsync<T>(
             status: "error",
             data: null,
             error: errorMessage(error),
-            statusCode:
-              error instanceof TwextHubError ? error.status : undefined,
+            statusCode: error instanceof ApiError ? error.status : undefined,
           })
         }
       })

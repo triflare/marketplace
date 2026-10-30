@@ -1,4 +1,4 @@
-import type { ExtensionDetail, User } from "@twextjs/twexthubkit"
+import type { ExtensionDetail, User } from "@/lib/api"
 import type { ReactNode } from "react"
 
 import { UserAvatar } from "@/components/common/user-avatar"

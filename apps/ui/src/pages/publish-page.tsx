@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { VersionInfo } from "@twextjs/twexthubkit"
+import type { VersionInfo } from "@/lib/api"
 
 import { ButtonLink } from "@/components/common/button-link"
 import { CopyButton } from "@/components/common/copy-button"
@@ -17,28 +17,29 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
-import { CLI_HUB_URL_FLAG, errorMessage, th } from "@/lib/twexthub"
+import { extend } from "@/lib/product"
+import { CLI_HUB_URL_FLAG, errorMessage, th } from "@/lib/registry"
 
-const PACKAGE = `# From the Twext project root:
-tar -czf my-extension.tar.gz twext.yml package.json src`
+const PACKAGE = `# From the ${extend.name} project root:
+tar -czf my-extension.tar.gz ${extend.configFilename} package.json src`
 
-const SIGNUP = `twext signup${CLI_HUB_URL_FLAG}`
+const SIGNUP = `${extend.command} signup${CLI_HUB_URL_FLAG}`
 
 const CLI_STEPS = [
   {
-    label: "Install the Twext CLI",
-    command: "npm install -g @twextjs/twext",
+    label: `Install the ${extend.name} CLI`,
+    command: `npm install -g ${extend.package}`,
     help: "You only need to do this once.",
   },
   {
     label: "Sign in to this registry",
-    command: `twext login${CLI_HUB_URL_FLAG}`,
+    command: `${extend.command} login${CLI_HUB_URL_FLAG}`,
     help: `Use the handle and password for the account publishing the extension. No account yet? Run ${SIGNUP} first.`,
   },
   {
     label: "Publish from your project folder",
-    command: `twext publish${CLI_HUB_URL_FLAG}`,
-    help: "Twext checks the project and builds it before uploading.",
+    command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
+    help: `${extend.name} checks the project and builds it before uploading.`,
   },
 ]
 
@@ -101,7 +102,7 @@ export function PublishPage() {
       <PageHeader
         eyebrow="Publishing"
         title="Publish an extension"
-        description="Use the Twext CLI to build and publish, or upload a project archive if you already have one. The registry checks every submission before it appears."
+        description={`Use the ${extend.name} CLI to build and publish, or upload a project archive if you already have one. The registry checks every submission before it appears.`}
       />
 
       {needsTerms ? (
@@ -123,11 +124,12 @@ export function PublishPage() {
         <section className="flex min-w-0 flex-col gap-4">
           <div>
             <h2 className="flex items-center gap-2 text-base font-medium">
-              <TerminalIcon className="size-4" /> Publish with Twext
+              <TerminalIcon className="size-4" /> Publish with {extend.name}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               This is the quickest path. Run these commands from the project
-              folder that contains <span className="font-mono">twext.yml</span>.
+              folder that contains a{" "}
+              <span className="font-mono">{extend.configFilename}</span>.
             </p>
           </div>
 
@@ -176,8 +178,8 @@ export function PublishPage() {
             </summary>
             <p className="mt-2 text-sm text-muted-foreground">
               Use this if you already have a{" "}
-              <span className="font-mono">.tar.gz</span> of your Twext project
-              and would rather publish it in the browser.
+              <span className="font-mono">.tar.gz</span> of your {extend.name}{" "}
+              project and would rather publish it in the browser.
             </p>
 
             <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
@@ -205,8 +207,9 @@ export function PublishPage() {
                     placeholder="my-extension"
                   />
                   <p className="text-xs text-muted-foreground">
-                    The ID in <span className="font-mono">twext.yml</span> must
-                    match exactly.
+                    The ID in{" "}
+                    <span className="font-mono">{extend.configFilename}</span>{" "}
+                    must match exactly.
                   </p>
                 </div>
               </div>
@@ -223,10 +226,12 @@ export function PublishPage() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Include <span className="font-mono">twext.yml</span>, your
-                  sources, and a <span className="font-mono">package.json</span>
-                  . The version in the manifest must be newer than the latest
-                  published release.
+                  Include{" "}
+                  <span className="font-mono">{extend.configFilename}</span>,
+                  your sources, and a{" "}
+                  <span className="font-mono">package.json</span>. The version
+                  in the manifest must be newer than the latest published
+                  release.
                 </p>
               </div>
 

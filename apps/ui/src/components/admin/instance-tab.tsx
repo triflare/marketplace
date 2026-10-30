@@ -1,8 +1,9 @@
 import { ActivityIcon, MegaphoneIcon, SaveIcon } from "lucide-react"
 import { useState } from "react"
+import { useRevalidator } from "react-router"
 import { toast } from "sonner"
 
-import type { ServerSetting } from "@twextjs/twexthubkit"
+import type { ServerSetting } from "@/lib/api"
 
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
 import { CopyButton } from "@/components/common/copy-button"
@@ -14,7 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useAsync } from "@/hooks/use-async"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function InstanceTab() {
   return (
@@ -35,6 +36,7 @@ function ConfigSection() {
   const [overrides, setOverrides] = useState<Record<string, unknown>>({})
   const [pending, setPending] = useState(false)
   const [restart, setRestart] = useState<string[]>([])
+  const revalidator = useRevalidator()
 
   if (config.status === "error") {
     return (
@@ -57,12 +59,21 @@ function ConfigSection() {
   }
 
   async function save() {
+    const announced = Object.keys(overrides).some((key) =>
+      key.startsWith("banner.")
+    )
     setPending(true)
     try {
       const result = await th.admin.updateConfig({ settings: overrides })
       setRestart(result.restartRequired)
       setOverrides({})
       config.reload()
+      // The strip is part of the root loader's data, so an announcement saved
+      // here would otherwise not appear until the admin navigated somewhere
+      // else. Revalidating shows it -- or takes it down -- on save.
+      if (announced) {
+        revalidator.revalidate()
+      }
       toast.success("Configuration saved.")
     } catch (error) {
       toast.error(errorMessage(error))
@@ -124,11 +135,26 @@ function SettingRow({
   onChange: (value: unknown) => void
 }) {
   const listValue = Array.isArray(value) ? value.join(", ") : undefined
+  // A setting key contains dots, which are legal in an id but read as
+  // selectors elsewhere, so the control the label points at gets a flat one.
+  const controlId = `setting-${setting.key.replace(/\./g, "-")}`
 
   return (
-    <div className="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_240px] sm:items-center">
+    <div
+      className={
+        setting.type === "longtext"
+          ? "grid gap-2 px-4 py-3 sm:items-center"
+          : "grid gap-2 px-4 py-3 sm:grid-cols-[1fr_240px] sm:items-center"
+      }
+    >
       <div>
-        <p className="text-sm font-medium">{setting.label}</p>
+        {setting.type === "boolean" ? (
+          <p className="text-sm font-medium">{setting.label}</p>
+        ) : (
+          <Label htmlFor={controlId} className="text-sm font-medium">
+            {setting.label}
+          </Label>
+        )}
         <p className="font-mono text-[11px] text-muted-foreground">
           {setting.key}
         </p>
@@ -144,6 +170,7 @@ function SettingRow({
           />
         ) : setting.type === "origins" ? (
           <Input
+            id={controlId}
             value={listValue ?? String(value ?? "")}
             onChange={(event) =>
               onChange(
@@ -155,8 +182,18 @@ function SettingRow({
             }
             className="w-full"
           />
+        ) : setting.type === "longtext" ? (
+          <Textarea
+            id={controlId}
+            value={String(value ?? "")}
+            onChange={(event) => onChange(event.target.value)}
+            rows={2}
+            maxLength={setting.max ?? undefined}
+            className="w-full"
+          />
         ) : setting.type === "number" || setting.type === "bytes" ? (
           <Input
+            id={controlId}
             type="number"
             value={String(value ?? "")}
             onChange={(event) =>
@@ -168,6 +205,7 @@ function SettingRow({
           />
         ) : (
           <Input
+            id={controlId}
             value={String(value ?? "")}
             onChange={(event) => onChange(event.target.value)}
             className="w-full"

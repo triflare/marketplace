@@ -1,24 +1,42 @@
+import {
+  defaultProblemSlug,
+  defaultProblemTitle,
+  fieldPointer,
+  problemFor,
+  problemType,
+} from './problems.js';
+
+// A failure carries a slug from the catalogue rather than an invented sentence.
+// `title` is the catalogue's own wording unless the call site overrides it, and
+// `detail` says what happened this time.
 export class HttpError extends Error {
-  constructor(status, { title, detail, errors, retryAfter, extra } = {}) {
+  constructor(status, { title, detail, errors, retryAfter, extra, slug, headers } = {}) {
     if (typeof status === 'string') {
       super(status);
       this.status = 500;
+      this.slug = 'internal-error';
       this.title = status;
     } else {
-      const defaultTitle = defaultTitles[status] ?? 'Error';
-      super(detail ?? title ?? defaultTitle);
+      const fallback = defaultProblemTitle(status);
+      super(detail ?? title ?? fallback);
       this.status = status;
-      this.title = title ?? defaultTitle;
+      this.slug = slug ?? defaultProblemSlug(status);
+      // A type reads the same wherever it appears, so the catalogue owns the
+      // title whenever it knows the slug. A call site can name a failure but
+      // cannot give one type two titles.
+      this.title = problemFor(this.slug)?.title ?? title ?? fallback;
       this.detail = detail;
       this.errors = errors;
       this.retryAfter = retryAfter;
+      this.headers = headers;
       if (extra) Object.assign(this, extra);
     }
   }
 
+  // `instance` and `requestId` need the request, so the handler adds them.
   toJSON() {
     const body = {
-      type: 'about:blank',
+      type: problemType(this.slug),
       title: this.title,
       status: this.status,
     };
@@ -33,85 +51,121 @@ export class HttpError extends Error {
   }
 }
 
-const defaultTitles = {
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  409: 'Conflict',
-  413: 'Payload Too Large',
-  415: 'Unsupported Media Type',
-  422: 'Unprocessable Entity',
-  429: 'Too Many Requests',
-  500: 'Internal Server Error',
-  502: 'Bad Gateway',
-};
-
 export function fieldErrors(errors) {
   return new HttpError(422, {
-    title: 'Validation Error',
+    slug: 'validation-error',
     detail: 'One or more fields failed validation.',
     errors,
   });
 }
 
-export function unauthorized(detail = 'Missing or invalid bearer token') {
-  return new HttpError(401, { title: 'Unauthorized', detail });
+export function unauthorized(detail = 'Missing or invalid bearer token.') {
+  return new HttpError(401, { detail });
 }
 
 export function forbidden(detail = 'You are not allowed to perform this action.') {
-  return new HttpError(403, { title: 'Forbidden', detail });
+  return new HttpError(403, { detail });
 }
 
 export function notFound(detail = 'Not found.') {
-  return new HttpError(404, { title: 'Not Found', detail });
+  return new HttpError(404, { detail });
 }
 
 export function conflict(detail = 'Resource already exists.') {
-  return new HttpError(409, { title: 'Conflict', detail });
+  return new HttpError(409, { detail });
+}
+
+export function gone(detail = 'This resource was removed.') {
+  return new HttpError(410, { detail });
 }
 
 export function payloadTooLarge(detail = 'Request body is too large.') {
-  return new HttpError(413, { title: 'Payload Too Large', detail });
+  return new HttpError(413, { detail });
 }
 
 export function unsupportedMediaType(detail = 'Unsupported media type.') {
-  return new HttpError(415, { title: 'Unsupported Media Type', detail });
+  return new HttpError(415, { detail });
 }
 
 export function tooManyRequests(retryAfterSeconds) {
   return new HttpError(429, {
-    title: 'Too Many Requests',
     detail: 'Rate limit exceeded. Try again later.',
     retryAfter: retryAfterSeconds,
   });
 }
 
+// RFC 6750 makes the scheme mandatory on a 401. A caller that sent a token gets
+// `invalid_token`, which says "this credential is spent" rather than "you
+// forgot one"; a caller that sent none gets the bare challenge.
+function bearerChallenge(req) {
+  const presented = typeof req.get('authorization') === 'string';
+  return presented
+    ? 'Bearer error="invalid_token", error_description="The access token is missing, expired, or revoked."'
+    : 'Bearer';
+}
+
+function sendProblem(req, res, error) {
+  const problem = problemFor(error.slug);
+  const body = {
+    type: problem ? problem.type : problemType('internal-error'),
+    title: error.title ?? problem?.title ?? 'Error',
+    status: error.status,
+  };
+  if (error.detail) body.detail = error.detail;
+  if (req.originalUrl) body.instance = req.originalUrl;
+  if (req.id) body.requestId = req.id;
+  // Each entry carries the dotted field name and the JSON Pointer into the
+  // request document that names the same place, so a client can read either.
+  if (error.errors) {
+    body.errors = error.errors.map((entry) => ({
+      ...entry,
+      pointer: entry.pointer ?? fieldPointer(entry.field),
+    }));
+  }
+  if (error.error) body.error = error.error;
+  if (error.buildLog) body.buildLog = error.buildLog;
+  if (error.buildError) body.buildError = error.buildError;
+
+  res.status(error.status).type('application/problem+json');
+  if (error.retryAfter) res.set('Retry-After', String(Math.ceil(error.retryAfter)));
+  if (error.headers) res.set(error.headers);
+  if (error.status === 401) res.set('WWW-Authenticate', bearerChallenge(req));
+  return res.json(body);
+}
+
 export function errorHandler(error, req, res, next) {
   if (res.headersSent) return next(error);
-  if (error instanceof HttpError) {
-    if (error.retryAfter) res.set('Retry-After', String(Math.ceil(error.retryAfter)));
-    return res.status(error.status).type('application/problem+json').json(error.toJSON());
+  if (error instanceof HttpError) return sendProblem(req, res, error);
+
+  // body-parser reports its own failures with a `type` string rather than a
+  // status, so they are mapped before the generic 4xx branch.
+  if (error?.type === 'entity.parse.failed') {
+    return sendProblem(
+      req,
+      res,
+      new HttpError(400, { detail: 'The request body is not valid JSON.' }),
+    );
   }
-  if (error.type === 'entity.parse.failed') {
-    return res
-      .status(400)
-      .type('application/problem+json')
-      .json(new HttpError(400, { title: 'Bad Request', detail: 'Invalid JSON body.' }).toJSON());
+  if (error?.type === 'entity.too.large') {
+    return sendProblem(req, res, new HttpError(413, { detail: 'The request body is too large.' }));
   }
-  if (error.type === 'entity.too.large') {
-    return res
-      .status(413)
-      .type('application/problem+json')
-      .json(new HttpError(413, { title: 'Payload Too Large' }).toJSON());
+  if (error?.type === 'encoding.unsupported') {
+    return sendProblem(
+      req,
+      res,
+      new HttpError(415, { detail: 'The request body uses an unsupported encoding.' }),
+    );
   }
+
   const status = error?.status ?? error?.statusCode;
   if (Number.isInteger(status) && status >= 400 && status < 500) {
-    return res.status(status).type('application/problem+json').json(new HttpError(status).toJSON());
+    return sendProblem(req, res, new HttpError(status));
   }
-  console.error({ message: error?.message, code: error?.code, stack: error?.stack });
-  return res
-    .status(500)
-    .type('application/problem+json')
-    .json(new HttpError(500, { title: 'Internal Server Error' }).toJSON());
+  console.error({
+    message: error?.message,
+    code: error?.code,
+    stack: error?.stack,
+    requestId: req.id,
+  });
+  return sendProblem(req, res, new HttpError(500));
 }

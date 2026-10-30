@@ -1,4 +1,8 @@
 import { getIntegrityErrors } from './maintenance.js';
+import { productSlug } from './product.js';
+
+// Metric names carry the product, so one Prometheus can hold several registries.
+const METRIC_PREFIX = productSlug().replaceAll('-', '_');
 
 function escapeLabel(value) {
   return String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n');
@@ -47,22 +51,26 @@ export function makeRequestTelemetry({ logRequests = false } = {}) {
 
   function render() {
     const lines = [
-      '# HELP twexthub_http_requests_total HTTP requests handled, by method, route, and status.',
-      '# TYPE twexthub_http_requests_total counter',
+      `# HELP ${METRIC_PREFIX}_http_requests_total HTTP requests handled, by method, route, and status.`,
+      `# TYPE ${METRIC_PREFIX}_http_requests_total counter`,
     ];
     for (const [key, count] of requests) {
       const [method, route, status] = key.split('|');
       lines.push(
-        `twexthub_http_requests_total{method="${escapeLabel(method)}",route="${escapeLabel(route)}",status="${status}"} ${count}`,
+        `${METRIC_PREFIX}_http_requests_total{method="${escapeLabel(method)}",route="${escapeLabel(route)}",status="${status}"} ${count}`,
       );
     }
-    lines.push('# HELP twexthub_http_request_duration_seconds Cumulative request duration.');
-    lines.push('# TYPE twexthub_http_request_duration_seconds summary');
+    lines.push(
+      `# HELP ${METRIC_PREFIX}_http_request_duration_seconds Cumulative request duration.`,
+    );
+    lines.push(`# TYPE ${METRIC_PREFIX}_http_request_duration_seconds summary`);
     for (const [key, agg] of durations) {
       const [method, route] = key.split('|');
       const labels = `method="${escapeLabel(method)}",route="${escapeLabel(route)}"`;
-      lines.push(`twexthub_http_request_duration_seconds_sum{${labels}} ${agg.sum.toFixed(6)}`);
-      lines.push(`twexthub_http_request_duration_seconds_count{${labels}} ${agg.count}`);
+      lines.push(
+        `${METRIC_PREFIX}_http_request_duration_seconds_sum{${labels}} ${agg.sum.toFixed(6)}`,
+      );
+      lines.push(`${METRIC_PREFIX}_http_request_duration_seconds_count{${labels}} ${agg.count}`);
     }
     return lines;
   }
@@ -92,40 +100,44 @@ export async function renderRegistryMetrics(db, telemetry) {
     lines.push(`${name}${labels} ${value}`);
   };
 
-  gauge('twexthub_users_total', 'Registered accounts.', Number(users[0].count));
+  gauge(`${METRIC_PREFIX}_users_total`, 'Registered accounts.', Number(users[0].count));
   gauge(
-    'twexthub_extensions_published_total',
+    `${METRIC_PREFIX}_extensions_published_total`,
     'Extensions with at least one published version.',
     Number(extensions[0].count),
   );
   for (const row of byStatus) {
     gauge(
-      'twexthub_versions_total',
+      `${METRIC_PREFIX}_versions_total`,
       'Versions by review status.',
       Number(row.count),
       `{status="${escapeLabel(row.Status)}"}`,
     );
   }
-  gauge('twexthub_downloads_total', 'Total recorded downloads.', Number(downloads[0].total));
   gauge(
-    'twexthub_storage_bytes',
+    `${METRIC_PREFIX}_downloads_total`,
+    'Total recorded downloads.',
+    Number(downloads[0].total),
+  );
+  gauge(
+    `${METRIC_PREFIX}_storage_bytes`,
     'Charged storage by artifact kind.',
     Number(storage[0].blob),
     '{kind="blob"}',
   );
   gauge(
-    'twexthub_storage_bytes',
+    `${METRIC_PREFIX}_storage_bytes`,
     'Charged storage by artifact kind.',
     Number(storage[0].source),
     '{kind="source"}',
   );
   gauge(
-    'twexthub_storage_integrity_errors',
+    `${METRIC_PREFIX}_storage_integrity_errors`,
     'Blobs that failed or could not complete the last integrity scrub.',
     getIntegrityErrors(),
   );
   gauge(
-    'twexthub_process_uptime_seconds',
+    `${METRIC_PREFIX}_process_uptime_seconds`,
     'Seconds since the server process started.',
     Math.floor(process.uptime()),
   );

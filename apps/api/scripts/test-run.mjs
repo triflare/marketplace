@@ -12,8 +12,8 @@ import { createDb, runMigrations } from '../src/db.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TEST_DATABASE_URL =
-  process.env.TWEXTHUB_TEST_DATABASE_URL ??
-  'postgres://postgres:postgres@localhost:5432/twexthub_test';
+  process.env.TRIFLARE_TEST_DATABASE_URL ??
+  'postgres://postgres:postgres@localhost:5432/triflare_test';
 
 const baseName = new URL(TEST_DATABASE_URL).pathname.slice(1);
 const adminUrl = new URL(TEST_DATABASE_URL);
@@ -90,7 +90,7 @@ async function migrateTemplate() {
 // that the clones mostly queue, and the longest single file is a floor the
 // runner cannot beat. A four-core CI runner still gets four.
 function concurrency() {
-  const requested = Number(process.env.TWEXTHUB_TEST_CONCURRENCY);
+  const requested = Number(process.env.TRIFLARE_TEST_CONCURRENCY);
   if (Number.isInteger(requested) && requested > 0) return requested;
   return Math.min(8, Math.max(2, os.availableParallelism()));
 }
@@ -116,8 +116,8 @@ const code = await spawnAndWait(
   {
     env: {
       ...process.env,
-      TWEXTHUB_TEST_ISOLATED: limit > 1 ? '1' : '0',
-      TWEXTHUB_TEST_RUN_ID: RUN_ID,
+      TRIFLARE_TEST_ISOLATED: limit > 1 ? '1' : '0',
+      TRIFLARE_TEST_RUN_ID: RUN_ID,
     },
   },
 );

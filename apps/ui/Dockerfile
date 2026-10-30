@@ -1,5 +1,5 @@
 # The build stage produces both halves of the app: the browser assets and the
-# SSR bundle `react-router-serve` runs. Vite inlines VITE_TWEXTHUB_API_URL here,
+# SSR bundle `react-router-serve` runs. Vite inlines VITE_TRIFLARE_API_URL here,
 # so the API origin browsers use has to be decided at build time.
 FROM node:24-alpine AS build
 
@@ -10,8 +10,8 @@ RUN npm ci && npm cache clean --force
 
 COPY . .
 
-ARG VITE_TWEXTHUB_API_URL=http://localhost:3000/v2
-ENV VITE_TWEXTHUB_API_URL=$VITE_TWEXTHUB_API_URL
+ARG VITE_TRIFLARE_API_URL=http://localhost:3000/v1
+ENV VITE_TRIFLARE_API_URL=$VITE_TRIFLARE_API_URL
 
 RUN npm run build
 

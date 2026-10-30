@@ -13,6 +13,7 @@ import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { CopyButton } from "@/components/common/copy-button"
 import { ErrorState } from "@/components/common/async-state"
+import { EmailSection } from "@/components/settings/email-section"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,9 +21,10 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
+import { hasMethod, signInMethods } from "@/lib/auth-methods"
 import { formatDate, formatRelative } from "@/lib/format"
 import { settingsKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function SecurityTab() {
   const { user, signOut } = useAuth()
@@ -62,6 +64,18 @@ export function SecurityTab() {
     [],
     settingsKeys.identities
   )
+
+  // A driver the method set leaves out is one the sign-in page does not offer,
+  // so the enrolment control here would send a request the server refuses. A
+  // server that predates the registry lists no methods; its controls stay as
+  // they were rather than hiding what it may support.
+  const passkeysOffered =
+    descriptor.data?.methods === undefined ||
+    hasMethod(signInMethods(descriptor.data), "passkey")
+  // An account that registered a passkey before the driver was turned off can
+  // still use it as its second factor, so its list and removal stay reachable.
+  const hasPasskeys = (mfa.data?.passkeys.length ?? 0) > 0
+  const showPasskeys = passkeysOffered || hasPasskeys
 
   if (!user) {
     return null
@@ -293,190 +307,210 @@ export function SecurityTab() {
         </form>
       </section>
 
-      <Separator />
+      <EmailSection />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="text-base font-medium">Passkeys and backup codes</h2>
-            <p className="text-sm text-muted-foreground">
-              A passkey turns on two-factor authentication for this account.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void reauthenticate()}
-            disabled={busy !== null}
-          >
-            <RefreshCwIcon /> Confirm it’s you
-          </Button>
-        </div>
+      {showPasskeys ? (
+        <>
+          <Separator />
 
-        {mfa.status === "error" ? (
-          <ErrorState
-            message={mfa.error ?? "We couldn’t load your security settings."}
-            onRetry={mfa.reload}
-          />
-        ) : mfa.status === "loading" || !mfa.data ? (
-          <Skeleton className="h-24 w-full" />
-        ) : (
-          <div className="flex flex-col gap-3 rounded-lg border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm">
-                {mfa.data.enabled
-                  ? `${mfa.data.passkeys.length} passkey${mfa.data.passkeys.length === 1 ? "" : "s"} · ${mfa.data.backupCodesRemaining} backup codes left`
-                  : "Two-factor authentication is off. Add the first passkey to turn it on."}
-              </p>
-              {mfa.data.enabled ? (
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-medium">
+                  Passkeys and backup codes
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {passkeysOffered
+                    ? "A passkey turns on two-factor authentication for this account."
+                    : "Passkeys are turned off on this instance. One already on the account still works as the second factor, and can be removed here."}
+                </p>
+              </div>
+              {hasPasskeys ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void regenerateCodes()}
+                  onClick={() => void reauthenticate()}
                   disabled={busy !== null}
                 >
-                  Regenerate codes
+                  <RefreshCwIcon /> Confirm it’s you
                 </Button>
               ) : null}
             </div>
 
-            {mfa.data.passkeys.length > 0 ? (
-              <ul className="divide-y rounded-md border">
-                {mfa.data.passkeys.map((passkey) =>
-                  renamePasskeyId === passkey.id ? (
-                    <li key={passkey.id} className="px-3 py-2">
-                      <form
-                        className="flex flex-col gap-2 sm:flex-row sm:items-end"
-                        onSubmit={(event) => {
-                          event.preventDefault()
-                          void renamePasskey(passkey.id)
-                        }}
-                      >
-                        <div className="flex flex-1 flex-col gap-1.5">
-                          <Label htmlFor={`rename-passkey-${passkey.id}`}>
-                            Passkey label
-                          </Label>
-                          <Input
-                            id={`rename-passkey-${passkey.id}`}
-                            value={renameLabel}
-                            onChange={(event) =>
-                              setRenameLabel(event.target.value)
-                            }
-                            maxLength={80}
-                            autoFocus
-                            required
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="submit"
-                            size="sm"
-                            disabled={
-                              busy !== null || renameLabel.trim() === ""
-                            }
-                          >
-                            {busy === "rename-passkey" ? "Saving…" : "Save"}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setRenamePasskeyId(null)}
-                            disabled={busy !== null}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </form>
-                    </li>
-                  ) : (
-                    <li
-                      key={passkey.id}
-                      className="flex items-center justify-between gap-3 px-3 py-2"
+            {mfa.status === "error" ? (
+              <ErrorState
+                message={
+                  mfa.error ?? "We couldn’t load your security settings."
+                }
+                onRetry={mfa.reload}
+              />
+            ) : mfa.status === "loading" || !mfa.data ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <div className="flex flex-col gap-3 rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm">
+                    {mfa.data.enabled
+                      ? `${mfa.data.passkeys.length} passkey${mfa.data.passkeys.length === 1 ? "" : "s"} · ${mfa.data.backupCodesRemaining} backup codes left`
+                      : passkeysOffered
+                        ? "Two-factor authentication is off. Add the first passkey to turn it on."
+                        : "Two-factor authentication is off."}
+                  </p>
+                  {mfa.data.enabled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void regenerateCodes()}
+                      disabled={busy !== null}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm">
-                          {passkey.label || "Passkey"}
-                        </p>
-                        <p className="font-mono text-[11px] text-muted-foreground">
-                          added {formatDate(passkey.createdAt)}
-                          {passkey.lastUsedAt
-                            ? ` · last used ${formatRelative(passkey.lastUsedAt)}`
-                            : ""}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Rename passkey"
-                          onClick={() => {
-                            setRenamePasskeyId(passkey.id)
-                            setRenameLabel(passkey.label ?? "")
-                          }}
-                          disabled={busy !== null}
-                        >
-                          <PencilIcon />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Remove passkey"
-                          onClick={() => setDeletePasskeyId(passkey.id)}
-                          disabled={busy !== null}
-                        >
-                          <Trash2Icon />
-                        </Button>
-                      </div>
-                    </li>
-                  )
-                )}
-              </ul>
-            ) : null}
-
-            <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-end">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="passkey-label">New passkey label</Label>
-                <Input
-                  id="passkey-label"
-                  value={passkeyLabel}
-                  onChange={(event) => setPasskeyLabel(event.target.value)}
-                  placeholder="Laptop"
-                  maxLength={80}
-                />
-              </div>
-              <Button
-                onClick={() => void addPasskey()}
-                disabled={busy !== null}
-              >
-                <KeyRoundIcon />{" "}
-                {busy === "passkey" ? "Waiting…" : "Add passkey"}
-              </Button>
-            </div>
-
-            {backupCodes ? (
-              <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
-                <p className="text-sm font-medium">
-                  Save these backup codes now
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  They are shown once. Each code works a single time.
-                </p>
-                <div className="grid grid-cols-2 gap-1 font-mono text-xs sm:grid-cols-5">
-                  {backupCodes.map((code) => (
-                    <span key={code}>{code}</span>
-                  ))}
+                      Regenerate codes
+                    </Button>
+                  ) : null}
                 </div>
-                <CopyButton
-                  value={backupCodes.join("\n")}
-                  label="Copy codes"
-                  className="self-start"
-                />
+
+                {mfa.data.passkeys.length > 0 ? (
+                  <ul className="divide-y rounded-md border">
+                    {mfa.data.passkeys.map((passkey) =>
+                      renamePasskeyId === passkey.id ? (
+                        <li key={passkey.id} className="px-3 py-2">
+                          <form
+                            className="flex flex-col gap-2 sm:flex-row sm:items-end"
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              void renamePasskey(passkey.id)
+                            }}
+                          >
+                            <div className="flex flex-1 flex-col gap-1.5">
+                              <Label htmlFor={`rename-passkey-${passkey.id}`}>
+                                Passkey label
+                              </Label>
+                              <Input
+                                id={`rename-passkey-${passkey.id}`}
+                                value={renameLabel}
+                                onChange={(event) =>
+                                  setRenameLabel(event.target.value)
+                                }
+                                maxLength={80}
+                                autoFocus
+                                required
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="submit"
+                                size="sm"
+                                disabled={
+                                  busy !== null || renameLabel.trim() === ""
+                                }
+                              >
+                                {busy === "rename-passkey" ? "Saving…" : "Save"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setRenamePasskeyId(null)}
+                                disabled={busy !== null}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </form>
+                        </li>
+                      ) : (
+                        <li
+                          key={passkey.id}
+                          className="flex items-center justify-between gap-3 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm">
+                              {passkey.label || "Passkey"}
+                            </p>
+                            <p className="font-mono text-[11px] text-muted-foreground">
+                              added {formatDate(passkey.createdAt)}
+                              {passkey.lastUsedAt
+                                ? ` · last used ${formatRelative(passkey.lastUsedAt)}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="Rename passkey"
+                              onClick={() => {
+                                setRenamePasskeyId(passkey.id)
+                                setRenameLabel(passkey.label ?? "")
+                              }}
+                              disabled={busy !== null}
+                            >
+                              <PencilIcon />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label="Remove passkey"
+                              onClick={() => setDeletePasskeyId(passkey.id)}
+                              disabled={busy !== null}
+                            >
+                              <Trash2Icon />
+                            </Button>
+                          </div>
+                        </li>
+                      )
+                    )}
+                  </ul>
+                ) : null}
+
+                {passkeysOffered ? (
+                  <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-end">
+                    <div className="flex flex-1 flex-col gap-1.5">
+                      <Label htmlFor="passkey-label">New passkey label</Label>
+                      <Input
+                        id="passkey-label"
+                        value={passkeyLabel}
+                        onChange={(event) =>
+                          setPasskeyLabel(event.target.value)
+                        }
+                        placeholder="Laptop"
+                        maxLength={80}
+                      />
+                    </div>
+                    <Button
+                      onClick={() => void addPasskey()}
+                      disabled={busy !== null}
+                    >
+                      <KeyRoundIcon />{" "}
+                      {busy === "passkey" ? "Waiting…" : "Add passkey"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {backupCodes ? (
+                  <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
+                    <p className="text-sm font-medium">
+                      Save these backup codes now
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      They are shown once. Each code works a single time.
+                    </p>
+                    <div className="grid grid-cols-2 gap-1 font-mono text-xs sm:grid-cols-5">
+                      {backupCodes.map((code) => (
+                        <span key={code}>{code}</span>
+                      ))}
+                    </div>
+                    <CopyButton
+                      value={backupCodes.join("\n")}
+                      label="Copy codes"
+                      className="self-start"
+                    />
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        )}
-      </section>
+            )}
+          </section>
+        </>
+      ) : null}
 
       {descriptor.data?.oidc ? (
         <>

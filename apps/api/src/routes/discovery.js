@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import { Prisma } from '../../prisma/generated/client/index.js';
 import { requireAdmin } from '../auth.js';
-import { decodeCursor, keysetPage, pageLinks, parseDir, parseLimit } from '../pagination.js';
+import {
+  decodeCursor,
+  keysetPage,
+  pageLinks,
+  pageToken,
+  parseDir,
+  parseLimit,
+} from '../pagination.js';
 import { HttpError, notFound } from '../errors.js';
 import {
   asString,
@@ -11,7 +18,7 @@ import {
   normalizeApiRoot,
 } from '../util.js';
 import { trendingExtensions, totalDownloads } from '../metrics.js';
-import { product } from '../product.js';
+import { product, productSlug } from '../product.js';
 import {
   extensionSummaryFromRow,
   legalDocumentToObject,
@@ -187,12 +194,20 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
   async function listExtensions(req, { namespace = null } = {}) {
     const limit = parseLimit(config, req.query.limit);
     const sort = parseSort(req.query.sort);
+    // One listing with an optional filter, rather than a second endpoint that
+    // duplicates the sort, the cursor, and the licence filter. `q` folds case
+    // and diacritics the same way the search index was built.
+    const query = asString(req.query.q)?.trim() ?? '';
+    const folded = query.length > 0 ? foldText(query) : null;
+    const searchFilter = folded
+      ? Prisma.sql`AND "SearchText" LIKE ${'%' + escapeLike(folded) + '%'}`
+      : Prisma.empty;
     // SPDX identifiers are case-sensitive ("Apache-2.0"), so no normalization.
     const license =
       typeof req.query.license === 'string' && req.query.license.length > 0
         ? req.query.license
         : null;
-    const cursor = decodeCursor(req.query.cursor, {
+    const cursor = decodeCursor(pageToken(req), {
       // recent and updated cursors carry whole-microsecond keys, so they are
       // validated as digit strings rather than free text: a hand-made cursor
       // that cannot cast to int8 is a 400 here, not a Postgres error.
@@ -207,6 +222,7 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
       sort,
       license,
       namespace,
+      searchFilter,
     });
   }
 
@@ -260,7 +276,15 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
     res.json({ data: page, _links: pageLinks(req) });
   });
 
+  // Superseded by `GET /extensions?q=`. Kept for the clients that shipped
+  // against it, with the RFC 8594 and RFC 5829 headers that say so.
+  const SEARCH_SUNSET = 'Thu, 31 Dec 2026 23:59:59 GMT';
+
   router.get('/search', async (req, res) => {
+    const apiRoot = normalizeApiRoot(config.apiRoot);
+    res.set('Deprecation', 'true');
+    res.set('Sunset', SEARCH_SUNSET);
+    res.set('Link', `<${apiRoot ? `/${apiRoot}` : ''}/extensions>; rel="successor-version"`);
     const query = typeof req.query.query === 'string' ? req.query.query.trim() : null;
     const folded = query && query.length > 0 ? foldText(query) : null;
     const limit = parseLimit(config, req.query.limit);
@@ -269,7 +293,7 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
       typeof req.query.license === 'string' && req.query.license.length > 0
         ? req.query.license
         : null;
-    const cursor = decodeCursor(req.query.cursor, {
+    const cursor = decodeCursor(pageToken(req), {
       // recent and updated cursors carry whole-microsecond keys, so they are
       // validated as digit strings rather than free text: a hand-made cursor
       // that cannot cast to int8 is a 400 here, not a Postgres error.
@@ -298,6 +322,12 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
       version: product.version,
       tagline: product.tagline,
       homepage: product.homepage,
+      // A running announcement lives in the instance's configuration rather
+      // than in a table, so it can be changed from the admin settings without a
+      // migration and is on every response the pages already read.
+      banner: config.banner?.message
+        ? { message: config.banner.message, link: config.banner.link ?? null }
+        : null,
     });
   });
 
@@ -670,7 +700,7 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
     const entries = rows
       .map(
         (row) => `  <entry>
-    <id>tag:twexthub,${row.PublishedAt.toISOString().slice(0, 10)}:${xmlEscape(
+    <id>tag:${productSlug()},${row.PublishedAt.toISOString().slice(0, 10)}:${xmlEscape(
       `@${row.Namespace}/${row.ExtensionId}-${row.Version}`,
     )}</id>
     <title>${xmlEscape(`${row.Name} v${row.Version}`)}</title>
@@ -716,7 +746,7 @@ ${entries}
       });
     }
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { c: 'micros', i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { c: 'micros', i: 'int' });
     const back = parseDir(req.query.dir);
     const ahead = back ? Prisma.sql`<` : Prisma.sql`>`;
 

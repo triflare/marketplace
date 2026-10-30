@@ -133,6 +133,18 @@ model ExtensionRedirects {
   @@index([ToNamespace, ToExtensionId], map: "extension_redirects_to_idx")
 }
 
+/// What an address leaves behind when its extension is deleted. A request for a
+/// version that used to exist answers 410 rather than 404, so a pinned client
+/// can tell "removed" from "never existed". Nothing is stored about the
+/// versions themselves: the address is the fact worth keeping.
+model ExtensionTombstones {
+  Namespace   String
+  ExtensionId String
+  DeletedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([Namespace, ExtensionId])
+}
+
 model ExtensionTransfers {
   Namespace   String
   ExtensionId String
@@ -222,6 +234,27 @@ model Extensions {
 
   @@unique([Namespace, ExtensionId])
   @@index([NamespaceId], map: "extensions_namespace_id_idx")
+}
+
+/// A creation's answer, kept so a retry carrying the same `Idempotency-Key`
+/// returns the first result instead of doing the work twice. `Fingerprint` is a
+/// hash of the route and request body, so a key reused for a different request
+/// is refused rather than answered with somebody else's resource. `Status` and
+/// `Body` are null until the request it belongs to has finished.
+model IdempotencyKeys {
+  Id          BigInt   @id @default(autoincrement())
+  UserId      BigInt
+  Route       String
+  Key         String
+  Fingerprint String
+  Status      Int?
+  Body        Json?
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+  ExpiresAt   DateTime @db.Timestamptz(6)
+  Users       Users    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([UserId, Route, Key])
+  @@index([ExpiresAt])
 }
 
 /// A report filed by an account about a user account, an organization, or an
@@ -367,17 +400,67 @@ model Sessions {
   @@index([UserId])
 }
 
-model UserIdentities {
-  Id        BigInt   @id @default(autoincrement())
-  UserId    BigInt
-  Issuer    String
-  Subject   String
-  Email     String?
-  CreatedAt DateTime @default(now()) @db.Timestamptz(6)
-  Users     Users    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+/// How an account can be signed into: one row per credential the registry
+/// recognizes, keyed by the driver that owns it. A provider identity is
+/// (issuer, subject); a magic link or generated password is the verified email;
+/// a passkey is the credential id. The unique key includes the issuer, which is
+/// empty for the drivers that have none, so two providers may hand out the same
+/// subject without colliding.
+model AuthIdentities {
+  Id         BigInt    @id @default(autoincrement())
+  UserId     BigInt
+  Driver     String    @default("oidc")
+  Issuer     String    @default("")
+  Subject    String
+  Email      String?
+  VerifiedAt DateTime? @db.Timestamptz(6)
+  CreatedAt  DateTime  @default(now()) @db.Timestamptz(6)
+  Users      Users     @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@unique([Issuer, Subject])
+  @@unique([Driver, Issuer, Subject])
   @@index([UserId])
+  @@index([Driver, Subject])
+}
+
+/// A challenge a driver handed out and has to see again: a magic link's token,
+/// an email code, or the exchange code a browser trades for a session. Both
+/// secrets are stored hashed, like a session token.
+model AuthChallenges {
+  Id               BigInt    @id @default(autoincrement())
+  Driver           String
+  Subject          String
+  SecretHash       String    @unique
+  Challenge        String?
+  UserId           BigInt?
+  ExchangeCodeHash String?   @unique
+  ExpiresAt        DateTime  @db.Timestamptz(6)
+  ConsumedAt       DateTime? @db.Timestamptz(6)
+  Attempts         Int       @default(0)
+  CreatedAt        DateTime  @default(now()) @db.Timestamptz(6)
+  Users            Users?    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ExpiresAt])
+  @@index([Driver, Subject])
+}
+
+/// A message before it is sent: the outbox is what makes a delivery failure
+/// visible to an admin and retryable, the same way webhook deliveries are.
+model MailOutbox {
+  Id        BigInt    @id @default(autoincrement())
+  To        String
+  Subject   String
+  Purpose   String?
+  Driver    String?
+  Status    String    @default("pending")
+  Attempts  Int       @default(0)
+  LastError String?
+  Message   Json      @default("{}")
+  CreatedAt DateTime  @default(now()) @db.Timestamptz(6)
+  UpdatedAt DateTime  @default(now()) @db.Timestamptz(6)
+  SentAt    DateTime? @db.Timestamptz(6)
+
+  @@index([Status, CreatedAt])
+  @@index([CreatedAt(sort: Desc)])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -390,6 +473,9 @@ model Users {
   HasPublished                                               Boolean                 @default(false)
   TermsAcceptedVersion                                       Int?
   CreatedAt                                                  DateTime                @default(now()) @db.Timestamptz(6)
+  // Moves on every write, which is what makes an If-Match on a profile or
+  // organization mean "the document I read", not "whatever is there now".
+  UpdatedAt                                                  DateTime                @default(now()) @db.Timestamptz(6)
   Bio                                                        String                  @default("")
   Website                                                    String?
   Github                                                     String?
@@ -423,8 +509,10 @@ model Users {
   OrganizationOwnersOrganizationOwnersUserIdUserKindTousers  OrganizationOwners[]    @relation("organization_owners_user_id_user_kindTousers")
   Passkeys                                                   Passkeys[]
   Sessions                                                   Sessions[]
-  UserIdentities                                             UserIdentities[]
+  AuthIdentities                                             AuthIdentities[]
+  AuthChallenges                                             AuthChallenges[]
   Versions                                                   Versions[]
+  IdempotencyKeys                                            IdempotencyKeys[]
   ReportsReporter                                            Reports[]               @relation("reports_reporter")
   ReportsReviewer                                            Reports[]               @relation("reports_reviewer")
   ReportsTargetAccount                                       Reports[]               @relation("reports_target_account")

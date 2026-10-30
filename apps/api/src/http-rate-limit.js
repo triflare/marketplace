@@ -42,14 +42,11 @@ export function makeHttpRateLimiter(config) {
         typeof ip === 'string' && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')
       );
     },
-    handler: (req, res) => {
+    // Hand the failure to the app's error handler instead of writing a body
+    // here, so a 429 is the same problem document as every other error.
+    handler: (req, res, next) => {
       const retryAfter = Math.max(1, Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000));
-      const error = tooManyRequests(retryAfter);
-      res.status(error.status).set('Retry-After', String(retryAfter)).json({
-        title: error.title,
-        status: error.status,
-        detail: error.detail,
-      });
+      next(tooManyRequests(retryAfter));
     },
   });
   return middleware;

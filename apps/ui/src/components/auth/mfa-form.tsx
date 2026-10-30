@@ -2,14 +2,14 @@ import { startAuthentication } from "@simplewebauthn/browser"
 import { KeyRoundIcon } from "lucide-react"
 import { useState } from "react"
 
-import type { AuthSession, MfaRequired } from "@twextjs/twexthubkit"
+import type { AuthSession, MfaRequired } from "@/lib/api"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/context/auth"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function MfaForm({
   challenge,

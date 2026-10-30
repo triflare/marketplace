@@ -24,7 +24,7 @@ import { useSearchShortcut } from "@/hooks/use-search-shortcut"
 import { pluralize } from "@/lib/format"
 import { licenseName } from "@/lib/licenses"
 import { exploreKey } from "@/lib/preload"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 const SORTS = [
   { value: "recent", label: "Newest first" },

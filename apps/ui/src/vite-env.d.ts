@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_TWEXTHUB_API_URL?: string
+  readonly VITE_TRIFLARE_API_URL?: string
 }
 
 interface ImportMeta {

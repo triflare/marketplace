@@ -31,7 +31,9 @@ test("old manage tab names still resolve", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Releases" })).toBeVisible()
 })
 
-test("removing a release asks for the version to be typed", async ({ page }) => {
+test("removing a release asks for the version to be typed", async ({
+  page,
+}) => {
   await signIn(page)
   await visit(page, "/@kamixfox/myextension/manage?tab=releases")
 

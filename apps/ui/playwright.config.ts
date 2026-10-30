@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test"
 
-const API_URL = "http://127.0.0.1:3200/v2"
+const API_URL = "http://127.0.0.1:3200/v1"
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -28,8 +28,8 @@ export default defineConfig({
       command: "npx react-router dev --host 127.0.0.1 --port 3101 --strictPort",
       url: "http://127.0.0.1:3101",
       env: {
-        TWEXTHUB_API_URL: API_URL,
-        VITE_TWEXTHUB_API_URL: API_URL,
+        TRIFLARE_API_URL: API_URL,
+        VITE_TRIFLARE_API_URL: API_URL,
         SESSION_SECRET: "playwright-session-secret",
       },
       reuseExistingServer: !process.env.CI,

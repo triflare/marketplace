@@ -1,12 +1,13 @@
 import { Link } from "react-router"
 
-import { apiUrl } from "@/lib/twexthub"
+import { extend } from "@/lib/product"
+import { apiUrl } from "@/lib/registry"
 
 export function SiteFooter() {
   return (
     <footer className="border-t">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p>Extensions for TurboWarp, built with Twext.</p>
+        <p>Extensions for TurboWarp, built with {extend.name}.</p>
         <nav
           aria-label="Footer"
           className="flex flex-wrap items-center gap-x-4 gap-y-1"

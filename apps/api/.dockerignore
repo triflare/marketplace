@@ -8,7 +8,7 @@ data
 !.env.example
 .DS_Store
 
-# The image is configured via env vars (TWEXTHUB_*); a baked-in config.yaml
+# The image is configured via env vars (TRIFLARE_*); a baked-in config.yaml
 # would pin a database URL that is only meaningful on some machine.
 config.yaml
 

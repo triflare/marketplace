@@ -33,6 +33,23 @@ export const EDITABLE_SETTINGS = [
     help: 'Used to build download, source, and profile image links.',
   },
   {
+    key: 'banner.message',
+    type: 'longtext',
+    max: 280,
+    nullable: true,
+    restartRequired: false,
+    label: 'Announcement banner',
+    help: 'Scrolled across the top of every page. Leave empty to hide it.',
+  },
+  {
+    key: 'banner.link',
+    type: 'url',
+    nullable: true,
+    restartRequired: false,
+    label: 'Banner link',
+    help: 'Optional page the banner points to.',
+  },
+  {
     key: 'auth.sessionTtlDays',
     type: 'number',
     min: 1,
@@ -169,6 +186,15 @@ function writeAt(target, key, value) {
   node[last] = value;
 }
 
+function canWrite(target) {
+  try {
+    accessSync(target, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Whether the configuration file will still be there after the instance is
  * recreated.
@@ -178,20 +204,24 @@ function writeAt(target, key, value) {
  * applied. Rather than let that happen quietly, the file has to sit on a volume
  * or a bind mount.
  *
- * On Linux the mount table answers this: the root mount is the image's own
- * writable layer, and anything else that covers the file came from outside the
- * container. Where there is no mount table to read -- a macOS or Windows
- * development checkout -- the filesystem is the machine's own and is taken to
- * be persistent, so the writability check carries the decision alone.
+ * A file that is not there yet is writable when its directory is, because the
+ * first save creates it. That is the state an environment-only deployment is
+ * in: the image carries no `config.yaml`, and the default path points into the
+ * data directory, so the file appears there the first time an admin saves.
+ *
+ * On Linux the mount table answers the persistence question: the root mount is
+ * the image's own writable layer, and anything else that covers the file came
+ * from outside the container. Where there is no mount table to read -- a macOS
+ * or Windows development checkout -- the filesystem is the machine's own and is
+ * taken to be persistent, so the writability check carries the decision alone.
  */
 export function configStorage(
   configPath,
   { mountInfo = readMountInfo(), container = inContainer() } = {},
 ) {
   const resolved = path.resolve(configPath);
-  try {
-    accessSync(resolved, constants.W_OK);
-  } catch {
+  const writable = existsSync(resolved) ? canWrite(resolved) : canWrite(path.dirname(resolved));
+  if (!writable) {
     return {
       path: resolved,
       writable: false,
@@ -233,12 +263,13 @@ export function configStorage(
 }
 
 function coerce(setting, value) {
-  // No editable setting is nullable, and the consumers of these keys read them
-  // as the type the form advertises: userToObject calls replace on
-  // publicBaseUrl, and the pagination and compiler keys are compared as numbers.
-  // A null here would pass the form's own type check and then break every
-  // request that touched it, so it is a field error like any other bad value.
-  if (value === null || value === undefined) {
+  // Most settings are read as the type the form advertises: userToObject calls
+  // replace on publicBaseUrl, and the pagination and compiler keys are compared
+  // as numbers. A null there would pass the form's own type check and then break
+  // every request that touched it, so it is a field error like any other bad
+  // value. A setting that is off by being empty says so with `nullable`.
+  if (value === null || value === undefined || value === '') {
+    if (setting.nullable) return null;
     throw fieldErrors([{ field: setting.key, message: 'A value is required.' }]);
   }
   switch (setting.type) {
@@ -301,6 +332,19 @@ function coerce(setting, value) {
       }
       return text;
     }
+    // One line by the time it reaches the client, so the whitespace is folded
+    // here rather than letting a pasted paragraph arrive with newlines the
+    // marquee would have to strip.
+    case 'longtext': {
+      const text = String(value).replace(/\s+/g, ' ').trim();
+      if (text === '') return setting.nullable ? null : text;
+      if (setting.max !== undefined && text.length > setting.max) {
+        throw fieldErrors([
+          { field: setting.key, message: `Must be at most ${setting.max} characters.` },
+        ]);
+      }
+      return text;
+    }
     default:
       return value;
   }
@@ -341,7 +385,11 @@ export function applyServerConfig({ config, configPath, patch, mountInfo, contai
 
   const changes = {};
   const errors = [];
-  const document = YAML.parseDocument(readFileSync(storage.path, 'utf8'));
+  // A file that does not exist yet has nothing to preserve: the save creates it
+  // with the keys it changed and leaves the defaults to the merge on the next
+  // boot.
+  const source = existsSync(storage.path) ? readFileSync(storage.path, 'utf8') : '';
+  const document = YAML.parseDocument(source);
   if (document.contents === null) document.contents = document.createNode({});
 
   for (const setting of EDITABLE_SETTINGS) {

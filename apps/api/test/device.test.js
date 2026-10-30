@@ -26,7 +26,7 @@ after(async () => {
   await (await boot()).db.$disconnect();
 });
 
-function requestCode(clientName = 'Twext CLI') {
+function requestCode(clientName = 'Triflare Extend CLI') {
   return request(app).post(apiPath('/auth/device/code')).send({ clientName });
 }
 
@@ -70,7 +70,7 @@ test('the descriptor advertises the approval page and the code endpoint hands ou
 
 test('a code stays pending until a session approves it, then issues one once', async () => {
   const account = await signupAndAccept(app, uniqNs());
-  const code = (await requestCode('Twext CLI on build-box').expect(200)).body;
+  const code = (await requestCode('Triflare Extend CLI on build-box').expect(200)).body;
 
   const pending = await poll(code.deviceCode).expect(400);
   assert.equal(pending.body.error, 'authorization_pending');
@@ -82,7 +82,7 @@ test('a code stays pending until a session approves it, then issues one once', a
     code.userCode.toLowerCase().replace('-', ' '),
   ).expect(200);
   assert.equal(approved.body.approved, true);
-  assert.equal(approved.body.clientName, 'Twext CLI on build-box');
+  assert.equal(approved.body.clientName, 'Triflare Extend CLI on build-box');
 
   // The pending poll set the clock, so the next one is asked to wait.
   const tooSoon = await poll(code.deviceCode).expect(400);
@@ -127,7 +127,7 @@ test('approval needs a session, and a code cannot be approved by another account
     .set(bearer(bob.token))
     .send({ userCode: code.userCode })
     .expect(200);
-  assert.equal(lookedUp.body.clientName, 'Twext CLI');
+  assert.equal(lookedUp.body.clientName, 'Triflare Extend CLI');
   assert.equal(lookedUp.body.approved, false);
 
   await approve(alice.token, code.userCode).expect(200);

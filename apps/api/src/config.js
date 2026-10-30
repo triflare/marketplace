@@ -1,14 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
-import { configFilename, product } from './product.js';
+import { configFilename, envName, product } from './product.js';
 import { normalizeApiRoot } from './util.js';
+import { normalizeDriverConfig } from './drivers/config.js';
 
 export const DEFAULTS = {
   port: 3000,
   dataDir: './data',
   apiRoot: product.defaults?.apiRoot ?? '/v0',
   publicBaseUrl: 'http://localhost:3000',
+  // One line across the top of every page of the web client: a maintenance
+  // window, a sign-in method that just changed. Null is no banner, and the
+  // optional link is where the message sends people for details.
+  banner: {
+    message: null,
+    link: null,
+  },
   requireHttps: false,
   trustProxy: false,
   database: {
@@ -18,6 +26,18 @@ export const DEFAULTS = {
     idleTimeoutSeconds: 60,
   },
   auth: {
+    // The methods the instance offers. Null means "derive the set from the
+    // oidc/webauthn/device settings below", which is what every config written
+    // before the driver registry expects.
+    methods: null,
+    // Computed from `methods`: whether POST /sessions and the password form of
+    // registration are open at all.
+    passwordEnabled: true,
+    policy: {
+      registration: 'open',
+      requireMfa: false,
+      allowAccountLinking: true,
+    },
     sessionTtlDays: 7,
     scrypt: { N: 16384, r: 8, p: 1 },
     oidc: {
@@ -81,6 +101,23 @@ export const DEFAULTS = {
   cors: {
     allowedOrigins: '*',
   },
+  // An ordered failover chain. `none` is no mail: every feature whose driver
+  // requires mail refuses to be configured alongside it.
+  mail: {
+    drivers: [{ driver: 'none', options: {} }],
+  },
+  // Every other kind runs one instance unless its configuration lists more.
+  drivers: {
+    storage: null,
+    cache: null,
+    jobs: null,
+    search: null,
+    captcha: null,
+    scanner: null,
+    notify: null,
+    metrics: null,
+    compiler: null,
+  },
 };
 
 // The buckets that a null switches off entirely, and the only keys for which a
@@ -114,64 +151,68 @@ function mergeDeep(base, override, path = '') {
   return override;
 }
 
+// The suffix of each variable's name; the prefix is the product's `envPrefix`,
+// so renaming the product renames the whole operator-facing surface.
 const ENV_OVERRIDES = [
-  ['port', 'TWEXTHUB_PORT'],
-  ['dataDir', 'TWEXTHUB_DATA_DIR'],
-  ['apiRoot', 'TWEXTHUB_API_ROOT'],
-  ['publicBaseUrl', 'TWEXTHUB_PUBLIC_BASE_URL'],
-  ['requireHttps', 'TWEXTHUB_REQUIRE_HTTPS'],
-  ['trustProxy', 'TWEXTHUB_TRUST_PROXY'],
-  ['database.url', 'TWEXTHUB_DATABASE_URL'],
-  ['database.maxConnections', 'TWEXTHUB_DATABASE_MAX_CONNECTIONS'],
-  ['auth.sessionTtlDays', 'TWEXTHUB_SESSION_TTL_DAYS'],
-  ['auth.oidc.issuer', 'TWEXTHUB_OIDC_ISSUER'],
-  ['auth.oidc.clientId', 'TWEXTHUB_OIDC_CLIENT_ID'],
-  ['auth.oidc.clientSecret', 'TWEXTHUB_OIDC_CLIENT_SECRET'],
-  ['auth.oidc.required', 'TWEXTHUB_OIDC_REQUIRED'],
-  ['auth.webauthn.rpId', 'TWEXTHUB_WEBAUTHN_RP_ID'],
-  ['auth.webauthn.rpName', 'TWEXTHUB_WEBAUTHN_RP_NAME'],
-  ['auth.reauthWindowMinutes', 'TWEXTHUB_REAUTH_WINDOW_MINUTES'],
-  ['auth.device.verificationUrl', 'TWEXTHUB_DEVICE_VERIFICATION_URL'],
-  ['rateLimits.loginAttemptsPerWindow', 'TWEXTHUB_LOGIN_ATTEMPTS_PER_WINDOW'],
-  ['rateLimits.loginWindowMinutes', 'TWEXTHUB_LOGIN_WINDOW_MINUTES'],
-  ['rateLimits.signupsPerIpPerWindow', 'TWEXTHUB_SIGNUPS_PER_IP_PER_WINDOW'],
-  ['rateLimits.signupWindowMinutes', 'TWEXTHUB_SIGNUP_WINDOW_MINUTES'],
-  ['rateLimits.publishPerWindow', 'TWEXTHUB_PUBLISH_PER_WINDOW'],
-  ['rateLimits.publishWindowMinutes', 'TWEXTHUB_PUBLISH_WINDOW_MINUTES'],
-  ['rateLimits.downloadsPerIpPerWindow', 'TWEXTHUB_DOWNLOADS_PER_IP_PER_WINDOW'],
-  ['rateLimits.downloadWindowMinutes', 'TWEXTHUB_DOWNLOAD_WINDOW_MINUTES'],
-  ['rateLimits.reportsPerWindow', 'TWEXTHUB_REPORTS_PER_WINDOW'],
-  ['rateLimits.reportsWindowMinutes', 'TWEXTHUB_REPORTS_WINDOW_MINUTES'],
-  ['rateLimits.routesPerIpPerWindow', 'TWEXTHUB_ROUTES_PER_IP_PER_WINDOW'],
-  ['rateLimits.routeWindowMinutes', 'TWEXTHUB_ROUTE_WINDOW_MINUTES'],
-  ['pagination.defaultLimit', 'TWEXTHUB_PAGINATION_DEFAULT_LIMIT'],
-  ['pagination.maxLimit', 'TWEXTHUB_PAGINATION_MAX_LIMIT'],
-  ['limits.maxBlobBytes', 'TWEXTHUB_MAX_BLOB_BYTES'],
-  ['limits.maxAccountBlobBytes', 'TWEXTHUB_MAX_ACCOUNT_BLOB_BYTES'],
-  ['limits.maxSourceBytes', 'TWEXTHUB_MAX_SOURCE_BYTES'],
-  ['limits.maxProfileImageBytes', 'TWEXTHUB_MAX_PROFILE_IMAGE_BYTES'],
-  ['compiler.command', 'TWEXTHUB_COMPILER'],
-  ['compiler.timeoutMs', 'TWEXTHUB_COMPILER_TIMEOUT_MS'],
-  ['compiler.memoryMb', 'TWEXTHUB_COMPILER_MEMORY_MB'],
-  ['compiler.addressSpaceMb', 'TWEXTHUB_COMPILER_ADDRESS_SPACE_MB'],
-  ['compiler.minify', 'TWEXTHUB_COMPILER_MINIFY'],
-  ['logging.requests', 'TWEXTHUB_LOG_REQUESTS'],
-  ['cors.allowedOrigins', 'TWEXTHUB_CORS_ALLOWED_ORIGINS'],
-];
+  ['port', 'PORT'],
+  ['dataDir', 'DATA_DIR'],
+  ['apiRoot', 'API_ROOT'],
+  ['publicBaseUrl', 'PUBLIC_BASE_URL'],
+  ['banner.message', 'BANNER_MESSAGE'],
+  ['banner.link', 'BANNER_LINK'],
+  ['requireHttps', 'REQUIRE_HTTPS'],
+  ['trustProxy', 'TRUST_PROXY'],
+  ['database.url', 'DATABASE_URL'],
+  ['database.maxConnections', 'DATABASE_MAX_CONNECTIONS'],
+  ['auth.sessionTtlDays', 'SESSION_TTL_DAYS'],
+  ['auth.oidc.issuer', 'OIDC_ISSUER'],
+  ['auth.oidc.clientId', 'OIDC_CLIENT_ID'],
+  ['auth.oidc.clientSecret', 'OIDC_CLIENT_SECRET'],
+  ['auth.oidc.required', 'OIDC_REQUIRED'],
+  ['auth.webauthn.rpId', 'WEBAUTHN_RP_ID'],
+  ['auth.webauthn.rpName', 'WEBAUTHN_RP_NAME'],
+  ['auth.reauthWindowMinutes', 'REAUTH_WINDOW_MINUTES'],
+  ['auth.device.verificationUrl', 'DEVICE_VERIFICATION_URL'],
+  ['rateLimits.loginAttemptsPerWindow', 'LOGIN_ATTEMPTS_PER_WINDOW'],
+  ['rateLimits.loginWindowMinutes', 'LOGIN_WINDOW_MINUTES'],
+  ['rateLimits.signupsPerIpPerWindow', 'SIGNUPS_PER_IP_PER_WINDOW'],
+  ['rateLimits.signupWindowMinutes', 'SIGNUP_WINDOW_MINUTES'],
+  ['rateLimits.publishPerWindow', 'PUBLISH_PER_WINDOW'],
+  ['rateLimits.publishWindowMinutes', 'PUBLISH_WINDOW_MINUTES'],
+  ['rateLimits.downloadsPerIpPerWindow', 'DOWNLOADS_PER_IP_PER_WINDOW'],
+  ['rateLimits.downloadWindowMinutes', 'DOWNLOAD_WINDOW_MINUTES'],
+  ['rateLimits.reportsPerWindow', 'REPORTS_PER_WINDOW'],
+  ['rateLimits.reportsWindowMinutes', 'REPORTS_WINDOW_MINUTES'],
+  ['rateLimits.routesPerIpPerWindow', 'ROUTES_PER_IP_PER_WINDOW'],
+  ['rateLimits.routeWindowMinutes', 'ROUTE_WINDOW_MINUTES'],
+  ['pagination.defaultLimit', 'PAGINATION_DEFAULT_LIMIT'],
+  ['pagination.maxLimit', 'PAGINATION_MAX_LIMIT'],
+  ['limits.maxBlobBytes', 'MAX_BLOB_BYTES'],
+  ['limits.maxAccountBlobBytes', 'MAX_ACCOUNT_BLOB_BYTES'],
+  ['limits.maxSourceBytes', 'MAX_SOURCE_BYTES'],
+  ['limits.maxProfileImageBytes', 'MAX_PROFILE_IMAGE_BYTES'],
+  ['compiler.command', 'COMPILER'],
+  ['compiler.timeoutMs', 'COMPILER_TIMEOUT_MS'],
+  ['compiler.memoryMb', 'COMPILER_MEMORY_MB'],
+  ['compiler.addressSpaceMb', 'COMPILER_ADDRESS_SPACE_MB'],
+  ['compiler.minify', 'COMPILER_MINIFY'],
+  ['logging.requests', 'LOG_REQUESTS'],
+  ['cors.allowedOrigins', 'CORS_ALLOWED_ORIGINS'],
+].map(([key, suffix]) => [key, envName(suffix)]);
 
 // `fallback` is the DEFAULTS value for the key, not whatever YAML merged in: the
 // coercion each value goes through is the one its default type calls for.
-function coerceEnvValue(raw, fallback, envName, key) {
+function coerceEnvValue(raw, fallback, variable, key) {
   if (NULLABLE_KEYS.has(key) && (raw === 'off' || raw === 'null')) return null;
   if (typeof fallback === 'boolean') {
     if (raw === 'true' || raw === '1') return true;
     if (raw === 'false' || raw === '0') return false;
-    throw new Error(`${envName} must be "true" or "false" (got "${raw}")`);
+    throw new Error(`${variable} must be "true" or "false" (got "${raw}")`);
   }
   if (typeof fallback === 'number') {
     const n = Number(raw);
     if (!Number.isInteger(n) || n <= 0) {
-      throw new Error(`${envName} must be a positive integer (got "${raw}")`);
+      throw new Error(`${variable} must be a positive integer (got "${raw}")`);
     }
     return n;
   }
@@ -255,6 +296,35 @@ function normalizeDevice(config) {
   device.verificationUrl = parsed.toString();
 }
 
+// The banner is one line of plain text: the web client scrolls it, so a
+// paragraph or a newline would either be unwrapped into one run or cut off. The
+// link is where "details" points, and is dropped when there is no message for
+// it to belong to.
+function normalizeBanner(config) {
+  const banner = config.banner ?? {};
+  const message =
+    banner.message === null || banner.message === undefined
+      ? ''
+      : String(banner.message).replace(/\s+/g, ' ').trim();
+  if (message.length > 280) {
+    throw new Error(`banner.message must be at most 280 characters (got ${message.length})`);
+  }
+  banner.message = message === '' ? null : message;
+
+  const link = banner.link === null || banner.link === undefined ? '' : String(banner.link).trim();
+  if (link === '') {
+    banner.link = null;
+  } else {
+    const parsed = URL.parse(link);
+    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+      throw new Error(`banner.link must be an http or https URL (got "${link}")`);
+    }
+    banner.link = parsed.toString();
+  }
+  if (!banner.message) banner.link = null;
+  config.banner = banner;
+}
+
 // A WebAuthn relying party is an origin's host, so the RP ID is a bare
 // hostname: a scheme, a port, or a path in it would be accepted here and then
 // silently never match what the browser sends. The name is free text shown by
@@ -278,8 +348,8 @@ function normalizeWebauthn(config) {
 }
 
 function applyEnvOverrides(config) {
-  for (const [key, envName] of ENV_OVERRIDES) {
-    const raw = process.env[envName];
+  for (const [key, variable] of ENV_OVERRIDES) {
+    const raw = process.env[variable];
     if (raw === undefined) continue;
     const parts = key.split('.');
     const target = parts.slice(0, -1).reduce((acc, part) => acc[part], config);
@@ -295,16 +365,31 @@ function applyEnvOverrides(config) {
     target[last] = coerceEnvValue(
       raw,
       parts.reduce((acc, part) => acc[part], DEFAULTS),
-      envName,
+      variable,
       key,
     );
   }
 }
 
-export function loadConfig(configPath = configFilename()) {
+// Where the configuration file is when the caller named none. A `config.yaml`
+// in the working directory wins: that is how a checkout runs, and it is where an
+// operator mounting a file by hand puts it. Without one the file belongs to the
+// data directory, the one directory a container deployment is told to give a
+// volume. The image deliberately does not carry a `config.yaml`, so an
+// environment-only deployment has nowhere else to keep settings an admin saves
+// from the interface, and a change written there survives a redeploy.
+function defaultConfigPath() {
+  const local = path.resolve(configFilename());
+  if (existsSync(local)) return local;
+  const dataDir = process.env[envName('DATA_DIR')] ?? DEFAULTS.dataDir;
+  return path.resolve(process.cwd(), dataDir, configFilename());
+}
+
+export function loadConfig(configPath) {
+  const filePath = configPath ?? defaultConfigPath();
   let raw = {};
-  if (existsSync(configPath)) {
-    const parsed = YAML.parse(readFileSync(configPath, 'utf8'));
+  if (existsSync(filePath)) {
+    const parsed = YAML.parse(readFileSync(filePath, 'utf8'));
     if (parsed && typeof parsed === 'object') raw = parsed;
   }
   const config = mergeDeep(DEFAULTS, raw);
@@ -313,6 +398,7 @@ export function loadConfig(configPath = configFilename()) {
   normalizeOidc(config);
   normalizeWebauthn(config);
   normalizeDevice(config);
+  normalizeBanner(config);
   const reauthWindow = config.auth.reauthWindowMinutes;
   const reauthWindowMinutes = Number(reauthWindow);
   if (
@@ -323,14 +409,27 @@ export function loadConfig(configPath = configFilename()) {
     throw new Error('auth.reauthWindowMinutes must be a finite positive number');
   }
   config.auth.reauthWindowMinutes = reauthWindowMinutes;
+  // Registration policy is a closed set. `invite` and `allowlist` are in the
+  // design and not built; accepting the name would leave registration open to
+  // everyone, which is the one thing those settings exist to prevent.
+  if (!['open', 'closed'].includes(config.auth.policy.registration)) {
+    throw new Error(
+      `auth.policy.registration must be "open" or "closed" (got ${JSON.stringify(config.auth.policy.registration)}); invite and allowlist are not implemented`,
+    );
+  }
   if (!config.database.url) {
     throw new Error(
-      `database.url is required (set it in ${configPath}, pass a file via --config, or set TWEXTHUB_DATABASE_URL)`,
+      `database.url is required (set it in ${filePath}, pass a file via --config, or set ${envName('DATABASE_URL')})`,
     );
   }
   config.dataDir = path.resolve(process.cwd(), config.dataDir);
   // Recorded so the admin configuration endpoints can edit the same file this
-  // instance was started from, rather than guessing at a name.
-  config.configPath = path.resolve(configPath);
+  // instance was started from, rather than guessing at a name. It can name a
+  // file that does not exist yet: the first save creates it.
+  config.configPath = path.resolve(filePath);
+  // Resolved last, because the driver mixture is validated against the rest of
+  // the configuration: a passkey method needs a relying party, and a mail-using
+  // method needs a mail chain that can deliver.
+  normalizeDriverConfig(config, { env: process.env });
   return config;
 }

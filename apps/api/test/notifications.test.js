@@ -390,6 +390,7 @@ test('approving a pending version notifies the owner', async () => {
 
   const approve = await request(app)
     .patch(apiPath(`/@${owner.user.namespace}/myext/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -422,6 +423,7 @@ test('rejecting a pending version notifies the owner with the reason', async () 
   const reason = 'The block ID collides with an existing extension.';
   const reject = await request(app)
     .patch(apiPath(`/@${owner.user.namespace}/myext/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'rejected', reason })
     .expect(200);
@@ -507,6 +509,7 @@ test('an admin password reset notifies the target, self-service does not', async
 
   await request(app)
     .patch(apiPath(`/users/${target.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ password: 'newpassword1' })
     .expect(200);
@@ -526,6 +529,7 @@ test('an admin password reset notifies the target, self-service does not', async
     .expect(201);
   await request(app)
     .patch(apiPath(`/users/${target.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(relogin.body.token))
     .send({ password: 'newpassword2', currentPassword: 'newpassword1' })
     .expect(200);
@@ -544,6 +548,7 @@ test('a role change notifies the target', async () => {
 
   await request(app)
     .patch(apiPath(`/users/${target.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ role: 'admin' })
     .expect(200);

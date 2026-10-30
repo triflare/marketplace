@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { ServerConfig } from "@twextjs/twexthubkit"
+import type { ServerConfig } from "@/lib/api"
 
 import {
   FALLBACK_ACCOUNT_QUOTA,
@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label"
 import { useAsync } from "@/hooks/use-async"
 import { formatBytes } from "@/lib/format"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const DEFAULT_QUOTA_SETTING = "limits.maxAccountBlobBytes"
 

@@ -1,5 +1,4 @@
-import type TwextHubKit from "@twextjs/twexthubkit"
-import type { ExtensionDetail, User } from "@twextjs/twexthubkit"
+import type { ApiClient, ExtensionDetail, User } from "@/lib/api"
 
 import {
   detailFromUnpublished,
@@ -22,7 +21,7 @@ export interface ManageAccess {
  * the same request to every other account.
  */
 export async function resolveManageAccess(
-  kit: TwextHubKit,
+  api: ApiClient,
   namespace: string,
   id: string,
   user: User,
@@ -31,9 +30,9 @@ export async function resolveManageAccess(
 ): Promise<ManageAccess> {
   let extension: ExtensionDetail
   try {
-    extension = await kit.extensions.get(namespace, id, { signal })
+    extension = await api.extensions.get(namespace, id, { signal })
   } catch (error) {
-    const waiting = await loadUnpublishedVersions(kit, namespace, id, signal)
+    const waiting = await loadUnpublishedVersions(api, namespace, id, signal)
     if (!waiting) {
       throw error
     }
@@ -47,7 +46,7 @@ export async function resolveManageAccess(
     return { extension, allowed: true }
   }
 
-  const owners = await kit.extensions.owners
+  const owners = await api.extensions.owners
     .list(namespace, id, { signal })
     .catch(() => null)
   if (owners?.data.some((owner) => owner.namespace === user.namespace)) {
@@ -55,7 +54,7 @@ export async function resolveManageAccess(
   }
 
   if (extension.namespace !== user.namespace) {
-    const orgOwners = await kit.orgs
+    const orgOwners = await api.orgs
       .listOwners(extension.namespace, { signal })
       .catch(() => null)
     if (orgOwners?.data.some((owner) => owner.namespace === user.namespace)) {

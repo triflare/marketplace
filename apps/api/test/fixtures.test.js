@@ -40,6 +40,7 @@ async function approveFixture(adminToken, ns, id, version) {
   assert.ok(entry, `pending entry for ${id}`);
   await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -50,7 +51,7 @@ function compileFixtureLocally(fixtureDir, expectedFile) {
   // byte-identical output, mirroring the committed dist/ artifacts.
   return {
     async run(overrides = {}) {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'twexthub-fx-'));
+      const dir = await mkdtemp(path.join(os.tmpdir(), 'triflare-fx-'));
       try {
         await mkdir(dir, { recursive: true });
         const entries = await fs.promises.readdir(fixtureDir, { withFileTypes: true });
@@ -60,8 +61,8 @@ function compileFixtureLocally(fixtureDir, expectedFile) {
             recursive: true,
           });
         }
-        if (overrides.twextYml) {
-          await writeFile(path.join(dir, 'twext.yml'), overrides.twextYml);
+        if (overrides.extendYml) {
+          await writeFile(path.join(dir, 'extend.yml'), overrides.extendYml);
         }
         if (overrides.sourceFiles) {
           for (const [rel, text] of Object.entries(overrides.sourceFiles)) {
@@ -87,7 +88,9 @@ test('fixture greeter round-trips byte-for-byte', async () => {
   const owner = await signupAndAccept(app, uniqNs());
   const ns = owner.user.namespace;
 
-  const manifest = YAML.parse(fs.readFileSync(path.join(FIXTURES, 'greeter', 'twext.yml'), 'utf8'));
+  const manifest = YAML.parse(
+    fs.readFileSync(path.join(FIXTURES, 'greeter', 'extend.yml'), 'utf8'),
+  );
   const compiled = fs.readFileSync(path.join(FIXTURES, 'greeter', 'dist', 'Greeter.js'));
   const id = manifest.extension.id;
   const version = manifest.version;
@@ -109,6 +112,7 @@ test('fixture greeter round-trips byte-for-byte', async () => {
   // then approval minifies what clients actually download.
   const dl = await request(app)
     .get(apiPath(`/@${ns}/${id}/versions/${version}/download`))
+    .redirects(1)
     .expect(200);
   assert.match(dl.headers['content-type'], /javascript/);
   const minified = await minifyCode(compiled);
@@ -132,7 +136,7 @@ test('fixture hello auto-publishes after first approval; source changes are hono
   const owner = await signupAndAccept(app, uniqNs());
   const ns = owner.user.namespace;
 
-  const manifest = YAML.parse(fs.readFileSync(path.join(FIXTURES, 'hello', 'twext.yml'), 'utf8'));
+  const manifest = YAML.parse(fs.readFileSync(path.join(FIXTURES, 'hello', 'extend.yml'), 'utf8'));
   const id = manifest.extension.id;
   const version = manifest.version;
   const helloFixture = compileFixtureLocally(path.join(FIXTURES, 'hello'), 'dist/Hello.js');
@@ -148,6 +152,7 @@ test('fixture hello auto-publishes after first approval; source changes are hono
 
   const firstDownload = await request(app)
     .get(apiPath(`/@${ns}/${id}/versions/${version}/download`))
+    .redirects(1)
     .expect(200);
   const firstMin = await minifyCode(original);
   assert.equal(firstMin.ok, true, firstMin.error ?? 'minify');
@@ -174,6 +179,7 @@ test('fixture hello auto-publishes after first approval; source changes are hono
 
   const dl = await request(app)
     .get(apiPath(`/@${ns}/${id}/versions/0.2.0/download`))
+    .redirects(1)
     .expect(200);
   const replacedMin = await minifyCode(replaced);
   assert.equal(replacedMin.ok, true, replacedMin.error ?? 'minify');
@@ -181,7 +187,7 @@ test('fixture hello auto-publishes after first approval; source changes are hono
 });
 
 async function publishFixture(ns, id, token, fixtureDir, sourceFiles, version = '0.1.0') {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'twexthub-fx-pub-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'triflare-fx-pub-'));
   try {
     const entries = await fs.promises.readdir(fixtureDir, { withFileTypes: true });
     for (const entry of entries) {
@@ -190,7 +196,7 @@ async function publishFixture(ns, id, token, fixtureDir, sourceFiles, version = 
         recursive: true,
       });
     }
-    const ymlPath = path.join(dir, 'twext.yml');
+    const ymlPath = path.join(dir, 'extend.yml');
     const yml = YAML.parse(fs.readFileSync(ymlPath, 'utf8'));
     await writeFile(ymlPath, YAML.stringify({ ...yml, version }));
     if (sourceFiles) {

@@ -49,6 +49,7 @@ test('blob size caps and the account quota are enforced on publish', async () =>
   assert.equal(first.status, 201);
   await request(app)
     .patch(apiPath(`/@${ns}/batch/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -80,6 +81,7 @@ test('concurrent publishes to sibling extensions cannot both pass the quota', as
   await publishProject(app, ns, 'seed', owner.token);
   await request(app)
     .patch(apiPath(`/@${ns}/seed/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -142,11 +144,13 @@ test('admins can read and tune per-account quota, and only admins view the audit
   // A per-account override replaces the default; non-admins cannot set it.
   await request(app)
     .patch(apiPath(`/admin/users/${ns}/quota`))
+    .set('If-Match', '*')
     .set(bearer(peer.token))
     .send({ maxBlobBytes: 999 })
     .expect(403);
   await request(app)
     .patch(apiPath(`/admin/users/${ns}/quota`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ maxBlobBytes: 999 })
     .expect(200);
@@ -164,6 +168,7 @@ test('admins can read and tune per-account quota, and only admins view the audit
     .expect(204);
   await request(app)
     .patch(apiPath(`/users/${roleTarget.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ role: 'admin' })
     .expect(200);

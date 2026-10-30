@@ -84,7 +84,7 @@ export function webauthnSettings(config) {
     throw new Error(`publicBaseUrl is not a URL (got "${config.publicBaseUrl}")`);
   }
   const rpId = config.auth.webauthn.rpId ?? publicUrl.hostname;
-  const rpName = config.auth.webauthn.rpName ?? product.name ?? 'TwextHub';
+  const rpName = config.auth.webauthn.rpName ?? product.name;
 
   const origins = new Set([publicUrl.origin]);
   const { allowedOrigins } = config.cors;

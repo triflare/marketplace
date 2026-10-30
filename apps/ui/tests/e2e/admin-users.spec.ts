@@ -135,7 +135,7 @@ test("a storage limit set from a row rescales that account's meter", async ({
 
 test("deleting an account takes it off the registry", async ({ page }) => {
   // A throwaway account, so the shared test accounts survive the journey.
-  const created = await page.request.post(`${MOCK_API}/v2/users`, {
+  const created = await page.request.post(`${MOCK_API}/v1/users`, {
     data: {
       namespace: "spamuser",
       password: "spam-account-password",

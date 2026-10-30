@@ -74,7 +74,7 @@ test('an originless request in allowlist mode still gets Vary: Origin', async ()
 });
 
 function tempConfig(content) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'twexthub-cors-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-cors-'));
   const file = path.join(dir, 'config.yaml');
   fs.writeFileSync(file, content);
   return file;
@@ -117,18 +117,18 @@ test('loadConfig keeps the null that switches a rate-limit bucket off', () => {
   assert.equal(config.pagination.maxLimit, DEFAULTS.pagination.maxLimit);
 });
 
-test('TWEXTHUB_CORS_ALLOWED_ORIGINS parses as a list or a wildcard', () => {
+test('TRIFLARE_CORS_ALLOWED_ORIGINS parses as a list or a wildcard', () => {
   const file = tempConfig('database:\n  url: postgres://u@localhost:5432/db\n');
-  const prev = process.env.TWEXTHUB_CORS_ALLOWED_ORIGINS;
+  const prev = process.env.TRIFLARE_CORS_ALLOWED_ORIGINS;
   try {
-    process.env.TWEXTHUB_CORS_ALLOWED_ORIGINS = 'https://hub.example, https://editor.example';
+    process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = 'https://hub.example, https://editor.example';
     const config = loadConfig(file);
     assert.deepEqual(config.cors.allowedOrigins, ['https://hub.example', 'https://editor.example']);
 
-    process.env.TWEXTHUB_CORS_ALLOWED_ORIGINS = '*';
+    process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = '*';
     assert.equal(loadConfig(file).cors.allowedOrigins, '*');
   } finally {
-    if (prev === undefined) delete process.env.TWEXTHUB_CORS_ALLOWED_ORIGINS;
-    else process.env.TWEXTHUB_CORS_ALLOWED_ORIGINS = prev;
+    if (prev === undefined) delete process.env.TRIFLARE_CORS_ALLOWED_ORIGINS;
+    else process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = prev;
   }
 });

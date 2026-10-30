@@ -130,7 +130,7 @@ test("an unreachable registry takes the screen over and recovers", async ({
   await visit(page, "/publish")
 
   await expect(
-    page.getByRole("heading", { name: "TwextHub is down" })
+    page.getByRole("heading", { name: "Triflare Marketplace is down" })
   ).toBeVisible()
   await expect(
     page.getByText("The registry isn’t answering right now")

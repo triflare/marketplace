@@ -3,10 +3,11 @@ import { requireScope, requireSession } from '../auth.js';
 import { beginSigninMfa, hasPasskeys } from '../mfa.js';
 import { hashPassword, verifyPassword } from '../password.js';
 import { forbidden, notFound, unauthorized } from '../errors.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
 import { sessionToObject, userToObject } from '../serialize.js';
 import { createSession, requireObjectBody, resolveTargetUser } from './shared.js';
+import { normalizeEmail } from '../magic-link.js';
 
 export function makeSessionsRouter({ db, config, termsGate, rateLimiter }) {
   const router = Router();
@@ -15,6 +16,9 @@ export function makeSessionsRouter({ db, config, termsGate, rateLimiter }) {
   const guard = [requireScope('manage:sessions'), termsGate];
   const scrypt = config.auth.scrypt;
   const sessionTtlMs = config.auth.sessionTtlDays * 86_400_000;
+  const magicPasswordEnabled = config.auth.methods.some(
+    (entry) => entry.driver === 'magic-password',
+  );
   let dummyHashPromise;
   const dummyHash = () => {
     dummyHashPromise ??= hashPassword('invalid-password-placeholder', scrypt);
@@ -25,27 +29,35 @@ export function makeSessionsRouter({ db, config, termsGate, rateLimiter }) {
   // body carries the credentials rather than a namespace in the path, because
   // the account is the subject of the credential, not of the URL.
   router.post('/', async (req, res) => {
-    // IdP-only mode: the provider is the only way in, so a password presented
-    // here is refused before it is even looked at.
-    if (config.auth.oidc.required) {
-      throw forbidden('Password sign-in is turned off. Sign in with the identity provider.');
-    }
     requireObjectBody(req);
-    const { namespace, password } = req.body;
+    const { namespace, password, email } = req.body;
+    const signsInByEmail = email !== undefined;
+    // The method set decides which credential this endpoint accepts: a
+    // namespace and password from the password driver, or an address and its
+    // generated password from the magic-password driver.
+    if (signsInByEmail ? !magicPasswordEnabled : !config.auth.passwordEnabled) {
+      throw forbidden('Password sign-in is turned off on this instance.');
+    }
     if (
-      typeof namespace !== 'string' ||
-      !isValidNamespace(namespace) ||
-      typeof password !== 'string'
+      typeof password !== 'string' ||
+      (signsInByEmail
+        ? !magicPasswordEnabled || !normalizeEmail(email)
+        : typeof namespace !== 'string' || !isValidNamespace(namespace))
     ) {
       throw unauthorized('Invalid namespace or password.');
     }
+    const identifier = signsInByEmail ? normalizeEmail(email) : namespace;
 
     const recordFailures = await Promise.all([
-      rateLimiter.loginCheck(`login:${namespace}|${req.ip}`),
+      rateLimiter.loginCheck(`login:${identifier}|${req.ip}`),
       rateLimiter.loginCheck(`login:ip:${req.ip}`),
     ]);
 
-    const user = await db.Users.findUnique({ where: { Namespace: namespace } });
+    // A generated password is signed in with the address it belongs to rather
+    // than a namespace the person may never have seen.
+    const user = signsInByEmail
+      ? await userByEmail(identifier)
+      : await db.Users.findUnique({ where: { Namespace: namespace } });
     // An organization is a pseudo-account with no password, and its namespace is
     // public knowledge, so this says what it is instead of pretending the
     // credentials were wrong.
@@ -77,10 +89,18 @@ export function makeSessionsRouter({ db, config, termsGate, rateLimiter }) {
       });
   });
 
+  async function userByEmail(email) {
+    const identity = await db.AuthIdentities.findUnique({
+      where: { Driver_Issuer_Subject: { Driver: 'magic-password', Issuer: '', Subject: email } },
+    });
+    if (!identity) return null;
+    return db.Users.findUnique({ where: { Id: identity.UserId } });
+  }
+
   router.get('/', guard, async (req, res) => {
     const user = await resolveTargetUser(db, req);
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
 
     const rows = await db.Sessions.findMany({

@@ -24,14 +24,17 @@ import { useAsync } from "@/hooks/use-async"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { formatNumber } from "@/lib/format"
 import { HOME_FEED_KEY } from "@/lib/preload"
-import { product } from "@/lib/product"
-import { CLI_HUB_URL_FLAG, th } from "@/lib/twexthub"
+import { extend, product } from "@/lib/product"
+import { CLI_HUB_URL_FLAG, th } from "@/lib/registry"
 
 const QUICK_STEPS = [
-  { label: "Install the CLI", command: "npm install -g @twextjs/twext" },
-  { label: "Create a project", command: "twext init" },
-  { label: "Sign in", command: `twext login${CLI_HUB_URL_FLAG}` },
-  { label: "Publish it", command: `twext publish${CLI_HUB_URL_FLAG}` },
+  { label: "Install the CLI", command: `npm install -g ${extend.package}` },
+  { label: "Create a project", command: `${extend.command} init` },
+  { label: "Sign in", command: `${extend.command} login${CLI_HUB_URL_FLAG}` },
+  {
+    label: "Publish it",
+    command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
+  },
 ]
 
 export function HomePage() {
@@ -40,7 +43,7 @@ export function HomePage() {
 
   usePageMeta(
     "Extensions for TurboWarp",
-    "Browse community-made TurboWarp extensions built with Twext, or publish your own."
+    `Browse community-made TurboWarp extensions built with ${extend.name}, or publish your own.`
   )
 
   const feed = useAsync(
@@ -68,10 +71,10 @@ export function HomePage() {
       <section className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex flex-col gap-5 pt-2">
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {feed.data?.meta.name ?? product.name} · built with Twext
+            {feed.data?.meta.name ?? product.name} · built with {extend.name}
           </p>
           <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Extensions for TurboWarp, built with Twext.
+            Extensions for TurboWarp, built with {extend.name}.
           </h1>
           <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
             Browse community-made extensions, or publish your own. New
@@ -111,7 +114,9 @@ export function HomePage() {
               <TerminalIcon className="size-4 text-muted-foreground" />
               <h2 className="text-sm font-medium">From project to registry</h2>
             </div>
-            <span className="text-[11px] text-muted-foreground">Twext CLI</span>
+            <span className="text-[11px] text-muted-foreground">
+              {extend.name} CLI
+            </span>
           </div>
           <div className="flex flex-col gap-3 p-4">
             <p className="text-sm text-muted-foreground">
@@ -291,11 +296,11 @@ export function HomePage() {
         </div>
         <div>
           <h2 className="flex items-center gap-2 text-sm font-medium">
-            <TerminalIcon className="size-4" /> Built with Twext
+            <TerminalIcon className="size-4" /> Built with {extend.name}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use the Twext CLI to build from modules, validate the project, and
-            publish a release.{" "}
+            Use the {extend.name} CLI to build from modules, validate the
+            project, and publish a release.{" "}
             <Link to="/developers" className="text-foreground hover:underline">
               Read the developer guide
             </Link>
@@ -308,8 +313,8 @@ export function HomePage() {
         <div>
           <h2 className="text-base font-medium">Have an extension to share?</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Publish it with Twext, or upload a project archive from the publish
-            page.
+            Publish it with {extend.name}, or upload a project archive from the
+            publish page.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

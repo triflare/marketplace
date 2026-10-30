@@ -17,7 +17,7 @@ export async function loader({
   }
 
   try {
-    const account = await context.kit.users.get(namespace)
+    const account = await context.api.users.get(namespace)
     return { preload: { [adminUserKey(namespace)]: account } }
   } catch {
     return { preload: {} }

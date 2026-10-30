@@ -43,6 +43,7 @@ async function seedExtensions() {
     const entry = queue.body.data.find((v) => v.namespace === ns && v.id === id);
     await request(app)
       .patch(apiPath(`/@${ns}/${id}/versions/${entry.version}`))
+      .set('If-Match', '*')
       .set(bearer(admin.token))
       .send({ status: 'approved' })
       .expect(200);
@@ -440,9 +441,9 @@ test('feed.atom lists the latest publishes as entries', async () => {
   const xml = r.text ?? r.body.toString('utf8');
   assert.match(xml, /<feed xmlns="http:\/\/www\.w3\.org\/2005\/Atom">/);
   // Entry ids are tag URIs, not feed titles; the feed title is the product name.
-  assert.match(xml, /<title>TwextHub/);
+  assert.match(xml, /<title>Triflare Marketplace/);
   assert.match(xml, /<title>zoo v1\.0\.0<\/title>/);
-  assert.match(xml, new RegExp(`tag:twexthub,\\d{4}-\\d{2}-\\d{2}:@${ns}/zoo-1.0.0`));
+  assert.match(xml, new RegExp(`tag:triflare-marketplace,\\d{4}-\\d{2}-\\d{2}:@${ns}/zoo-1.0.0`));
   assert.match(xml, /<updated>\d{4}-\d{2}-\d{2}T/);
   // one entry per extension, newest publish first
   const entries = xml.match(/<entry>/g) ?? [];

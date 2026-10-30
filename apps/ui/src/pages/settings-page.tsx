@@ -10,7 +10,7 @@ import { WebhookManager } from "@/components/settings/webhook-manager"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAuth } from "@/context/auth"
 import { settingsKeys } from "@/lib/preload"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 const TABS = [
   "profile",

@@ -5,7 +5,7 @@ import { compileProject, compilerCommand } from '../src/compiler.js';
 
 test('the bundled compiler is used only when no command is configured', () => {
   const bundled = compilerCommand({ compiler: { command: null } });
-  assert.match(bundled, /@twextjs\/twext\/src\/cli\.js$/);
+  assert.match(bundled, /@triflare\/extend\/src\/cli\.js$/);
   assert.equal(compilerCommand({ compiler: {} }), bundled);
   assert.equal(compilerCommand({}), bundled);
   assert.equal(

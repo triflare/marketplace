@@ -1,8 +1,11 @@
 import { useSearchParams } from "react-router"
 
 import { AuditTab } from "@/components/admin/audit-tab"
+import { DriversSection } from "@/components/admin/drivers-section"
 import { InstanceTab } from "@/components/admin/instance-tab"
 import { LegalTab } from "@/components/admin/legal-tab"
+import { OutboxTab } from "@/components/admin/outbox-tab"
+import { ProcessSection } from "@/components/admin/process-section"
 import { AdminReportsTab } from "@/components/admin/reports-tab"
 import { ReviewTab } from "@/components/admin/review-tab"
 import { UsersTab } from "@/components/admin/users-tab"
@@ -14,6 +17,8 @@ const TABS = [
   "review",
   "reports",
   "audit",
+  "drivers",
+  "outbox",
   "instance",
   "legal",
 ] as const
@@ -31,7 +36,7 @@ export function AdminPage() {
       <PageHeader
         eyebrow="Administration"
         title="Administration"
-        description="Manage accounts, review submissions, handle reports, read the audit log, and manage registry settings and legal documents."
+        description="Manage accounts, review submissions, handle reports, read the audit log, change drivers and mail, and manage registry settings and legal documents."
       />
 
       <Tabs
@@ -51,6 +56,8 @@ export function AdminPage() {
           <TabsTrigger value="review">Review queue</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
+          <TabsTrigger value="drivers">Drivers</TabsTrigger>
+          <TabsTrigger value="outbox">Outbox</TabsTrigger>
           <TabsTrigger value="instance">Registry</TabsTrigger>
           <TabsTrigger value="legal">Legal</TabsTrigger>
         </TabsList>
@@ -65,6 +72,15 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="audit">
           <AuditTab />
+        </TabsContent>
+        <TabsContent value="drivers">
+          <div className="flex w-full flex-col gap-10">
+            <DriversSection />
+            <ProcessSection />
+          </div>
+        </TabsContent>
+        <TabsContent value="outbox">
+          <OutboxTab />
         </TabsContent>
         <TabsContent value="instance">
           <InstanceTab />

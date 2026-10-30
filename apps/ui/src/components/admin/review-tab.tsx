@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { PendingVersion } from "@twextjs/twexthubkit"
+import type { PendingVersion } from "@/lib/api"
 
 import {
   EmptyState,
@@ -27,7 +27,7 @@ import { useAsync } from "@/hooks/use-async"
 import { formatRelative } from "@/lib/format"
 import { licenseName } from "@/lib/licenses"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function ReviewTab() {
   const [rejectTarget, setRejectTarget] = useState<PendingVersion | null>(null)

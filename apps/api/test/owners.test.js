@@ -32,6 +32,7 @@ async function makeSetup() {
   });
   await request(app)
     .patch(apiPath(`/@${ownerA.user.namespace}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -254,6 +255,7 @@ test("a co-owner's approval trusts the namespace, not the co-owner", async () =>
   assert.equal(staged.body.status, 'pending');
   await request(app)
     .patch(apiPath(`/@${ns}/hello/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);

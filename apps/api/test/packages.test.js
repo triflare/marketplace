@@ -134,6 +134,7 @@ test('latest resolves by SemVer across a yank/re-publish sequence', async () => 
   // the yanked blob stays downloadable
   const yankedDownload = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/2.0.0/download`))
+    .redirects(1)
     .expect(200);
   assert.match(yankedDownload.text, /console\.log\(2\)/);
 
@@ -169,7 +170,9 @@ test('download serves compiled output with javascript content type', async () =>
   const queue = await request(app).get(apiPath('/versions?status=pending')).set(bearer(adminToken));
   await approveVersion(app, adminToken, ownerNs, 'hello', queue.body.data[0].version);
 
-  const dl = await request(app).get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`));
+  const dl = await request(app)
+    .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1);
   assert.equal(dl.status, 200);
   assert.match(dl.headers['content-type'], /javascript/);
   assert.match(dl.text, /DOWNLOAD_SPECIAL/);
@@ -183,6 +186,7 @@ test('admin can download a pending version source for review', async () => {
 
   const dl = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .set(bearer(adminToken));
   assert.equal(dl.status, 200);
   assert.match(dl.headers['content-type'], /javascript/);
@@ -196,13 +200,14 @@ test('pending version source is gated to owners and admins', async () => {
   });
 
   // The compiled blob stays hidden until approval: anonymous 404, owner 404.
-  const anonymousDownload = await request(app).get(
-    apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`),
-  );
+  const anonymousDownload = await request(app)
+    .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1);
   assert.equal(anonymousDownload.status, 404);
 
   const ownerDownload = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .set(bearer(ownerToken));
   assert.equal(ownerDownload.status, 404);
 
@@ -249,6 +254,7 @@ test('reading version source needs the read:source scope', async () => {
   // download a pending build.
   const dl = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .set(bearer(created.body.token));
   assert.equal(dl.status, 404);
 
@@ -301,6 +307,7 @@ test('published versions expose digest and integrity, served from /blobs/:digest
   const compiled = (
     await request(app)
       .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+      .redirects(1)
       .expect(200)
   ).text;
 
@@ -393,6 +400,7 @@ test('a version points at itself, its extension, its author and its bytes', asyn
   for (const [rel, url] of Object.entries(got.body._links)) {
     const link = await request(app)
       .get(url.replace(/^https?:\/\/[^/]+/, ''))
+      .redirects(1)
       .set(bearer(ownerToken));
     assert.equal(link.status, 200, `version ${rel} link: ${JSON.stringify(link.body)}`);
   }

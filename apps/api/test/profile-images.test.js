@@ -42,9 +42,10 @@ const jpegBytes = () => TINY_JPEG;
 let app;
 let db;
 let config;
+let blobs;
 
 before(async () => {
-  ({ app, db, config } = await boot({
+  ({ app, db, config, blobs } = await boot({
     // A small ceiling keeps the over-limit case cheap; the rest of the limits
     // section stays at its production default.
     limits: { maxProfileImageBytes: 4096 },
@@ -148,6 +149,7 @@ describe('uploading a profile image', () => {
     const ns = await account();
     await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ avatarUrl: 'https://cdn.example/old.png' })
       .expect(200);
@@ -468,6 +470,7 @@ describe('serving profile images', () => {
     const ns = await account();
     await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ bannerUrl: 'https://cdn.example/banner.png' })
       .expect(200);
@@ -525,6 +528,7 @@ describe('removing a profile image', () => {
     const ns = await account();
     await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ avatarUrl: 'https://cdn.example/a.png' })
       .expect(200);
@@ -641,6 +645,7 @@ describe('swapping one image source for another', () => {
 
     const res = await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ avatarUrl: 'https://cdn.example/new.png' })
       .expect(200);
@@ -655,6 +660,7 @@ describe('swapping one image source for another', () => {
     const ns = await account();
     await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ avatarUrl: 'https://cdn.example/fallback.png' })
       .expect(200);
@@ -679,6 +685,7 @@ describe('swapping one image source for another', () => {
 
     await request(app)
       .patch(apiPath(`/users/${a}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(a)))
       .send({ avatarUrl: 'https://cdn.example/x.png' })
       .expect(200);
@@ -704,7 +711,7 @@ describe('blob collection', () => {
     const stored = blobPathFor(config.dataDir, row.avatar_blob_digest);
     await age([stored]);
 
-    await gcBlobs(db, config.dataDir);
+    await gcBlobs(db, blobs, config);
     assert.ok(existsSync(stored));
   });
 
@@ -716,7 +723,7 @@ describe('blob collection', () => {
     const stored = blobPathFor(config.dataDir, row.banner_blob_digest);
     await age([stored]);
 
-    await gcBlobs(db, config.dataDir);
+    await gcBlobs(db, blobs, config);
     assert.ok(existsSync(stored));
   });
 
@@ -770,6 +777,7 @@ describe('visibility', () => {
     const ns = await account();
     await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(tokens.get(ns)))
       .send({ bio: 'Hello there', website: 'https://kane.dev', github: 'kane' })
       .expect(200);

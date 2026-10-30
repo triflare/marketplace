@@ -26,7 +26,7 @@ import { isValidNamespace } from '../util.js';
 //   mayWrite(row, req)   -> the caller's right to replace an image, awaited so
 //                           an owner-list lookup can decide it
 //   serialize(row)       -> the response body after a write or a delete
-export function makeProfileImageRouter({ db, config, load, mayWrite, serialize }) {
+export function makeProfileImageRouter({ db, config, blobs, load, mayWrite, serialize }) {
   const router = Router();
 
   // One endpoint per image kind serves all three states in priority order: an
@@ -40,7 +40,7 @@ export function makeProfileImageRouter({ db, config, load, mayWrite, serialize }
     const row = await load(req.params.namespace);
     // The upload is tried first because a profile can hold both, and the file
     // it uploaded is the one the instance is responsible for serving.
-    const stored = await resolveProfileImage(config, row, kind);
+    const stored = await resolveProfileImage(blobs, row, kind);
     if (stored) {
       // A URL carrying the digest names the exact bytes, so it can be cached
       // hard: a replacement upload is published under a new URL rather than
@@ -80,7 +80,12 @@ export function makeProfileImageRouter({ db, config, load, mayWrite, serialize }
         });
       }
       res.set('Content-Length', String(stored.size));
-      res.sendFile(stored.abs);
+      if (stored.abs) {
+        res.sendFile(stored.abs);
+      } else {
+        // A remote store is read into memory; the size it reported is the cap.
+        res.send(await blobs.read(stored.digest));
+      }
       return;
     }
     const external = kind === 'avatar' ? row.AvatarUrl : row.BannerUrl;
@@ -113,11 +118,11 @@ export function makeProfileImageRouter({ db, config, load, mayWrite, serialize }
         throw forbidden('You can only change your own profile images.');
       }
       const declared = req.get('content-type');
-      const stored = await storeProfileImage(db, config, target, kind, req.body, declared);
+      const stored = await storeProfileImage(db, config, blobs, target, kind, req.body, declared);
       // The replaced image is only unlinked after the new pointer is committed,
       // and only when nothing else references those bytes.
       if (stored.previous && stored.previous !== stored.digest) {
-        await removeProfileImageBlob(db, config, stored.previous);
+        await removeProfileImageBlob(db, blobs, stored.previous);
       }
       res.json(serialize(await load(req.params.namespace)));
     },
@@ -135,8 +140,11 @@ export function makeProfileImageRouter({ db, config, load, mayWrite, serialize }
       }
       const { digest, updates } = profileImagePointer(target, kind);
       // The keys are the avatar/banner column constants from PROFILE_IMAGES.
-      await db.Users.update({ where: { Id: target.Id }, data: updates });
-      if (digest) await removeProfileImageBlob(db, config, digest);
+      await db.Users.update({
+        where: { Id: target.Id },
+        data: { ...updates, UpdatedAt: new Date() },
+      });
+      if (digest) await removeProfileImageBlob(db, blobs, digest);
       res.json(serialize(await load(req.params.namespace)));
     },
   ];

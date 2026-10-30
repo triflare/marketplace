@@ -15,7 +15,7 @@ after(async () => {
 });
 
 function tempDataDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'twexthub-key-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-key-'));
 }
 
 function keyPath(dataDir) {
@@ -81,11 +81,11 @@ test('an unreadable key file is reported instead of quietly rotated', async () =
 
 test('an operator-supplied key is used as is', async () => {
   const dataDir = tempDataDir();
-  process.env.TWEXTHUB_DOWNLOAD_HASH_KEY = 'operator-key';
+  process.env.TRIFLARE_DOWNLOAD_HASH_KEY = 'operator-key';
   try {
     assert.equal(await downloadAddressKey(db, { dataDir }), 'operator-key');
     assert.ok(!fs.existsSync(keyPath(dataDir)), 'no key file is written behind the operator');
   } finally {
-    delete process.env.TWEXTHUB_DOWNLOAD_HASH_KEY;
+    delete process.env.TRIFLARE_DOWNLOAD_HASH_KEY;
   }
 });

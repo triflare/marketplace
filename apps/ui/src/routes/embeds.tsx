@@ -10,11 +10,11 @@ export default function EmbedsRoute() {
 
 export async function loader({ request }: { request: Request }) {
   const origin = new URL(request.url).origin
-  const kit = serverApi()
+  const api = serverApi()
 
   const [extensions, users] = await Promise.all([
-    kit.extensions.list({ limit: 1, sort: "recent" }).catch(() => null),
-    kit.users.list({ limit: 1 }).catch(() => null),
+    api.extensions.list({ limit: 1, sort: "recent" }).catch(() => null),
+    api.users.list({ limit: 1 }).catch(() => null),
   ])
 
   const extension = extensions?.data[0]

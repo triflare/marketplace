@@ -19,7 +19,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { resolveManageAccess } from "@/lib/extension-access"
 import { manageKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const MANAGE_TABS = [
   "releases",

@@ -21,13 +21,13 @@ export interface SessionData {
 // A deployment should set SESSION_SECRET. The fallback keeps local development
 // and `react-router dev` usable without any setup.
 const secret =
-  process.env.SESSION_SECRET ?? "twexthub-development-session-secret"
+  process.env.SESSION_SECRET ?? "triflare-development-session-secret"
 
 const production = process.env.NODE_ENV === "production"
 
 export const sessionStore = createCookieSessionStorage<SessionData>({
   cookie: {
-    name: "twexthub_session",
+    name: "triflare_session",
     httpOnly: true,
     path: "/",
     sameSite: "lax",

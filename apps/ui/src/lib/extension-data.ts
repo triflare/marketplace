@@ -1,9 +1,9 @@
-import type TwextHubKit from "@twextjs/twexthubkit"
 import type {
+  ApiClient,
   ExtensionDetail,
   ExtensionOwner,
   VersionInfo,
-} from "@twextjs/twexthubkit"
+} from "@/lib/api"
 
 export interface ExtensionData {
   extension: ExtensionDetail
@@ -30,14 +30,14 @@ export interface ExtensionData {
  * error is the honest answer.
  */
 export async function loadUnpublishedVersions(
-  kit: TwextHubKit,
+  api: ApiClient,
   namespace: string,
   id: string,
   signal?: AbortSignal
 ): Promise<VersionInfo[] | null> {
   const pages = await Promise.all(
     (["pending", "rejected"] as const).map((status) =>
-      kit.extensions.versions
+      api.extensions.versions
         .list(namespace, id, { status, limit: 50, signal })
         .then((page) => page.data)
         .catch(() => null)
@@ -85,7 +85,7 @@ export function detailFromUnpublished(
 }
 
 export async function loadExtensionData(
-  kit: TwextHubKit,
+  api: ApiClient,
   namespace: string,
   id: string,
   viewerNamespace: string | undefined,
@@ -94,9 +94,9 @@ export async function loadExtensionData(
   let extension: ExtensionDetail
   let unpublished = false
   try {
-    extension = await kit.extensions.get(namespace, id, { signal })
+    extension = await api.extensions.get(namespace, id, { signal })
   } catch (error) {
-    const waiting = await loadUnpublishedVersions(kit, namespace, id, signal)
+    const waiting = await loadUnpublishedVersions(api, namespace, id, signal)
     if (!waiting) {
       throw error
     }
@@ -105,8 +105,8 @@ export async function loadExtensionData(
   }
 
   const [tags, owners] = await Promise.all([
-    kit.extensions.tags.get(namespace, id, { signal }).catch(() => null),
-    kit.extensions.owners.list(namespace, id, { signal }).catch(() => null),
+    api.extensions.tags.get(namespace, id, { signal }).catch(() => null),
+    api.extensions.owners.list(namespace, id, { signal }).catch(() => null),
   ])
 
   // Owner rows carry no image, so resolve each account's avatar for the
@@ -115,7 +115,7 @@ export async function loadExtensionData(
   const ownersWithAvatars = await Promise.all(
     ownerRows.map(async (owner) => {
       try {
-        const account = await kit.users.get(owner.namespace, { signal })
+        const account = await api.users.get(owner.namespace, { signal })
         return { ...owner, avatarUrl: account.avatarUrl }
       } catch {
         return owner
@@ -139,7 +139,7 @@ export async function loadExtensionData(
     viewerNamespace !== namespace
   ) {
     try {
-      const orgOwners = await kit.orgs.listOwners(namespace, { signal })
+      const orgOwners = await api.orgs.listOwners(namespace, { signal })
       isOrgOwner = orgOwners.data.some(
         (owner) => owner.namespace === viewerNamespace
       )

@@ -1,4 +1,4 @@
-// The browser never talks to the TwextHub API directly. Every call is described
+// The browser never talks to the registry API directly. Every call is described
 // by a resource path and encoded arguments, sent to /__api, and performed by the
 // server with the session token. Files travel as base64 so a single JSON body
 // can carry uploads, form data, and aborted requests.
@@ -20,6 +20,10 @@ export interface RpcFailure {
   error: {
     message: string
     status?: number
+    // The registry's problem document, when it sent one. Field errors and a
+    // confirmation request are only distinguishable here; the message merges
+    // both into one string.
+    problem?: unknown
   }
 }
 

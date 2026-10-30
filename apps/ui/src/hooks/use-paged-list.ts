@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { Page } from "@twextjs/twexthubkit"
+import type { Page } from "@/lib/api"
 
 import { usePreloaded } from "@/lib/preload"
-import { cursorFrom, errorMessage } from "@/lib/twexthub"
+import { cursorFrom, errorMessage } from "@/lib/registry"
 
 interface PagedList<T> {
   items: T[]

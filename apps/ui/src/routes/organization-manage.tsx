@@ -16,14 +16,14 @@ export async function loader({
     return { preload: {} }
   }
 
-  const { kit, user } = context
+  const { api, user } = context
   const isAdmin = user.role === "admin"
   const preload: Record<string, unknown> = {}
 
   try {
     const [org, owners] = await Promise.all([
-      kit.orgs.get(namespace),
-      kit.orgs.listOwners(namespace),
+      api.orgs.get(namespace),
+      api.orgs.listOwners(namespace),
     ])
     const allowed =
       isAdmin || owners.data.some((owner) => owner.namespace === user.namespace)
@@ -38,7 +38,7 @@ export async function loader({
       preload[organizationKeys.owners(namespace)] = owners
       try {
         preload[organizationKeys.webhooks(namespace)] =
-          await kit.orgs.webhooks.list(namespace)
+          await api.orgs.webhooks.list(namespace)
       } catch {
         // The delivery tab will show its own error.
       }

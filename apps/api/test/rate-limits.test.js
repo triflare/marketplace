@@ -120,14 +120,18 @@ test('the download bucket is per IP, keyed on real paths, and a null limit disab
   await publishProject(tightApp, ns, 'hello', owner.token, { code: '// dl' });
   await request(tightApp)
     .patch(apiPath(`/@${ns}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
 
   await request(tightApp)
     .get(apiPath(`/@${ns}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
-  const second = await request(tightApp).get(apiPath(`/@${ns}/hello/versions/1.0.0/download`));
+  const second = await request(tightApp)
+    .get(apiPath(`/@${ns}/hello/versions/1.0.0/download`))
+    .redirects(1);
   assert.equal(second.status, 429);
 
   // With the bucket disabled, repeated hits sail through and nothing is counted:
@@ -136,6 +140,7 @@ test('the download bucket is per IP, keyed on real paths, and a null limit disab
   for (let i = 0; i < 3; i += 1) {
     await request(looseApp)
       .get(apiPath(`/@${ns}/hello/versions/1.0.0/download`))
+      .redirects(1)
       .expect(200);
   }
   const disabled = await db.$queryRaw`

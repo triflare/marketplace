@@ -13,8 +13,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY . .
 
-ENV TWEXTHUB_PORT=3000 \
-    TWEXTHUB_DATA_DIR=/app/data
+ENV TRIFLARE_PORT=3000 \
+    TRIFLARE_DATA_DIR=/app/data
 
 RUN mkdir -p /app/data && chown -R node:node /app
 

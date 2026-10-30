@@ -1,12 +1,20 @@
 # The app's identity. The build reads this once and inlines the values into both
 # bundles, so a rebrand is a change here plus a rebuild.
 name: "Triflare Marketplace"
-version: "0.1.0"
+version: "1.1.0"
 tagline: "Find extensions, and share yours."
 author: "Triflare"
 homepage: "https://github.com/triflare/marketplace"
+extend:
+  name: "Triflare Extend"
+  package: "@triflare/extend"
+  command: "extend"
+  configFilename: "extend.yml"
 branding:
   colors:
     primary: "#16A34A"
     secondary: "#12823B"
     tertiary: "#0D602C"
+# The official instance the app falls back to outside development.
+defaults:
+  apiUrl: "https://twexts.sdisk.us/api/v1"

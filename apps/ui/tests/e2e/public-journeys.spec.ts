@@ -7,17 +7,19 @@ test("home page leads to browsing and publishing", async ({ page }) => {
   page.on("pageerror", (error) => errors.push(error.message))
 
   await visit(page, "/")
-  await expect(page).toHaveTitle("Extensions for TurboWarp · TwextHub")
+  await expect(page).toHaveTitle(
+    "Extensions for TurboWarp · Triflare Marketplace"
+  )
   await expect(
     page.getByRole("heading", {
-      name: "Extensions for TurboWarp, built with Twext.",
+      name: "Extensions for TurboWarp, built with Triflare Extend.",
     })
   ).toBeVisible()
   await expect(page.getByRole("link", { name: "Browse all" })).toBeVisible()
   await expect(
     page.getByRole("link", { name: "Developer guide" }).first()
   ).toBeVisible()
-  await expect(page.getByText("TwextHubKit")).toHaveCount(0)
+  await expect(page.getByText("TwextHub")).toHaveCount(0)
   // A cold dev server reloads the first document once while it optimizes its
   // dependencies; that stray, dev-only error is not an app failure.
   expect(
@@ -27,7 +29,7 @@ test("home page leads to browsing and publishing", async ({ page }) => {
 
 test("extension page explains how to install", async ({ page }) => {
   await visit(page, "/@kamixfox/myextension")
-  await expect(page).toHaveTitle("Hello · TwextHub")
+  await expect(page).toHaveTitle("Hello · Triflare Marketplace")
   await expect(
     page.getByRole("heading", {
       name: "Install in TurboWarp, PenguinMod, or MistWarp",
@@ -70,7 +72,7 @@ test("footer links to the registry feed", async ({ page }) => {
   await visit(page, "/")
   const feed = page.getByRole("link", { name: "Feed" })
   await expect(feed).toHaveAttribute("type", "application/atom+xml")
-  await expect(feed).toHaveAttribute("href", /\/v2\/feed\.atom$/)
+  await expect(feed).toHaveAttribute("href", /\/v1\/feed\.atom$/)
 })
 
 test("extension page offers a badge for each fact", async ({ page }) => {
@@ -96,7 +98,7 @@ test("extension page offers a badge for each fact", async ({ page }) => {
   await page.getByRole("button", { name: "Copy badge markdown" }).click()
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
-    .toContain("/v2/badge/@kamixfox/myextension)")
+    .toContain("/v1/badge/@kamixfox/myextension)")
 
   await page.getByLabel("Badge contents").click()
   await page.getByRole("option", { name: "Downloads", exact: true }).click()
@@ -178,7 +180,7 @@ test("device page approves a signed-in CLI sign-in", async ({ page }) => {
   await visit(page, "/device?user_code=ABCD-EFGH")
 
   await expect(
-    page.getByRole("heading", { name: "Authorize Twext CLI?" })
+    page.getByRole("heading", { name: "Authorize Triflare Extend CLI?" })
   ).toBeVisible()
   await expect(page.getByText("@kamixfox").first()).toBeVisible()
 

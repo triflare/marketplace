@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { manifestFromProject } from '../src/project-manifest.js';
 
-// The publish path shells out to the twext compiler, which rejects
-// extension.isUnsandboxed until twext#4 ships, so the allowlist is covered here
+// The publish path shells out to the bundled compiler, which rejects
+// extension.isUnsandboxed until extend#4 ships, so the allowlist is covered here
 // directly rather than through a publish.
 
 function project(extension = {}, rest = {}) {
@@ -16,7 +16,7 @@ function project(extension = {}, rest = {}) {
   };
 }
 
-test('isUnsandboxed is carried through from twext.yml to the manifest', () => {
+test('isUnsandboxed is carried through from extend.yml to the manifest', () => {
   const { errors, manifest } = manifestFromProject(project({ isUnsandboxed: true }), 'probe');
   assert.deepEqual(errors, []);
   assert.equal(manifest.isUnsandboxed, true);

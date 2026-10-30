@@ -1,6 +1,7 @@
-import type TwextHubKit from "@twextjs/twexthubkit"
-import { TwextHubError } from "@twextjs/twexthubkit"
+import type { ApiClient, ProblemDetails } from "@/lib/api"
+import { ApiError } from "@/lib/api/errors"
 
+import { product } from "@/lib/product"
 import {
   isUnreachableStatus,
   reportRegistryReachable,
@@ -48,7 +49,7 @@ async function callApi(path: string[], args: unknown[]): Promise<unknown> {
     // The call never left the browser, which is the same outage to the person
     // waiting for the page.
     reportRegistryUnreachable()
-    throw new TwextHubError("We couldn’t reach TwextHub. Try again.", {
+    throw new ApiError(`We couldn’t reach ${product.name}. Try again.`, {
       status: 502,
     })
   }
@@ -70,19 +71,17 @@ async function callApi(path: string[], args: unknown[]): Promise<unknown> {
       // The registry answered, and said no. Its pages are still usable.
       reportRegistryReachable()
     }
-    throw new TwextHubError(
-      failure?.error?.message ?? `HTTP ${response.status}`,
-      {
-        status,
-      }
-    )
+    throw new ApiError(failure?.error?.message ?? `HTTP ${response.status}`, {
+      status,
+      problem: failure?.error?.problem as ProblemDetails | undefined,
+    })
   }
 
   reportRegistryReachable()
 
   const success = payload as RpcSuccess | null
   if (!success || !("result" in success)) {
-    throw new TwextHubError("The server returned an unreadable response.", {
+    throw new ApiError("The server returned an unreadable response.", {
       status: response.status,
     })
   }
@@ -116,8 +115,8 @@ function remote(path: string[]): unknown {
 }
 
 /**
- * Drop-in replacement for TwextHubKit in the browser. Every method and nested
- * resource is a proxy that posts to the server, which owns the token and talks
- * to the registry.
+ * The browser's copy of the client surface. Every method and nested resource is
+ * a proxy that posts to the server, which owns the token and talks to the
+ * registry.
  */
-export const th = remote([]) as unknown as TwextHubKit
+export const th = remote([]) as unknown as ApiClient

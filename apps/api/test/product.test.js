@@ -16,7 +16,7 @@ after(async () => {
 });
 
 test('product.yml loads with required fields', () => {
-  assert.equal(product.name, 'TwextHub');
+  assert.equal(product.name, 'Triflare Marketplace');
   assert.ok(product.version);
   assert.ok(product.tagline);
   assert.ok(product.homepage);
@@ -78,4 +78,6 @@ test(`GET ${apiPath('/meta')} returns product metadata`, async () => {
   assert.equal(r.body.version, product.version);
   assert.equal(r.body.tagline, product.tagline);
   assert.equal(r.body.homepage, product.homepage);
+  // No announcement is configured on this instance, so there is no banner.
+  assert.equal(r.body.banner, null);
 });

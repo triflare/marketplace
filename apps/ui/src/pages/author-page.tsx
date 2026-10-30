@@ -27,7 +27,7 @@ import { usePageMeta } from "@/hooks/use-page-meta"
 import { usePagedList } from "@/hooks/use-paged-list"
 import { formatDate } from "@/lib/format"
 import { authorExtensionsKey, authorProfileKey } from "@/lib/preload"
-import { assetUrl, th } from "@/lib/twexthub"
+import { assetUrl, th } from "@/lib/registry"
 
 export function AuthorPage() {
   const { namespace: handle = "" } = useParams()

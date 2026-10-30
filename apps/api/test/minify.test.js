@@ -94,6 +94,7 @@ test('approval minifies a pending build and updates digest, integrity, size, and
 
   const approved = await request(app)
     .patch(apiPath('/@' + ns + '/mini/versions/1.0.0'))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -132,6 +133,7 @@ test('a trusted account publishes minified output directly', async () => {
   await publishProject(app, ns, 'first', owner.token, { code: '// seed' });
   await request(app)
     .patch(apiPath('/@' + ns + '/first/versions/1.0.0'))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);

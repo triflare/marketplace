@@ -1,6 +1,6 @@
 import { colorPattern, isPlainObject, isValidExtensionId, normalizeSemver } from './util.js';
 
-// Derive the publish manifest from twext.yml. The registry no longer accepts
+// Derive the publish manifest from extend.yml. The registry no longer accepts
 // pre-compiled code: the manifest is whatever the project declares so a review
 // of the source is a review of the artifact.
 export function manifestFromProject(projectConfig, pathId) {

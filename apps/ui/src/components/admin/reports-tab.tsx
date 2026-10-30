@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 
-import type { Report, ReportStatus } from "@twextjs/twexthubkit"
+import type { Report, ReportStatus } from "@/lib/api"
 
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
 import { Badge } from "@/components/ui/badge"
@@ -28,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate, humanizeKind } from "@/lib/format"
 import { adminKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const STATUSES: Array<{ value: ReportStatus; label: string }> = [
   { value: "open", label: "Open" },

@@ -1,4 +1,5 @@
-import { TwextHubError, type User } from "@twextjs/twexthubkit"
+import type { User } from "@/lib/api"
+import { ApiError } from "@/lib/api/errors"
 
 import { summaryFromUser } from "@/lib/accounts.server"
 import { serverApi } from "@/lib/api.server"
@@ -27,12 +28,12 @@ const BLOCKED = new Set([
   "valueOf",
 ])
 
-function resolveMethod(kit: unknown, path: string[]) {
+function resolveMethod(api: unknown, path: string[]) {
   if (path.length < 2) {
     throw new Error("Unknown API method.")
   }
 
-  let target: unknown = kit
+  let target: unknown = api
   for (const segment of path.slice(0, -1)) {
     if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(segment) || BLOCKED.has(segment)) {
       throw new Error("Unknown API method.")
@@ -121,12 +122,12 @@ export async function action({ request }: { request: Request }) {
   }
 
   const session = await readSession(request)
-  const kit = serverApi(session.get("token"))
+  const api = serverApi(session.get("token"))
   const headers = new Headers()
   const revoking = path.join(".") === "sessions.revokeCurrent"
 
   try {
-    const method = resolveMethod(kit, path)
+    const method = resolveMethod(api, path)
     const args = encodedArgs.map((arg) => decodeValue(arg))
     let result = await method(...args)
 
@@ -137,7 +138,9 @@ export async function action({ request }: { request: Request }) {
       rememberAccount(session, { token, ...summaryFromUser(user) })
       session.unset("remember")
       headers.set("Set-Cookie", await commitSession(session))
-      result = rest
+      // The token becomes a cookie rather than a body value, but the account
+      // it belongs to is what the page renders next, so it stays.
+      result = { ...rest, user }
     }
 
     if (revoking) {
@@ -150,18 +153,21 @@ export async function action({ request }: { request: Request }) {
       headers.set("Set-Cookie", await signOutOfActiveAccount(session))
     }
 
-    // A registry the gateway could not reach keeps the kit's 0, which the
+    // A registry the gateway could not reach keeps the client's 0, which the
     // response below turns into a 502 the browser can read; anything that is
     // not a registry error at all is this gateway failing, and says so with a
     // 500 rather than blaming the outage the client watches for.
-    const status = error instanceof TwextHubError ? (error.status ?? 502) : 500
+    const status = error instanceof ApiError ? (error.status ?? 502) : 500
     const message =
       error instanceof Error && error.message
         ? error.message
         : "The registry request failed."
+    // Passed on so the browser can tell a validation problem from a request
+    // that needs confirming: both arrive as one sentence otherwise.
+    const problem = error instanceof ApiError ? error.problem : undefined
 
     return Response.json(
-      { error: { message, status } },
+      { error: { message, status, ...(problem ? { problem } : {}) } },
       { status: status >= 400 && status <= 599 ? status : 502, headers }
     )
   }

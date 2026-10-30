@@ -20,7 +20,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { ButtonLink } from "@/components/common/button-link"
 import { AuthProvider } from "@/context/auth"
 import { resolveActiveAccount } from "@/lib/accounts.server"
-import { SERVER_API_URL } from "@/lib/api.server"
+import { SERVER_API_URL, serverApi } from "@/lib/api.server"
 import { PreloadProvider } from "@/lib/preload"
 import { product } from "@/lib/product"
 import { readSession, requireSessionSecret } from "@/lib/session.server"
@@ -64,13 +64,32 @@ export async function loader({ request }: { request: Request }) {
 
   const session = await readSession(request)
   // Every account this browser is signed in to, which one is active, and a new
-  // cookie whenever the registry disagreed with what was stored.
-  const { user, accounts, cookie } = await resolveActiveAccount(session)
-  const payload = { user, accounts, apiBaseUrl: SERVER_API_URL }
+  // cookie whenever the registry disagreed with what was stored. The banner
+  // comes along on the same load, so the announcement is in the first paint
+  // rather than sliding in after hydration.
+  const [{ user, accounts, cookie }, banner] = await Promise.all([
+    resolveActiveAccount(session),
+    readBanner(),
+  ])
+  const payload = { user, accounts, apiBaseUrl: SERVER_API_URL, banner }
 
   return cookie
     ? Response.json(payload, { headers: { "Set-Cookie": cookie } })
     : payload
+}
+
+type Banner = { message: string; link: string | null }
+
+// The instance announcement is a nicety, not a dependency: an unreachable
+// registry must still render the page (the gate handles saying so), so a
+// failure here is simply no banner.
+async function readBanner(): Promise<Banner | null> {
+  try {
+    const meta = await serverApi().instance.meta({ timeoutMs: 2000 })
+    return meta.banner ?? null
+  } catch {
+    return null
+  }
 }
 
 export function meta() {

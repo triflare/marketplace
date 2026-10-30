@@ -10,8 +10,8 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 
-const CONTAINER = 'twexthub-pg';
-const DATABASE = 'twexthub_test';
+const CONTAINER = 'triflare-pg';
+const DATABASE = 'triflare_test';
 
 const psql = async (...args) =>
   (await run('docker', ['exec', CONTAINER, 'psql', '-U', 'postgres', '-d', 'postgres', ...args]))

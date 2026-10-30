@@ -22,7 +22,7 @@ let config;
 
 // The sandbox resolver cannot invent a host, and a hook URL is resolved and
 // checked before it is stored, so a created hook has to name a real one.
-const PUBLIC_URL = 'https://example.com/twext-hook';
+const PUBLIC_URL = 'https://example.com/triflare-hook';
 
 before(async () => {
   // An organization draws from the signup bucket the same as an account, and
@@ -197,6 +197,7 @@ describe('changing an organization', () => {
 
     const updated = await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(owner.token))
       .send({ displayName: 'Acme Corp', bio: 'Now with a website.', website: null })
       .expect(200);
@@ -205,6 +206,7 @@ describe('changing an organization', () => {
 
     await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(outsider.token))
       .send({ displayName: 'Hijacked' })
       .expect(403);
@@ -213,6 +215,7 @@ describe('changing an organization', () => {
     // reachable for kind = 'organization'.
     await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .send({ displayName: 'x' })
       .expect(401);
   });
@@ -221,11 +224,13 @@ describe('changing an organization', () => {
     const { ns, owner } = await org();
     await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(owner.token))
       .send({})
       .expect(422);
     const bad = await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(owner.token))
       .send({ github: 'not a username' });
     assert.equal(bad.status, 422);
@@ -236,6 +241,7 @@ describe('changing an organization', () => {
     const { ns, owner } = await org();
     const patched = await request(app)
       .patch(apiPath(`/users/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(owner.token))
       .send({ displayName: 'Via users' });
     assert.equal(patched.status, 403);
@@ -263,6 +269,7 @@ describe('changing an organization', () => {
     const admin = await signupAndAccept(app, uniqNs());
     await request(app)
       .patch(apiPath(`/users/${admin.user.namespace}`))
+      .set('If-Match', '*')
       .set(bearer(admin.token))
       .send({ role: 'admin' })
       .expect(200);
@@ -272,6 +279,7 @@ describe('changing an organization', () => {
     // organization the same way an extension's owners reach their extension.
     const read = await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(admin.token))
       .send({ bio: 'edited by an admin' })
       .expect(200);
@@ -416,6 +424,7 @@ describe('owners', () => {
 
     await request(app)
       .patch(apiPath(`/orgs/${ns}`))
+      .set('If-Match', '*')
       .set(bearer(coowner.token))
       .send({ bio: 'edited by a co-owner' })
       .expect(200);

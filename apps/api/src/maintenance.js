@@ -1,14 +1,17 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { BLOB_GC_LOCK_KEY, blobPathFor, removeBlobIfUnused, sha256Hex } from './blobs.js';
+import { BLOB_GC_LOCK_KEY, sha256Hex } from './blobs.js';
 import { withLocks } from './locks.js';
 
 // Blob garbage collection: a file under blobs/ whose digest no row references is
 // deleted. Sources are handled by removeSourceIfUnused at the call sites that
 // already know the digest; this sweep only covers blobs so a crash between the
 // DB delete and the file removal cannot strand bytes.
-export async function gcBlobs(db, dataDir) {
-  const blobsDir = path.join(dataDir, 'blobs');
+export async function gcBlobs(db, blobs, config) {
+  // A bucket is enumerated by the operator's own lifecycle rules rather than by
+  // the server, which has no list call on the driver interface.
+  if (!blobs.canSweep()) return 0;
+  const blobsDir = path.join(config.dataDir, 'blobs');
 
   // The transaction covers the two queries and nothing else. Nearly all of this
   // function is filesystem work, and holding a transaction open across it keeps
@@ -67,7 +70,7 @@ export async function gcBlobs(db, dataDir) {
       // it is not, and a publish can claim an aged file in between. The final
       // check and the unlink both happen under the lock in the helper, so a
       // digest that gained a reference since the snapshot is kept.
-      if (await removeBlobIfUnused(db, { dataDir }, digest, null)) {
+      if (await blobs.removeIfUnused(db, digest, null)) {
         removed += 1;
       }
     }
@@ -78,15 +81,15 @@ export async function gcBlobs(db, dataDir) {
 // Verify every referenced blob against its stored digest. Missing or
 // mismatched files are reported, not deleted: the database row is the source
 // of truth for what should exist, so the operator decides what to do.
-// Registered integrity failures are exported through
-// twexthub_storage_integrity_errors.
+// Registered integrity failures are exported through the storage integrity
+// gauge in observability.js.
 let integrityErrorCount = 0;
 
 export function getIntegrityErrors() {
   return integrityErrorCount;
 }
 
-export async function scrubBlobs(db, dataDir) {
+export async function scrubBlobs(db, blobs) {
   // One row per digest, newest id first. `DISTINCT ON` has no typed equivalent.
   const rows = await db.$queryRaw`
     SELECT DISTINCT ON ("BlobDigest") "Namespace", "ExtensionId", "Version", "BlobDigest"
@@ -100,10 +103,9 @@ export async function scrubBlobs(db, dataDir) {
   let errors = 0;
   const problems = [];
   for (const row of rows) {
-    const abs = blobPathFor(dataDir, row.BlobDigest);
     let actual;
     try {
-      actual = sha256Hex(await readFile(abs));
+      actual = sha256Hex(await blobs.read(row.BlobDigest));
     } catch {
       errors += 1;
       problems.push({ ...row, problem: 'missing' });
@@ -118,7 +120,7 @@ export async function scrubBlobs(db, dataDir) {
   return problems;
 }
 
-export function makeMaintenanceJob({ db, config }) {
+export function makeMaintenanceJob({ db, config, blobs }) {
   let timer = null;
   let running = false;
 
@@ -134,12 +136,12 @@ export function makeMaintenanceJob({ db, config }) {
     if (running) return;
     running = true;
     try {
-      const removed = await gcBlobs(db, config.dataDir);
+      const removed = await gcBlobs(db, blobs, config);
       if (removed > 0) console.log(`blob gc removed ${removed} orphaned file(s)`);
 
       if (!gcOnly && Date.now() - lastScrub >= scrubIntervalMs) {
         lastScrub = Date.now();
-        const problems = await scrubBlobs(db, config.dataDir);
+        const problems = await scrubBlobs(db, blobs);
         for (const problem of problems) {
           console.warn(
             `blob integrity ${problem.problem}: ${problem.Namespace}/${problem.ExtensionId}@${problem.Version}`,

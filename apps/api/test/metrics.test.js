@@ -28,6 +28,7 @@ async function publishAs(ns, nsToken, adminToken, id, version, code) {
   await publishProject(app, ns, id, nsToken, { version, code });
   await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -69,12 +70,15 @@ test('downloads roll up per version and appear on version objects', async () => 
 
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/2.0.0/download`))
+    .redirects(1)
     .expect(200);
   await waitForEvents(ownerNs, 'hello', 3);
 
@@ -140,9 +144,11 @@ test('downloads are counted, surfaced, and feed trending', async () => {
 
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/latest/download`))
+    .redirects(1)
     .expect(200);
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/latest/download`))
+    .redirects(1)
     .expect(200);
 
   await db.$executeRawUnsafe(`
@@ -233,9 +239,11 @@ test('a download records a keyed hash of the address, never the address', async 
   const { ownerNs } = await makePublished();
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
   await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/1.0.0/download`))
+    .redirects(1)
     .expect(200);
 
   const readEvents = () => db.$queryRaw`

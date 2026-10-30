@@ -8,7 +8,7 @@ import {
   reportRegistryReachable,
   subscribeRegistryStatus,
 } from "@/lib/registry-status"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 const SERVER_SNAPSHOT = () => false
 

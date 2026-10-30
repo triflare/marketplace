@@ -188,12 +188,14 @@ test('terms gate: 403 until accept', async () => {
   await request(app).get(apiPath('/me')).set(bearer(token)).expect(200);
   await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ displayName: 'Updated' })
     .expect(403);
   await acceptTerms(app, ns, token);
   await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ displayName: 'Updated' })
     .expect(200);

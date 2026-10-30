@@ -3,7 +3,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
-import type { User } from "@twextjs/twexthubkit"
+import type { User } from "@/lib/api"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { UserAvatar } from "@/components/common/user-avatar"
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/context/auth"
-import { assetUrl, errorMessage, th } from "@/lib/twexthub"
+import { assetUrl, errorMessage, th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 export function ProfileForm({

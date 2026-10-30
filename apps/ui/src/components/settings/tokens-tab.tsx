@@ -2,7 +2,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { AutomationTokenCreated, TokenScope } from "@twextjs/twexthubkit"
+import type { AutomationTokenCreated, TokenScope } from "@/lib/api"
 
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
@@ -23,7 +23,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { settingsKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 const SCOPES: Array<{ value: TokenScope; label: string; description: string }> =
   [
@@ -283,7 +283,7 @@ export function TokensTab() {
             <ol className="mt-1.5 flex list-decimal flex-col gap-1 pl-4 text-xs text-muted-foreground">
               <li>
                 Store it as a secret named{" "}
-                <code className="font-mono">TWEXTHUB_TOKEN</code> in your CI.
+                <code className="font-mono">TRIFLARE_TOKEN</code> in your CI.
               </li>
               <li>
                 Send it as{" "}

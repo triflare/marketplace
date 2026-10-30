@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { initials } from "@/lib/format"
-import { assetUrl } from "@/lib/twexthub"
+import { assetUrl } from "@/lib/registry"
 
 export function UserAvatar({
   name,

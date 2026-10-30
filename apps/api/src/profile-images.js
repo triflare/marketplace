@@ -1,8 +1,7 @@
-import { stat } from 'node:fs/promises';
 import sharp from 'sharp';
 import { Prisma } from '../prisma/generated/client/index.js';
 import { sniffImageType, supportedImageTypes } from './image-sniff.js';
-import { BLOB_GC_LOCK_KEY, blobPathFor, removeBlobIfUnused, storeBlobBuffer } from './blobs.js';
+import { BLOB_GC_LOCK_KEY } from './blobs.js';
 import { withLocks } from './locks.js';
 import { payloadTooLarge, unsupportedMediaType } from './errors.js';
 
@@ -154,14 +153,14 @@ export async function fitProfileImage(kind, buffer, contentType) {
  * order publish uses, and the shared lock keeps the collector from unlinking
  * the file between the two statements.
  */
-export async function storeProfileImage(db, config, user, kind, buffer, declaredType) {
+export async function storeProfileImage(db, config, blobs, user, kind, buffer, declaredType) {
   const { contentType } = validateProfileImage(config, kind, buffer, declaredType);
   const columns = PROFILE_IMAGES[kind];
   const previous = user[columns.digestColumn] ?? null;
   const fitted = await fitProfileImage(kind, buffer, contentType);
   const size = fitted.buffer.length;
   const { digest } = await withLocks(db, [{ key: BLOB_GC_LOCK_KEY, shared: true }], async (tx) => {
-    const stored = await storeBlobBuffer(config.dataDir, fitted.buffer);
+    const stored = await blobs.put(fitted.buffer);
     // The external reference is left alone. An account can hold a URL and an
     // upload at once; the upload is what a visitor sees, and the URL is what
     // comes back if the upload is removed, so neither write has to destroy the
@@ -187,21 +186,17 @@ export async function storeProfileImage(db, config, user, kind, buffer, declared
  * file has gone missing reads as "no upload" so the caller can fall back
  * rather than 500.
  */
-export async function resolveProfileImage(config, user, kind) {
+export async function resolveProfileImage(blobs, user, kind) {
   const columns = PROFILE_IMAGES[kind];
   const digest = user[columns.digestColumn];
   if (!digest) return null;
-  const abs = blobPathFor(config.dataDir, digest);
-  let size;
-  try {
-    size = (await stat(abs)).size;
-  } catch {
-    return null;
-  }
+  const info = await blobs.stat(digest);
+  if (!info) return null;
   return {
-    abs,
+    // A path only for a local backend; a remote one is read when it is served.
+    abs: blobs.pathFor(digest),
     digest,
-    size,
+    size: info.bytes,
     contentType: user[columns.typeColumn] ?? 'application/octet-stream',
     expectedSize: user[columns.bytesColumn] ?? null,
   };
@@ -242,6 +237,6 @@ export function profileImagePointer(user, kind) {
  * avatar and a banner that share bytes would end up with the file unlinked under
  * the banner.
  */
-export async function removeProfileImageBlob(db, config, digest) {
-  return removeBlobIfUnused(db, config, digest, null);
+export async function removeProfileImageBlob(db, blobs, digest) {
+  return blobs.removeIfUnused(db, digest, null);
 }

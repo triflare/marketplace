@@ -4,14 +4,14 @@ import { HOME_FEED_KEY } from "@/lib/preload"
 export { HomePage as default } from "@/pages/home-page"
 
 export async function loader() {
-  const kit = serverApi()
+  const api = serverApi()
 
   try {
     const [meta, stats, trending, recent] = await Promise.all([
-      kit.instance.meta(),
-      kit.instance.stats(),
-      kit.extensions.trending({ limit: 5 }),
-      kit.extensions.list({ sort: "recent", limit: 6 }),
+      api.instance.meta(),
+      api.instance.stats(),
+      api.extensions.trending({ limit: 5 }),
+      api.extensions.list({ sort: "recent", limit: 6 }),
     ])
     return {
       preload: {

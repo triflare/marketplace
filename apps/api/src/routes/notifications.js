@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { fieldErrors, HttpError, notFound } from '../errors.js';
-import { decodeCursor, keysetPage, parseDir, parseLimit } from '../pagination.js';
+import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pagination.js';
 import { notificationToObject } from '../serialize.js';
 import { requireObjectBody } from './shared.js';
 
@@ -13,7 +13,7 @@ export function makeNotificationsRouter({ db, config }) {
 
   router.get('/', guard, async (req, res) => {
     const limit = parseLimit(config, req.query.limit);
-    const cursor = decodeCursor(req.query.cursor, { i: 'int' });
+    const cursor = decodeCursor(pageToken(req), { i: 'int' });
     const back = parseDir(req.query.dir);
     const { unread } = req.query;
     if (unread !== undefined && unread !== 'true') {

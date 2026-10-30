@@ -13,7 +13,7 @@ import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { toast } from "sonner"
 
-import type { VersionInfo } from "@twextjs/twexthubkit"
+import type { VersionInfo } from "@/lib/api"
 
 import { ErrorState } from "@/components/common/async-state"
 import { ButtonLink } from "@/components/common/button-link"
@@ -51,7 +51,7 @@ import { product } from "@/lib/product"
 import { formatDate, formatNumber } from "@/lib/format"
 import { licenseName } from "@/lib/licenses"
 import { extensionKey } from "@/lib/preload"
-import { apiUrl, badgeUrl, downloadUrl, saveBlob, th } from "@/lib/twexthub"
+import { apiUrl, badgeUrl, downloadUrl, saveBlob, th } from "@/lib/registry"
 import { isSaved, toggleSaved } from "@/lib/saved"
 
 type BadgeField = "all" | "version" | "downloads" | "license"

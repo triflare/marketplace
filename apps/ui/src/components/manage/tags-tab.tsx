@@ -2,7 +2,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 
-import type { ExtensionDetail } from "@twextjs/twexthubkit"
+import type { ExtensionDetail } from "@/lib/api"
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog"
 import { ErrorState, LoadingRows } from "@/components/common/async-state"
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAsync } from "@/hooks/use-async"
 import { manageKeys } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function TagsTab({ extension }: { extension: ExtensionDetail }) {
   const [tag, setTag] = useState("")

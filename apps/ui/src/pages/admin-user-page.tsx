@@ -9,7 +9,7 @@ import { NotFoundPage } from "@/pages/not-found-page"
 import { useAsync } from "@/hooks/use-async"
 import { adminUserKey } from "@/lib/preload"
 import { usePageMeta } from "@/hooks/use-page-meta"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 export function AdminUserPage() {
   const { namespace = "" } = useParams()

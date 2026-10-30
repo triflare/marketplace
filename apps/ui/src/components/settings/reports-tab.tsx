@@ -5,7 +5,7 @@ import { Link } from "react-router"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { settingsKeys } from "@/lib/preload"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 export function ReportsTab() {
   const reports = useAsync(

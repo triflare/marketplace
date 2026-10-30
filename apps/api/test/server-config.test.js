@@ -34,7 +34,7 @@ const CONTAINER_MOUNT = '1 0 0:1 / / rw,relatime - overlay overlay rw\n';
 const volumeMount = (dir) => `${CONTAINER_MOUNT}2 0 0:2 / ${dir} rw,relatime - ext4 /dev/sda1 rw\n`;
 
 before(async () => {
-  configFile = path.join(mkdtempSync(path.join(tmpdir(), 'twexthub-config-')), 'config.yaml');
+  configFile = path.join(mkdtempSync(path.join(tmpdir(), 'triflare-config-')), 'config.yaml');
   // The HTTP config tests go through the route, which asks configStorage about
   // the real filesystem. Left to itself the answer depends on where the suite
   // happens to run: inside a container the temp directory sits on the root
@@ -55,6 +55,7 @@ beforeEach(async () => {
   writeFileSync(configFile, CONFIG_YAML, 'utf8');
   config.pagination.defaultLimit = 20;
   config.pagination.maxLimit = 50;
+  config.banner = { message: null, link: null };
 });
 after(async () => {
   config.configPath = originalConfigPath;
@@ -101,8 +102,22 @@ describe('configStorage', () => {
     assert.equal(storage.reason, null);
   });
 
+  // The image ships no config.yaml, so the first admin save is what creates it.
+  // Asking the file about permission would call that state read-only forever.
+  test('accepts a file the first save will create', () => {
+    const missing = path.join(dirname(configFile), 'not-written-yet.yaml');
+    const storage = configStorage(missing, {
+      mountInfo: volumeMount(dirname(configFile)),
+      container: true,
+    });
+    assert.equal(storage.path, missing);
+    assert.equal(storage.writable, true);
+    assert.equal(storage.persistent, true);
+    assert.equal(storage.reason, null);
+  });
+
   test('reports a missing or unwritable file as read-only', () => {
-    const storage = configStorage('/nonexistent/twexthub/config.yaml', {
+    const storage = configStorage('/nonexistent/triflare/config.yaml', {
       mountInfo: volumeMount(dirname(configFile)),
       container: true,
     });
@@ -126,6 +141,22 @@ describe('applyServerConfig', () => {
       (err) => err.status === 409 && /volume/i.test(err.detail),
     );
     assert.match(readFileSync(configFile, 'utf8'), /maxSourceBytes: 1048576/);
+  });
+
+  test('creates the file on the first save', () => {
+    const created = path.join(dirname(configFile), 'created-by-save.yaml');
+    const result = applyServerConfig({
+      config,
+      configPath: created,
+      patch: { 'pagination.defaultLimit': 15 },
+      mountInfo: volumeMount(dirname(configFile)),
+      container: true,
+    });
+    assert.deepEqual(result.changes['pagination.defaultLimit'], { before: 20, after: 15 });
+    // Only what changed is written: the defaults stay in the merge, so the file
+    // does not turn into a full copy of them on the first save.
+    assert.match(readFileSync(created, 'utf8'), /defaultLimit: 15/);
+    assert.doesNotMatch(readFileSync(created, 'utf8'), /maxSourceBytes/);
   });
 
   test('edits the file without disturbing the comments around it', () => {
@@ -422,6 +453,46 @@ describe('PUT /admin/config', () => {
       .expect(422);
     assert.equal(res.body.errors[0].field, 'database.url');
     assert.equal(config.database.url.includes('elsewhere'), false);
+  });
+
+  test('saves an announcement, folds it to one line, and serves it on /meta', async () => {
+    const account = await admin();
+    await request(app)
+      .put(apiPath('/admin/config'))
+      .set(bearer(account.token))
+      .send({
+        settings: {
+          'banner.message': 'Scheduled maintenance\nat 02:00 UTC.',
+          'banner.link': 'https://status.example.test/incidents',
+        },
+      })
+      .expect(200);
+
+    const meta = await request(app).get(apiPath('/meta')).expect(200);
+    assert.deepEqual(meta.body.banner, {
+      message: 'Scheduled maintenance at 02:00 UTC.',
+      link: 'https://status.example.test/incidents',
+    });
+
+    // Emptying the message is how the banner is taken down, and the link goes
+    // with it rather than dangling from a banner nobody sees.
+    await request(app)
+      .put(apiPath('/admin/config'))
+      .set(bearer(account.token))
+      .send({ settings: { 'banner.message': '' } })
+      .expect(200);
+    const cleared = await request(app).get(apiPath('/meta')).expect(200);
+    assert.equal(cleared.body.banner, null);
+  });
+
+  test('refuses an announcement longer than the strip can carry', async () => {
+    const account = await admin();
+    const res = await request(app)
+      .put(apiPath('/admin/config'))
+      .set(bearer(account.token))
+      .send({ settings: { 'banner.message': 'x'.repeat(281) } })
+      .expect(422);
+    assert.equal(res.body.errors[0].field, 'banner.message');
   });
 
   test('rejects a body that is not a settings object', async () => {

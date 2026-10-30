@@ -32,6 +32,7 @@ async function makeSetup() {
     if (approve) {
       await request(app)
         .patch(apiPath(`/@${ns}/ranger/versions/${version}`))
+        .set('If-Match', '*')
         .set(bearer(admin.token))
         .send({ status: 'approved' })
         .expect(200);
@@ -98,6 +99,7 @@ test('the list keeps deprecated versions in place, flagged', async () => {
     if (approve) {
       await request(app)
         .patch(apiPath(`/@${ons}/dep/versions/${version}`))
+        .set('If-Match', '*')
         .set(bearer(admin.token))
         .send({ status: 'approved' })
         .expect(200);
@@ -105,6 +107,7 @@ test('the list keeps deprecated versions in place, flagged', async () => {
   }
   await request(app)
     .patch(apiPath(`/@${ons}/dep/versions/1.1.0`))
+    .set('If-Match', '*')
     .set(bearer(owner.token))
     .send({ deprecationMessage: 'broken' })
     .expect(200);
@@ -133,6 +136,7 @@ test('yanked versions are not in the list at all', async () => {
     if (approve) {
       await request(app)
         .patch(apiPath(`/@${ns}/yank/versions/${version}`))
+        .set('If-Match', '*')
         .set(bearer(admin.token))
         .send({ status: 'approved' })
         .expect(200);
@@ -216,6 +220,7 @@ test('an owner can list their own unpublished versions by status', async () => {
   await publishProject(app, ns, 'ranger', owner.token, { version: '1.0.0', code: '// 1.0.0' });
   await request(app)
     .patch(apiPath(`/@${ns}/ranger/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'rejected', reason: 'No loops.' })
     .expect(200);
@@ -312,6 +317,7 @@ for (const ownership of ['co-owner', 'organization co-owner', 'organization owne
       if (status === 'rejected') {
         await request(app)
           .patch(apiPath(`/@${ns}/ranger/versions/1.0.0`))
+          .set('If-Match', '*')
           .set(bearer(admin.token))
           .send({ status, reason: 'Needs changes.' })
           .expect(200);

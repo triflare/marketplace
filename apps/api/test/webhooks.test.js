@@ -40,6 +40,7 @@ async function publishApproved(ns, token, adminToken, id, version) {
   await publishProject(app, ns, id, token, { version, code: `// ${id}@${version}` });
   await request(app)
     .patch(apiPath(`/@${ns}/${id}/versions/${version}`))
+    .set('If-Match', '*')
     .set(bearer(adminToken))
     .send({ status: 'approved' })
     .expect(200);
@@ -111,7 +112,7 @@ async function insertDelivery(webhookId, { status = 'pending', attempt = 0 } = {
 
 // The sandbox resolver cannot resolve fake hosts, so create() calls in tests
 // use a real, publicly-resolving name.
-const PUBLIC_URL = 'https://example.com/twext-hook';
+const PUBLIC_URL = 'https://example.com/triflare-hook';
 
 // The receiver below listens on loopback, which the delivery-time policy check
 // refuses; these attempts stand in for an operator with a routable address.
@@ -234,6 +235,7 @@ test('registry events schedule deliveries for subscribed hooks', async () => {
   });
   await request(app)
     .patch(apiPath(`/@${ns}/hooked/versions/2.0.0`))
+    .set('If-Match', '*')
     .set(bearer(owner.token))
     .send({ deprecationMessage: 'old' })
     .expect(200);
@@ -269,6 +271,10 @@ test('registry events schedule deliveries for subscribed hooks', async () => {
     assert.ok(seen.includes(event), `${event} should schedule a delivery`);
   }
   const [published] = events.filter((row) => row.event === 'version.published');
+  // The payload carries its own version and the event's time, so a receiver can
+  // dispatch on the first and bound replays of the second.
+  assert.equal(published.payload.payloadVersion, 1);
+  assert.ok(!Number.isNaN(Date.parse(published.payload.timestamp)));
   assert.equal(published.payload.version, '2.0.0');
   assert.equal(published.payload.namespace, ns);
   assert.ok(published.payload.occurredAt);
@@ -310,6 +316,7 @@ test('version.rejected fires from the review endpoint', async () => {
   });
   await request(app)
     .patch(apiPath(`/@${newcomerNs}/fresh/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'rejected', reason: 'nope' })
     .expect(200);
@@ -330,9 +337,10 @@ test('delivery posts the signed payload and records status', async () => {
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
       received.push({
-        event: req.headers['x-twexthub-event'],
-        signature: req.headers['x-twexthub-signature'],
-        delivery: req.headers['x-twexthub-delivery'],
+        event: req.headers['x-triflare-marketplace-event'],
+        signature: req.headers['x-triflare-marketplace-signature'],
+        delivery: req.headers['x-triflare-marketplace-delivery'],
+        payloadVersion: req.headers['x-triflare-marketplace-payload-version'],
         userAgent: req.headers['user-agent'],
         body: Buffer.concat(chunks).toString('utf8'),
       });
@@ -378,9 +386,10 @@ test('delivery posts the signed payload and records status', async () => {
     assert.equal(received.length, 1);
     assert.equal(received[0].event, 'version.published');
     assert.equal(received[0].signature, signature);
+    assert.equal(received[0].payloadVersion, '1');
     // Cloudflare-fronted hosts answer a request with no User-Agent at all with
     // 403, and Node sends none unless it is set here.
-    assert.equal(received[0].userAgent, 'TwextHub-Webhooks');
+    assert.equal(received[0].userAgent, 'triflare-marketplace-Webhooks');
     assert.deepEqual(JSON.parse(received[0].body), payload);
 
     const [after] =

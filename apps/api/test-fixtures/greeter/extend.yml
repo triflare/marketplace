@@ -1,6 +1,6 @@
 name: 'Greetings'
-description: 'A tiny extension that greets people. Test fixture for TwextHub.'
-author: 'TwextHub CI'
+description: 'A tiny extension that greets people. Test fixture for Triflare Marketplace.'
+author: 'Triflare CI'
 license: 'MIT'
 version: '1.0.0'
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { scanSourceWarnings } from '../src/risky-patterns.js';
 
 async function writeProject(files) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'twexthub-scan-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'triflare-scan-'));
   for (const [name, contents] of Object.entries(files)) {
     const abs = path.join(dir, name);
     await mkdir(path.dirname(abs), { recursive: true });
@@ -75,11 +75,11 @@ test('leaves the sanctioned wrapper and unrelated identifiers alone', async () =
 
 test('ignores files that are not JavaScript source', async () => {
   const dir = await writeProject({
-    'twext.yml': 'description: fetch("http://example.com")\n',
+    'extend.yml': 'description: fetch("http://example.com")\n',
     'README.md': 'See http://example.com for details.\n',
   });
   try {
-    assert.deepEqual(await scanSourceWarnings(dir, ['twext.yml', 'README.md']), []);
+    assert.deepEqual(await scanSourceWarnings(dir, ['extend.yml', 'README.md']), []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

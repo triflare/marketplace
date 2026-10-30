@@ -1,11 +1,10 @@
-import type TwextHubKit from "@twextjs/twexthubkit"
-import type { User } from "@twextjs/twexthubkit"
+import type { ApiClient, User } from "@/lib/api"
 
 import { serverApi } from "@/lib/api.server"
 import { readSession } from "@/lib/session.server"
 
 export interface LoaderApi {
-  kit: TwextHubKit
+  api: ApiClient
   user: User
 }
 
@@ -16,9 +15,9 @@ export async function loaderApi(request: Request): Promise<LoaderApi | null> {
     return null
   }
 
-  const kit = serverApi(token)
+  const api = serverApi(token)
   try {
-    return { kit, user: await kit.users.me() }
+    return { api, user: await api.users.me() }
   } catch {
     return null
   }

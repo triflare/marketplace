@@ -1,6 +1,7 @@
 import { Suspense } from "react"
-import { Outlet, useNavigation } from "react-router"
+import { Outlet, useNavigation, useRouteLoaderData } from "react-router"
 
+import { AnnouncementBanner } from "@/components/layout/announcement-banner"
 import { CommandPalette } from "@/components/layout/command-palette"
 import { NavigationProgress } from "@/components/layout/navigation-progress"
 import { SiteFooter } from "@/components/layout/site-footer"
@@ -11,6 +12,10 @@ import { Toaster } from "@/components/ui/sonner"
 export function AppShell() {
   const navigation = useNavigation()
   const busy = navigation.state !== "idle"
+  // The root loader reads the announcement with the session, so it is part of
+  // the document rather than something that appears after hydration.
+  const root = useRouteLoaderData("root") as
+    { banner?: { message: string; link: string | null } | null } | undefined
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -21,6 +26,7 @@ export function AppShell() {
         Skip to content
       </a>
       <NavigationProgress />
+      <AnnouncementBanner banner={root?.banner ?? null} />
       <SiteHeader />
       <main
         id="main-content"

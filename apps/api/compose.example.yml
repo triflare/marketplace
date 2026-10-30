@@ -2,13 +2,13 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: twexthub
-      POSTGRES_PASSWORD: twexthub
-      POSTGRES_DB: twexthub
+      POSTGRES_USER: triflare
+      POSTGRES_PASSWORD: triflare
+      POSTGRES_DB: triflare
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U twexthub']
+      test: ['CMD-SHELL', 'pg_isready -U triflare']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -18,14 +18,14 @@ services:
     ports:
       - '3000:3000'
     environment:
-      TWEXTHUB_DATABASE_URL: postgres://twexthub:twexthub@db:5432/twexthub
-      TWEXTHUB_PUBLIC_BASE_URL: http://localhost:3000
+      TRIFLARE_DATABASE_URL: postgres://triflare:triflare@db:5432/triflare
+      TRIFLARE_PUBLIC_BASE_URL: http://localhost:3000
     volumes:
-      - twexthub-data:/app/data
+      - triflare-data:/app/data
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   postgres-data:
-  twexthub-data:
+  triflare-data:

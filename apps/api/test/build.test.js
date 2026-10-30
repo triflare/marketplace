@@ -143,7 +143,7 @@ test('derived manifest validation rejects bad metadata', async () => {
   const ns = owner.user.namespace;
   const { projectTarball } = await import('./helpers.mjs');
 
-  // twext.yml extension.id must match the route id.
+  // extend.yml extension.id must match the route id.
   const mismatched = await projectTarball({ id: 'other', version: '1.0.0' });
   const bad = await request(app)
     .post(apiPath(`/@${ns}/expected/versions`))
@@ -180,7 +180,7 @@ test('extension.isUnsandboxed must be a boolean when provided', async () => {
   assert.equal(res.body.errors[0].field, 'extension.isUnsandboxed');
 });
 
-test('legacy JSON publishes are rejected with 415, and missing twext.yml with 422', async () => {
+test('legacy JSON publishes are rejected with 415, and missing extend.yml with 422', async () => {
   const owner = await signupAndAccept(app, uniqNs());
   const ns = owner.user.namespace;
 
@@ -191,12 +191,12 @@ test('legacy JSON publishes are rejected with 415, and missing twext.yml with 42
   assert.equal(legacy.status, 415);
   assert.match(legacy.body.detail, /gzip tarball/);
 
-  // Build a tar without twext.yml.
+  // Build a tar without extend.yml.
   const { mkdir, mkdtemp, writeFile, rm } = await import('node:fs/promises');
   const { join } = await import('node:path');
   const os = await import('node:os');
   const { createTarballBuffer } = await import('../src/tarball.js');
-  const dir = await mkdtemp(join(os.tmpdir(), 'twexthub-tar-'));
+  const dir = await mkdtemp(join(os.tmpdir(), 'triflare-tar-'));
   try {
     await mkdir(join(dir, 'src'), { recursive: true });
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', type: 'module' }));
@@ -208,7 +208,7 @@ test('legacy JSON publishes are rejected with 415, and missing twext.yml with 42
       .set('Content-Type', 'application/gzip')
       .send(tarball);
     assert.equal(res.status, 422);
-    assert.ok(res.body.errors.some((e) => e.field === 'twext.yml'));
+    assert.ok(res.body.errors.some((e) => e.field === 'extend.yml'));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -225,11 +225,11 @@ test('source tarballs over the byte cap are refused with 413', async () => {
   const { randomBytes } = await import('node:crypto');
   const os = await import('node:os');
   const { createTarballBuffer } = await import('../src/tarball.js');
-  const dir = await mkdtemp(join(os.tmpdir(), 'twexthub-limit-'));
+  const dir = await mkdtemp(join(os.tmpdir(), 'triflare-limit-'));
   try {
     await mkdir(join(dir, 'src'), { recursive: true });
     await writeFile(
-      join(dir, 'twext.yml'),
+      join(dir, 'extend.yml'),
       'entryPoint: src/index.js\nname: big\nversion: 1.0.0\nlicense: MIT\ndescription: big\n' +
         'extension:\n  id: big\n  name: Big\n  color1: "#000000"\n' +
         'blocks:\n  - opcode: hello\n    blockType: command\n    text: hi\n',
@@ -280,6 +280,7 @@ test('identical sources produce identical compiled blobs and share a source file
     .set(bearer(admin.token));
   await request(app)
     .patch(apiPath(`/@${ns}/echo/versions/${queue.body.data[0].version}`))
+    .set('If-Match', '*')
     .set(bearer(admin.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -306,14 +307,14 @@ test('the compiler child gets an allowlist, not the server environment', () => {
   const env = compilerEnv({
     PATH: '/usr/bin',
     HOME: '/root',
-    TWEXTHUB_DATABASE_URL: 'postgres://user:hunter2@db:5432/twexthub',
+    TRIFLARE_DATABASE_URL: 'postgres://user:hunter2@db:5432/triflare',
     AWS_SECRET_ACCESS_KEY: 'super-secret',
     NODE_OPTIONS: '--inspect',
   });
   assert.equal(env.PATH, '/usr/bin');
   assert.equal(env.HOME, '/root');
   assert.equal(env.NO_COLOR, '1');
-  for (const name of ['TWEXTHUB_DATABASE_URL', 'AWS_SECRET_ACCESS_KEY', 'NODE_OPTIONS']) {
+  for (const name of ['TRIFLARE_DATABASE_URL', 'AWS_SECRET_ACCESS_KEY', 'NODE_OPTIONS']) {
     assert.equal(env[name], undefined, `${name} must not reach the compiler`);
   }
   // Nothing from the host leaks in implicitly either.
@@ -321,7 +322,7 @@ test('the compiler child gets an allowlist, not the server environment', () => {
 });
 
 test('the build address-space limit also bounds native Buffer allocations', async (t) => {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-memory-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-memory-'));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
   const script = path.join(projectDir, 'allocate.mjs');
   fs.writeFileSync(script, 'Buffer.allocUnsafe(2 * 1024 * 1024 * 1024);\n');
@@ -335,7 +336,7 @@ test('the build address-space limit also bounds native Buffer allocations', asyn
 });
 
 test('the configured address-space cap is applied to the compiler process', async (t) => {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-memory-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-memory-'));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
   const script = path.join(projectDir, 'compiler.mjs');
   fs.writeFileSync(
@@ -357,7 +358,7 @@ test('the configured address-space cap is applied to the compiler process', asyn
 });
 
 test('a missing memory-limit facility fails before the compiler starts', async (t) => {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-memory-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-memory-'));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
   const marker = path.join(projectDir, 'started');
   const script = path.join(projectDir, 'compiler.mjs');
@@ -384,7 +385,7 @@ test('a missing memory-limit facility fails before the compiler starts', async (
 test('a build that floods its output cannot grow the log without bound', async () => {
   // The compiler command is a script inside the project directory, which is the
   // only place the sandbox lets the child read from.
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-flood-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-flood-'));
   const script = path.join(projectDir, 'flood.mjs');
   fs.writeFileSync(
     script,
@@ -402,7 +403,7 @@ test('a build that floods its output cannot grow the log without bound', async (
 });
 
 test('a build that floods stdout reports truncation even when stderr is empty', async (t) => {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-flood-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-flood-'));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
   const script = path.join(projectDir, 'flood.mjs');
   fs.writeFileSync(script, "process.stdout.write('x'.repeat(8 * 1024 * 1024));\n");
@@ -418,7 +419,7 @@ test('a build that floods stdout reports truncation even when stderr is empty', 
 });
 
 test('a multibyte build log keeps whole characters and includes stderr in the byte cap', async (t) => {
-  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'twext-flood-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-flood-'));
   t.after(() => fs.rmSync(projectDir, { recursive: true, force: true }));
   const script = path.join(projectDir, 'flood.mjs');
   fs.writeFileSync(

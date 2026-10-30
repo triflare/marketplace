@@ -10,7 +10,7 @@ import { useAuth } from "@/context/auth"
 import { useAsync } from "@/hooks/use-async"
 import { formatDate } from "@/lib/format"
 import { legalKey } from "@/lib/preload"
-import { errorMessage, th } from "@/lib/twexthub"
+import { errorMessage, th } from "@/lib/registry"
 
 export function LegalPage({ kind }: { kind: "terms" | "privacy" }) {
   const { user, refresh } = useAuth()

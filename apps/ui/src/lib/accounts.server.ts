@@ -1,4 +1,4 @@
-import type { User } from "@twextjs/twexthubkit"
+import type { User } from "@/lib/api"
 import type { Session } from "react-router"
 
 import type { AccountSummary } from "@/lib/accounts"

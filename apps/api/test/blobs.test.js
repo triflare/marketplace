@@ -6,7 +6,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { blobPathFor, storeBlob } from '../src/blobs.js';
 
 test('storeBlob replaces a same-size blob with the wrong digest', async () => {
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'twexthub-blob-'));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'triflare-blob-'));
   const tmpPath = path.join(dataDir, 'upload');
   const buffer = Buffer.from('expected bytes');
   try {

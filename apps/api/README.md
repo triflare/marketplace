@@ -1,8 +1,8 @@
-# 📦 TwextHub API
+# 📦 Triflare Marketplace API
 
-[![CI](https://github.com/twextjs/twexthub-api/actions/workflows/ci.yml/badge.svg)](https://github.com/twextjs/twexthub-api/actions/workflows/ci.yml) [![CD](https://github.com/twextjs/twexthub-api/actions/workflows/cd.yml/badge.svg)](https://github.com/twextjs/twexthub-api/actions/workflows/cd.yml)
+[![CI](https://github.com/triflare/marketplace/actions/workflows/ci.yml/badge.svg)](https://github.com/triflare/marketplace/actions/workflows/ci.yml) [![CD](https://github.com/triflare/marketplace/actions/workflows/cd.yml/badge.svg)](https://github.com/triflare/marketplace/actions/workflows/cd.yml)
 
-> _Host extensions built with Twext online. API-only._
+> _Host extensions built with Triflare Extend online. API-only._
 
 ## 📕 Table of Contents
 
@@ -20,23 +20,23 @@
 
 ## 🌟 Highlights
 
-- Publishing sends your Twext project's source; the server compiles it in a sandbox and serves the built extension, so what's reviewed is what runs.
+- Publishing sends your extension project's source; the server compiles it in a sandbox and serves the built extension, so what's reviewed is what runs.
 - Accounts, organizations, SemVer versions with dist-tags, and a review queue for a namespace's first publish.
 - Runs anywhere Docker does: one container plus PostgreSQL, with a volume for the stored sources and blobs.
 
 ## ℹ️ Overview
 
-TwextHub is a registry of custom TurboWarp extensions built with [Twext](https://github.com/twextjs/twext). It tracks registry stats, user accounts, organizations, and extension source code. Powered by PostgreSQL and Node.js, it is easy to deploy on the majority of cloud platforms to bare metal (with Docker).
+Triflare Marketplace is a registry of custom TurboWarp extensions built with [Triflare Extend](https://github.com/triflare/extend). It tracks registry stats, user accounts, organizations, and extension source code. Powered by PostgreSQL and Node.js, it is easy to deploy on the majority of cloud platforms to bare metal (with Docker).
 
 ### ✍️ Authors
 
-> **AI Disclosure:** AI was used in the development of the TwextHub API.
+> **AI Disclosure:** AI was used in the development of the Triflare Marketplace API.
 
 - **Main Developer:** [@kamixfox](https://github.com/kamixfox)
 
 ## 🚀 Usage
 
-You can see the official live instance of TwextHub at [twexts.sdisk.us](https://twexts.sdisk.us). We can't reliably explain the API's usage without getting technical. So, if you're planning to deploy a TwextHub API instance, see the [documentation](./docs/index.md).
+You can see the official live instance of Triflare Marketplace at [twexts.sdisk.us](https://twexts.sdisk.us). We can't reliably explain the API's usage without getting technical. So, if you're planning to deploy an instance, see the [documentation](./docs/index.md).
 
 ## ⬇️ Installation
 
@@ -48,7 +48,7 @@ While installation with Node.js exists, you should prefer Docker because it's sa
    cp compose.example.yml <YOUR_DIRECTORY>/compose.yaml
    ```
 
-2. Set `TWEXTHUB_DATABASE_URL` and `TWEXTHUB_PUBLIC_BASE_URL` in it. The image is configured through `TWEXTHUB_*` environment variables.
+2. Set `TRIFLARE_DATABASE_URL` and `TRIFLARE_PUBLIC_BASE_URL` in it. The image is configured through `TRIFLARE_*` environment variables.
 3. Deploy:
 
    ```bash

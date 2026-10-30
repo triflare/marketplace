@@ -19,7 +19,7 @@ export async function loader({
     return { preload: {} }
   }
 
-  const { kit, user } = context
+  const { api, user } = context
   const isAdmin = user.role === "admin"
   const preload: Record<string, unknown> = {}
 
@@ -32,33 +32,33 @@ export async function loader({
   }
 
   try {
-    const access = await resolveManageAccess(kit, namespace, id, user, isAdmin)
+    const access = await resolveManageAccess(api, namespace, id, user, isAdmin)
     preload[manageKeys.access(namespace, id, user.namespace, isAdmin)] = access
 
     if (access.allowed) {
       await Promise.all([
         put(manageKeys.hidden(namespace, id), async () => {
           const [pending, rejected] = await Promise.all([
-            kit.extensions.versions.list(namespace, id, { status: "pending" }),
-            kit.extensions.versions.list(namespace, id, { status: "rejected" }),
+            api.extensions.versions.list(namespace, id, { status: "pending" }),
+            api.extensions.versions.list(namespace, id, { status: "rejected" }),
           ])
           return [...pending.data, ...rejected.data]
         }),
         put(manageKeys.tags(namespace, id), () =>
-          kit.extensions.tags.get(namespace, id)
+          api.extensions.tags.get(namespace, id)
         ),
         put(manageKeys.owners(namespace, id), async () => {
           const [owners, invites] = await Promise.all([
-            kit.extensions.owners.list(namespace, id),
-            kit.extensions.owners.listInvites(namespace, id),
+            api.extensions.owners.list(namespace, id),
+            api.extensions.owners.listInvites(namespace, id),
           ])
           return { owners: owners.data, invites: invites.data }
         }),
         put(manageKeys.transfers(namespace, id), () =>
-          kit.extensions.transfers.list(namespace, id)
+          api.extensions.transfers.list(namespace, id)
         ),
         put(manageKeys.webhooks(namespace, id), () =>
-          kit.extensions.webhooks.list(namespace, id)
+          api.extensions.webhooks.list(namespace, id)
         ),
       ])
     }

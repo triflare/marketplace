@@ -36,6 +36,7 @@ async function makeOwnerWithVersions() {
   await publish('1.0.0');
   await request(app)
     .patch(apiPath(`/@${ownerNs}/hello/versions/1.0.0`))
+    .set('If-Match', '*')
     .set(bearer(ab.token))
     .send({ status: 'approved' })
     .expect(200);
@@ -72,6 +73,7 @@ test('dist-tags point version resolution at a chosen published version', async (
   assert.equal(next.body.version, '2.0.0');
   const dl = await request(app)
     .get(apiPath(`/@${ownerNs}/hello/versions/stable/download`))
+    .redirects(1)
     .expect(200);
   assert.match(dl.text, /v1\.0\.0/);
 });

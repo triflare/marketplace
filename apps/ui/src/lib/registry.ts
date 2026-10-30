@@ -1,10 +1,7 @@
-import {
-  TwextHubError,
-  TwextHubNetworkError,
-  type ProblemDetails,
-} from "@twextjs/twexthubkit"
+import type { ProblemDetails } from "@/lib/api"
+import { ApiError, ApiNetworkError } from "@/lib/api/errors"
 
-import { product } from "@/lib/product"
+import { officialApiUrl, product } from "@/lib/product"
 import {
   isUnreachableStatus,
   reportRegistryReachable,
@@ -12,23 +9,24 @@ import {
 } from "@/lib/registry-status"
 import { th } from "@/lib/remote-api"
 
-const OFFICIAL_API = "https://twexts.sdisk.us/api/v2"
-const LOCAL_API = "http://localhost:3000/v2"
+const OFFICIAL_API = officialApiUrl
+const LOCAL_API = "http://localhost:3000/v1"
 
 // The browser no longer calls the API directly; these URLs are only used to
 // build install links and copyable addresses that point at the registry.
-const configured = import.meta.env.VITE_TWEXTHUB_API_URL?.trim()
+const configured = import.meta.env.VITE_TRIFLARE_API_URL?.trim()
 const fallback = import.meta.env.DEV ? LOCAL_API : OFFICIAL_API
 
 export const API_BASE_URL = (configured || fallback).replace(/\/+$/, "")
 export const API_ORIGIN = new URL(API_BASE_URL).origin
-export const IS_OFFICIAL_INSTANCE = API_ORIGIN === "https://twexts.sdisk.us"
+export const IS_OFFICIAL_INSTANCE =
+  API_ORIGIN === new URL(officialApiUrl).origin
 export const ASSET_PATH = "/__asset"
 export const BADGE_PATH = "/__badge"
 
 export { th }
 
-// The CLI defaults to the official hub, so a command run against another
+// The CLI defaults to the official instance, so a command run against another
 // instance has to say which one. Keep the flag out of official-instance copy.
 export const CLI_HUB_URL_FLAG = IS_OFFICIAL_INSTANCE
   ? ""
@@ -41,8 +39,8 @@ export interface DeviceCodeState {
   denied: boolean
 }
 
-// The installed kit predates the device-flow resource, so these three calls go
-// through a small server route rather than waiting for a package bump.
+// Device sign-in goes through a small server route instead of the /rpc proxy:
+// it must work before a session exists, and the route holds the token itself.
 async function deviceRequest<T>(
   path: string,
   body: Record<string, string>,
@@ -64,7 +62,7 @@ async function deviceRequest<T>(
       throw error
     }
     reportRegistryUnreachable()
-    throw new TwextHubNetworkError("The device sign-in request failed.", {
+    throw new ApiNetworkError("The device sign-in request failed.", {
       cause: error,
       method: "POST",
       url,
@@ -77,7 +75,7 @@ async function deviceRequest<T>(
     data = text ? JSON.parse(text) : null
   } catch {
     if (response.ok) {
-      throw new TwextHubError("The registry returned an unreadable response.", {
+      throw new ApiError("The registry returned an unreadable response.", {
         status: response.status,
         method: "POST",
         url,
@@ -93,7 +91,7 @@ async function deviceRequest<T>(
     } else {
       reportRegistryReachable()
     }
-    throw new TwextHubError(
+    throw new ApiError(
       problem?.detail ?? problem?.title ?? `HTTP ${response.status}`,
       {
         status: response.status,
@@ -128,11 +126,11 @@ export const deviceAuth = {
 }
 
 export function errorMessage(error: unknown): string {
-  if (error instanceof TwextHubNetworkError) {
+  if (error instanceof ApiNetworkError) {
     return `We couldn’t reach ${product.name}. Check your connection and try again.`
   }
 
-  if (error instanceof TwextHubError) {
+  if (error instanceof ApiError) {
     if (error.status === 401) {
       return "Please sign in to continue."
     }

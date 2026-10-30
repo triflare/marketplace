@@ -26,7 +26,7 @@ import { useAsync } from "@/hooks/use-async"
 import { formatBytes } from "@/lib/format"
 import { prettifyJavaScript } from "@/lib/prettify"
 import { readSourceArchive } from "@/lib/source-archive"
-import { copyText, saveBlob, th } from "@/lib/twexthub"
+import { copyText, saveBlob, th } from "@/lib/registry"
 import { cn } from "@/lib/utils"
 
 const MAX_LINES = 2000

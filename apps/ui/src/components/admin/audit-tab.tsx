@@ -11,7 +11,7 @@ import {
 import { usePagedList } from "@/hooks/use-paged-list"
 import { adminKeys } from "@/lib/preload"
 import { formatDate, formatRelative, humanizeKind } from "@/lib/format"
-import { th } from "@/lib/twexthub"
+import { th } from "@/lib/registry"
 
 export function AuditTab() {
   const entries = usePagedList(

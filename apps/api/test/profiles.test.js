@@ -29,16 +29,17 @@ test('profile fields round-trip through PATCH and the public user', async () => 
 
   const patched = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({
-      bio: 'I make Twexts.',
+      bio: 'I make extensions.',
       website: 'https://example.com/~dev',
       github: 'octocat',
       avatarUrl: 'https://cdn.example.com/a.png',
       bannerUrl: 'https://cdn.example.com/b.png',
     })
     .expect(200);
-  assert.equal(patched.body.bio, 'I make Twexts.');
+  assert.equal(patched.body.bio, 'I make extensions.');
   assert.equal(patched.body.website, 'https://example.com/~dev');
   assert.equal(patched.body.github, 'octocat');
   assert.equal(patched.body.avatarUrl, 'https://cdn.example.com/a.png');
@@ -48,7 +49,7 @@ test('profile fields round-trip through PATCH and the public user', async () => 
   const pub = await request(app)
     .get(apiPath(`/users/${ns}`))
     .expect(200);
-  assert.equal(pub.body.bio, 'I make Twexts.');
+  assert.equal(pub.body.bio, 'I make extensions.');
   assert.equal(pub.body.github, 'octocat');
 });
 
@@ -58,6 +59,7 @@ test('profile validation rejects bad URLs, long bios, and malformed github names
 
   const bad = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({
       bio: 'x'.repeat(281),
@@ -70,6 +72,7 @@ test('profile validation rejects bad URLs, long bios, and malformed github names
 
   const longUrl = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ avatarUrl: `https://example.com/${'a'.repeat(400)}` });
   assert.equal(longUrl.status, 422);
@@ -80,11 +83,13 @@ test('profile fields can be cleared with null', async () => {
   const ns = user.namespace;
   await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ bio: 'hello', website: 'https://example.com' })
     .expect(200);
   const cleared = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ bio: null, website: null })
     .expect(200);
@@ -116,6 +121,7 @@ test('avatar serves a deterministic identicon and honors avatar_url', async () =
   const { user, token } = await signupAndAccept(app, uniqNs());
   await request(app)
     .patch(apiPath(`/users/${user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(token))
     .send({ avatarUrl: 'https://cdn.example.com/me.png' })
     .expect(200);
@@ -133,6 +139,7 @@ test('password-only change still skips the terms gate', async () => {
   assert.equal(r.status, 201);
   const patched = await request(app)
     .patch(apiPath(`/users/${r.body.user.namespace}`))
+    .set('If-Match', '*')
     .set(bearer(r.body.token))
     .send({ password: 'newpassword1', currentPassword: FIXTURE_PASSWORD });
   assert.equal(patched.status, 200);
@@ -171,6 +178,7 @@ test('a password change does not carry a profile or role edit past the terms gat
     assert.equal(fresh.status, 201);
     const patched = await request(app)
       .patch(apiPath(`/users/${fresh.body.user.namespace}`))
+      .set('If-Match', '*')
       .set(bearer(fresh.body.token))
       .send(body);
     assert.equal(patched.status, 403, `${field} should stay behind the terms gate`);
@@ -180,6 +188,7 @@ test('a password change does not carry a profile or role edit past the terms gat
   // riding it in with a profile edit would be the same smuggling.
   const acceptancePlusEdit = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(r.body.token))
     .send({ termsAcceptedVersion: 1, bio: 'sneaky' });
   assert.equal(acceptancePlusEdit.status, 403);
@@ -188,6 +197,7 @@ test('a password change does not carry a profile or role edit past the terms gat
   // and not a validation error.
   const bioOnly = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(r.body.token))
     .send({ bio: 'sneaky' });
   assert.equal(bioOnly.status, 403);
@@ -196,6 +206,7 @@ test('a password change does not carry a profile or role edit past the terms gat
   await acceptTerms(app, ns, r.body.token);
   const allowed = await request(app)
     .patch(apiPath(`/users/${ns}`))
+    .set('If-Match', '*')
     .set(bearer(r.body.token))
     .send({ password: 'newpassword1', currentPassword: FIXTURE_PASSWORD, bio: 'fine now' });
   assert.equal(allowed.status, 200);

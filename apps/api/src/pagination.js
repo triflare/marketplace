@@ -23,6 +23,21 @@ const CURSOR_KEY_TYPES = {
   },
 };
 
+// `page` and `cursor` name the same opaque position: the token a previous page
+// handed out in its `_links`. The second name exists because a page is what the
+// token identifies, and a client should not have to know how it is encoded. The
+// token is self-contained -- a keyset position, not server state -- so a `next`
+// link does not expire; it stays valid until the query behind it stops making
+// sense (a deleted row simply ends the walk).
+export function pageToken(req) {
+  const { page, cursor } = req.query;
+  if (page === undefined) return cursor;
+  if (cursor !== undefined) {
+    throw new HttpError(400, { detail: 'Send either page or cursor, not both.' });
+  }
+  return page;
+}
+
 export function parseLimit(config, raw) {
   if (raw === undefined) return config.pagination.defaultLimit;
   if (typeof raw !== 'string' || !/^\d+$/.test(raw.trim())) {
