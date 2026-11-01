@@ -1,118 +1,55 @@
-# marketplace
+<div align="center">
+
+<img src="assets/icon.svg" width="75" alt="The Triflare Extend logo" style="padding-bottom: 20px;"/>
+
+# Triflare Marketplace
 
 Find extensions, and share yours.
 
-Two apps, one repository. They ship as two containers against a shared
-PostgreSQL:
+</div>
 
-| Path        | What it is                                                                                     |
-| ----------- | ---------------------------------------------------------------------------------------------- |
-| `apps/api`  | The registry. Express + Prisma over PostgreSQL, compiles published extension sources and serves the built extensions. |
-| `apps/ui`   | The web frontend. React Router 8 with SSR, talks to the API server-side and never directly from the browser. |
+## Table of Contents
 
-## Running the stack
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-```bash
-docker compose up --build
-```
+- [Highlights](#highlights)
+- [Overview](#overview)
+- [Usage](#usage)
+- [Installation](#installation)
+- [Feedback and Contributing](#feedback-and-contributing)
 
-Then open the API's setup screen at <http://localhost:3000/onboarding> and the
-frontend's at <http://localhost:3001/onboarding>. Each writes its own
-`config.yaml` into a data volume, so a redeploy keeps the settings. There are no
-environment variables to fill in.
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-The API answers on <http://localhost:3000/v1>, the frontend reaches it over the
-compose network at `http://api:3000/v1`, and PostgreSQL listens on
-`127.0.0.1:5432`.
+## Highlights
 
-The API container applies the Prisma schema and any pending migrations on boot,
-so a first run needs no manual migrate step.
+- **Share your extensions:** WIth Triflare Marketplace, you can share your TurboWarp extensions that are built with [Triflare Extend](https://github.com/triflare/extend), a build tool for extensions.
+- **Driver-powered system:** Instead of flat configs for non-modular services, you can add and remove drivers for things like authentication, email, and compiler services.
 
-Three named volumes hold the state: `postgres-data` for the database,
-`triflare-data` for the published sources, blobs, and API `config.yaml`, and
-`ui-data` for the frontend's `config.yaml`. Deleting `triflare-data` loses the
-registry's contents even though the database survives.
+<!-- Finish this -->
 
-## Deploying
+## Overview
 
-The compose file is a development stack: plain HTTP, PostgreSQL credentials in
-the file, and ports on localhost. Behind a proxy or on a real domain, use the
-setup screens to set `publicBaseUrl` and the frontend's `api.publicUrl` to the
-public origins (they end up in install links, badges, and OIDC redirects), and
-turn on `requireHttps` and `trustProxy` so the API reads the forwarded scheme
-and client address. The API's
-[configuration reference](apps/api/docs/configure.md) lists every key, and its
-[deploy guide](apps/api/docs/deploy.md) covers upgrades.
+Triflare Marketplace is the official registry of TurboWarp, PenguinMod, and MistWarp extensions that were built with Triflare Extend.
 
-## Working on one app
+You can download others' extensions, create and publish your own, embed your user profile and your extensions to other services, show badges for your extensions, manage your organizations, and gather with the community.
 
-Each app keeps its own `package.json` and lockfile and runs with plain `npm`.
-There is no workspace tool at the root, so installs and scripts stay per app.
+Public instance is at [marketplace.sdisk.us](https://marketplace.sdisk.us)
 
-### API
+## Installation
+
+**Requirements:**
+
+- Any recent Docker version
+
+You can use this repository's `docker-compose.yml` to deploy Triflare Marketplace to your own server. It deploys both the API and the web UI; if you want only the API, you can remove the web UI container from the compose file.
 
 ```bash
-cd apps/api
-npm install
-npm run dev        # http://localhost:3000
-npm test           # needs a database: see below
+docker compose up -d
 ```
 
-The API needs PostgreSQL. `npm run test:setup` starts a throwaway one from
-`apps/api/compose.test.yml` on `127.0.0.1:5432` and creates the test database;
-it publishes the same port as the root stack, so stop one before starting the
-other. `npm run check` runs lint, format check, the Prisma usage check, and the
-test suite.
+## Feedback and Contributing
 
-### Frontend
+If you've found a bug, or you want a new feature, please [open an issue](https://github.com/triflare/marketplace/issues). If you'd rather implement it yourself, make your changes and [open a pull request](https://github.com/triflare/marketplace/pulls).
 
-```bash
-cd apps/ui
-npm install
-npm run dev        # http://localhost:3001
-npm run typecheck
-npm run test:e2e   # Playwright against a mock API
-```
-
-In development the app talks to `http://localhost:3000/v1` unless
-`apps/ui/config.yaml` says otherwise, so run the API first (or point it at an
-existing instance). The file also holds the session secret; the first-run screen
-at <http://localhost:3001/onboarding> writes it when the app has no config.
-
-## Product identity
-
-Each app keeps its identity in a `product.yml`: name, version, tagline, author,
-homepage, the brand palette, the API's config filename, the `extend` block that
-names the compiler and CLI (`name`, `package`, `command`, `configFilename`) and
-the project file every install and publish instruction is built from. The API
-reads its file at boot, so a rebrand is an edit and a restart. The frontend parses
-its copy during the build and inlines the values into both bundles, so a rebrand
-there needs `npm run build` (or `docker compose up --build`) again.
-
-## Repository layout
-
-```
-apps/
-  api/      Triflare Marketplace API (own README, docs/, compose files, Dockerfile)
-  ui/       Triflare Marketplace frontend, plus the Dockerfile this repo adds
-.github/    CI, CD, and Dependabot for the whole repository
-docker-compose.yml
-```
-
-## CI
-
-GitHub only reads `.github` at the repository root, so the workflows live there
-and point into `apps/api` rather than sitting beside it:
-
-- `ci.yml` runs the API's lint, format, Prisma usage check, unit tests, and the
-  developer `npm run test:setup` path, on pushes and pull requests to `develop`.
-- `cd.yml` repeats those checks, then builds `apps/api` and pushes the image to
-  `ghcr.io/triflare/marketplace-api`. It still gates on `main` and `v*` tags, which
-  this repository does not have yet; retarget it when the release branch or tag
-  scheme exists.
-- `dependabot.yml` has one entry per lockfile and Dockerfile, plus the root
-  compose file's Postgres image.
-
-Both workflows filter on `apps/api/**`, so a UI-only change does not start
-them. The frontend has no workflow yet; `npm run typecheck`, `npm run build`,
-and the Playwright suite in `apps/ui` are what one would run.
+Thank you for improving Triflare Extend! It's people like you who make open-source projects like these thrive.
