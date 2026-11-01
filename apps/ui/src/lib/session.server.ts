@@ -1,8 +1,7 @@
-import "@/lib/env.server"
-
 import { createCookieSessionStorage, type Session } from "react-router"
 
 import type { AccountSummary } from "@/lib/accounts"
+import { getConfig } from "@/lib/config.server"
 
 export type { Session }
 
@@ -18,41 +17,52 @@ export interface SessionData {
   remember: boolean
 }
 
-// A deployment should set SESSION_SECRET. The fallback keeps local development
-// and `react-router dev` usable without any setup.
-const secret =
-  process.env.SESSION_SECRET ?? "triflare-development-session-secret"
+// The store is built on first use and rebuilt after onboarding writes a new
+// secret, so the process does not have to restart to start signing real
+// sessions. Before onboarding the cookie is only a placeholder.
+let sessionStorage: ReturnType<
+  typeof createCookieSessionStorage<SessionData>
+> | null = null
 
-const production = process.env.NODE_ENV === "production"
+function sessionStore() {
+  if (sessionStorage) return sessionStorage
+  const config = getConfig()
+  const secret = config.session.secret ?? "triflare-setup-mode-session-secret"
+  sessionStorage = createCookieSessionStorage<SessionData>({
+    cookie: {
+      name: config.session.name,
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+      secrets: [secret],
+      // Production is expected to terminate TLS in front of the app. Local
+      // development is plain HTTP, where a Secure cookie would never be stored.
+      secure: config.session.secure,
+    },
+  })
+  return sessionStorage
+}
 
-export const sessionStore = createCookieSessionStorage<SessionData>({
-  cookie: {
-    name: "triflare_session",
-    httpOnly: true,
-    path: "/",
-    sameSite: "lax",
-    secrets: [secret],
-    // Production is expected to terminate TLS in front of the app. Local
-    // development is plain HTTP, where a Secure cookie would never be stored.
-    secure: production,
-  },
-})
+/** Forget the cookie configuration after onboarding changes the secret. */
+export function resetSessionStore(): void {
+  sessionStorage = null
+}
 
 const REMEMBER_MAX_AGE = 60 * 60 * 24 * 30
 
 export function readSession(request: Request): Promise<Session<SessionData>> {
-  return sessionStore.getSession(request.headers.get("cookie"))
+  return sessionStore().getSession(request.headers.get("cookie"))
 }
 
 export function commitSession(session: Session<SessionData>): Promise<string> {
-  return sessionStore.commitSession(
+  return sessionStore().commitSession(
     session,
     session.get("remember") ? { maxAge: REMEMBER_MAX_AGE } : undefined
   )
 }
 
 export function destroySession(session: Session<SessionData>) {
-  return sessionStore.destroySession(session)
+  return sessionStore().destroySession(session)
 }
 
 export async function sessionToken(request: Request): Promise<string | null> {
@@ -161,9 +171,10 @@ export function forgetAccountToken(
 }
 
 export function requireSessionSecret(): void {
-  if (production && !process.env.SESSION_SECRET) {
+  const config = getConfig()
+  if (config.environment === "production" && !config.session.secret) {
     throw new Error(
-      "SESSION_SECRET must be set in production so sessions survive restarts."
+      "session.secret must be set in production so sessions survive restarts."
     )
   }
 }

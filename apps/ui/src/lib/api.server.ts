@@ -1,21 +1,23 @@
-import "@/lib/env.server"
 import { createHash } from "node:crypto"
 
 import { ApiClient } from "@/lib/api"
 import type { EtagStore } from "@/lib/api"
-
+import { getConfig, publicApiUrl } from "@/lib/config.server"
 import { officialApiUrl } from "@/lib/product"
 
 const LOCAL_API = "http://localhost:3000/v1"
 
-const configured =
-  process.env.TRIFLARE_API_URL?.trim() ??
-  process.env.VITE_TRIFLARE_API_URL?.trim()
+/** The address this process uses to reach the registry. */
+export function serverApiUrl(): string {
+  const configured = getConfig().api.url
+  const fallback = officialApiUrl || LOCAL_API
+  return (configured || fallback).replace(/\/+$/, "")
+}
 
-const fallback =
-  process.env.NODE_ENV === "production" ? officialApiUrl : LOCAL_API
-
-export const SERVER_API_URL = (configured || fallback).replace(/\/+$/, "")
+/** The address a visitor's browser uses for the registry. */
+export function browserApiUrl(): string {
+  return publicApiUrl()
+}
 
 // The revision of each document this credential has read. The RPC route builds
 // an ApiClient per request, so the memory cannot live on a client instance: it
@@ -65,7 +67,7 @@ export function serverApi(token?: string | null): ApiClient {
   const credential = token
     ? createHash("sha256").update(token).digest("base64url")
     : "anonymous"
-  const api = new ApiClient(SERVER_API_URL, { etags: storeFor(credential) })
+  const api = new ApiClient(serverApiUrl(), { etags: storeFor(credential) })
   if (token) {
     api.setToken(token)
   }

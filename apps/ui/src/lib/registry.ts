@@ -10,27 +10,37 @@ import {
 import { th } from "@/lib/remote-api"
 
 const OFFICIAL_API = officialApiUrl
-const LOCAL_API = "http://localhost:3000/v1"
 
-// The browser no longer calls the API directly; these URLs are only used to
-// build install links and copyable addresses that point at the registry.
-const configured = import.meta.env.VITE_TRIFLARE_API_URL?.trim()
-const fallback = import.meta.env.DEV ? LOCAL_API : OFFICIAL_API
+// The browser no longer calls the API directly for data; these URLs are used to
+// build install links and copyable addresses that point at the registry. The
+// value comes from config.yaml through the root loader, so a deployment can
+// change it without rebuilding the browser bundle. The bindings are mutable on
+// purpose: importers see the configured value after `configureApiBaseUrl` runs.
+let API_BASE_URL = OFFICIAL_API
+let API_ORIGIN = new URL(API_BASE_URL).origin
+let IS_OFFICIAL_INSTANCE = API_ORIGIN === new URL(OFFICIAL_API).origin
+let CLI_HUB_URL_FLAG = IS_OFFICIAL_INSTANCE ? "" : ` --url ${API_BASE_URL}`
 
-export const API_BASE_URL = (configured || fallback).replace(/\/+$/, "")
-export const API_ORIGIN = new URL(API_BASE_URL).origin
-export const IS_OFFICIAL_INSTANCE =
-  API_ORIGIN === new URL(officialApiUrl).origin
+/** Point browser-built links at the API this instance is configured for. */
+export function configureApiBaseUrl(value: string): void {
+  const next = (value || OFFICIAL_API).replace(/\/+$/, "")
+  if (next === API_BASE_URL) return
+  API_BASE_URL = next
+  API_ORIGIN = new URL(next).origin
+  IS_OFFICIAL_INSTANCE = API_ORIGIN === new URL(OFFICIAL_API).origin
+  CLI_HUB_URL_FLAG = IS_OFFICIAL_INSTANCE ? "" : ` --url ${API_BASE_URL}`
+}
+
+export {
+  API_BASE_URL,
+  API_ORIGIN,
+  CLI_HUB_URL_FLAG,
+  IS_OFFICIAL_INSTANCE,
+}
 export const ASSET_PATH = "/__asset"
 export const BADGE_PATH = "/__badge"
 
 export { th }
-
-// The CLI defaults to the official instance, so a command run against another
-// instance has to say which one. Keep the flag out of official-instance copy.
-export const CLI_HUB_URL_FLAG = IS_OFFICIAL_INSTANCE
-  ? ""
-  : ` --url ${API_BASE_URL}`
 
 export interface DeviceCodeState {
   clientName: string

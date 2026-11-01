@@ -1,4 +1,4 @@
-import { SERVER_API_URL } from "@/lib/api.server"
+import { serverApiUrl } from "@/lib/api.server"
 import { readSession } from "@/lib/session.server"
 
 const ACTIONS = new Set(["lookup", "approve", "deny"])
@@ -34,7 +34,7 @@ export async function action({
 
   let upstream: Response
   try {
-    upstream = await fetch(`${SERVER_API_URL}/auth/device/${action}`, {
+    upstream = await fetch(`${serverApiUrl()}/auth/device/${action}`, {
       method: "POST",
       headers,
       body,

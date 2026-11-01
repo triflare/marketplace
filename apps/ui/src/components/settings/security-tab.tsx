@@ -36,6 +36,10 @@ export function SecurityTab() {
   const [renameLabel, setRenameLabel] = useState("")
   const [deletePasskeyId, setDeletePasskeyId] = useState<string | null>(null)
   const [revokeSessionId, setRevokeSessionId] = useState<string | null>(null)
+  const [rotateOpen, setRotateOpen] = useState(false)
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(
+    null
+  )
 
   const mfa = useAsync(
     (signal) => th.auth.getMfaState({ signal }),
@@ -76,6 +80,12 @@ export function SecurityTab() {
   // still use it as its second factor, so its list and removal stay reachable.
   const hasPasskeys = (mfa.data?.passkeys.length ?? 0) > 0
   const showPasskeys = passkeysOffered || hasPasskeys
+  // Only an instance that advertises the generated-password driver can issue
+  // one, so the section follows the method set instead of offering a control
+  // the server would refuse.
+  const generatedPasswordOffered = descriptor.data
+    ? hasMethod(signInMethods(descriptor.data), "magic-password")
+    : false
 
   if (!user) {
     return null
@@ -195,6 +205,20 @@ export function SecurityTab() {
     }
   }
 
+  async function rotatePassword() {
+    setBusy("rotate")
+    try {
+      const result = await th.auth.rotateGeneratedPassword()
+      setRotateOpen(false)
+      setGeneratedPassword(result.password)
+      toast.success("New password generated.")
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function revokeSession() {
     if (!revokeSessionId) {
       return
@@ -306,6 +330,58 @@ export function SecurityTab() {
           </Button>
         </form>
       </section>
+
+      {generatedPasswordOffered ? (
+        <>
+          <Separator />
+
+          <section className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-base font-medium">Generated password</h2>
+              <p className="text-sm text-muted-foreground">
+                This instance can issue a password for this account. A new one
+                replaces the old, which stops working immediately, and is shown
+                only once.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-lg border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  Generating a password does not sign this browser out.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRotateOpen(true)}
+                  disabled={busy !== null}
+                >
+                  <KeyRoundIcon /> Generate new password
+                </Button>
+              </div>
+
+              {generatedPassword ? (
+                <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
+                  <p className="text-sm font-medium">
+                    Save this password now
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    It is shown once, and the registry keeps no readable copy.
+                  </p>
+                  <p className="break-all font-mono text-sm">
+                    {generatedPassword}
+                  </p>
+                  <CopyButton
+                    value={generatedPassword}
+                    label="Copy password"
+                    className="self-start"
+                  />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        </>
+      ) : null}
 
       <EmailSection />
 
@@ -644,6 +720,15 @@ export function SecurityTab() {
         destructive
         pending={busy === "revoke"}
         onConfirm={() => void revokeSession()}
+      />
+      <ConfirmDialog
+        open={rotateOpen}
+        onOpenChange={(open) => !open && setRotateOpen(false)}
+        title="Generate a new password?"
+        description="The current password stops working. The replacement is shown once, right here."
+        confirmLabel="Generate password"
+        pending={busy === "rotate"}
+        onConfirm={() => void rotatePassword()}
       />
     </div>
   )

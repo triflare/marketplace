@@ -23,26 +23,6 @@ import { CLI_HUB_URL_FLAG, errorMessage, th } from "@/lib/registry"
 const PACKAGE = `# From the ${extend.name} project root:
 tar -czf my-extension.tar.gz ${extend.configFilename} package.json src`
 
-const SIGNUP = `${extend.command} signup${CLI_HUB_URL_FLAG}`
-
-const CLI_STEPS = [
-  {
-    label: `Install the ${extend.name} CLI`,
-    command: `npm install -g ${extend.package}`,
-    help: "You only need to do this once.",
-  },
-  {
-    label: "Sign in to this registry",
-    command: `${extend.command} login${CLI_HUB_URL_FLAG}`,
-    help: `Use the handle and password for the account publishing the extension. No account yet? Run ${SIGNUP} first.`,
-  },
-  {
-    label: "Publish from your project folder",
-    command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
-    help: `${extend.name} checks the project and builds it before uploading.`,
-  },
-]
-
 export function PublishPage() {
   const { user } = useAuth()
   const [namespace, setNamespace] = useState(user?.namespace ?? "")
@@ -53,6 +33,27 @@ export function PublishPage() {
   const [result, setResult] = useState<VersionInfo | null>(null)
   const [nextStepsOpen, setNextStepsOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement | null>(null)
+
+  // Built during render: the API address comes from config.yaml, so the flag
+  // is not known at module load.
+  const signup = `${extend.command} signup${CLI_HUB_URL_FLAG}`
+  const cliSteps = [
+    {
+      label: `Install the ${extend.name} CLI`,
+      command: `npm install -g ${extend.package}`,
+      help: "You only need to do this once.",
+    },
+    {
+      label: "Sign in to this registry",
+      command: `${extend.command} login${CLI_HUB_URL_FLAG}`,
+      help: `Use the handle and password for the account publishing the extension. No account yet? Run ${signup} first.`,
+    },
+    {
+      label: "Publish from your project folder",
+      command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
+      help: `${extend.name} checks the project and builds it before uploading.`,
+    },
+  ]
 
   const terms = useAsync((signal) => th.instance.terms({ signal }), [])
   const needsTerms =
@@ -134,7 +135,7 @@ export function PublishPage() {
           </div>
 
           <ol className="flex flex-col gap-3">
-            {CLI_STEPS.map((step, index) => (
+            {cliSteps.map((step, index) => (
               <li
                 key={step.command}
                 className="flex flex-col gap-2 rounded-lg border p-4"

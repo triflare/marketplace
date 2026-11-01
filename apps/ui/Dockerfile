@@ -1,6 +1,6 @@
 # The build stage produces both halves of the app: the browser assets and the
-# SSR bundle `react-router-serve` runs. Vite inlines VITE_TRIFLARE_API_URL here,
-# so the API origin browsers use has to be decided at build time.
+# SSR bundle server.js runs. The API address is not baked into the browser
+# bundle; it comes from config.yaml at runtime.
 FROM node:24-alpine AS build
 
 WORKDIR /app
@@ -10,26 +10,27 @@ RUN npm ci && npm cache clean --force
 
 COPY . .
 
-ARG VITE_TRIFLARE_API_URL=http://localhost:3000/v1
-ENV VITE_TRIFLARE_API_URL=$VITE_TRIFLARE_API_URL
-
 RUN npm run build
 
 # The runtime only needs the server, the client assets, and production
 # dependencies: the compiler and dev server are build-time tools.
 FROM node:24-alpine
 
-ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/build ./build
+COPY server.js config.js ./
 
-ENV PORT=3000
+# The image deliberately carries no config.yaml. Onboarding writes one into the
+# data directory, which is the volume a deployment mounts.
+RUN mkdir -p /app/data && chown -R node:node /app
+
 USER node
 
-EXPOSE 3000
+EXPOSE 3001
+VOLUME ["/app/data"]
 
-CMD ["node", "node_modules/@react-router/serve/bin.cjs", "./build/server/index.js"]
+CMD ["node", "server.js"]

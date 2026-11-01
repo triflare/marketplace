@@ -1,0 +1,17 @@
+# The web frontend's own settings. There are no environment variables that
+# override these; this file is the configuration.
+port: 3001
+environment: development
+api:
+  # Server-side requests reach the API here.
+  url: http://localhost:3000/v1
+  # The address a browser uses for install links and badges. Same as the server
+  # URL for a local checkout.
+  publicUrl: http://localhost:3000/v1
+session:
+  name: triflare_session
+  # A development value. A deployment generates its own on the setup screen.
+  secret: triflare-development-session-secret
+  secure: false
+onboarding:
+  completed: true

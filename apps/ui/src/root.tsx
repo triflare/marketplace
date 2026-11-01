@@ -6,6 +6,7 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  redirect,
   useLoaderData,
   useLocation,
   useRouteError,
@@ -20,9 +21,15 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { ButtonLink } from "@/components/common/button-link"
 import { AuthProvider } from "@/context/auth"
 import { resolveActiveAccount } from "@/lib/accounts.server"
-import { SERVER_API_URL, serverApi } from "@/lib/api.server"
+import {
+  browserApiUrl,
+  serverApi,
+  serverApiUrl,
+} from "@/lib/api.server"
+import { getConfig } from "@/lib/config.server"
 import { PreloadProvider } from "@/lib/preload"
 import { product } from "@/lib/product"
+import { configureApiBaseUrl } from "@/lib/registry"
 import { readSession, requireSessionSecret } from "@/lib/session.server"
 
 const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("theme");var d=t==="dark"||((!t||t==="system")&&window.matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.remove("light","dark");r.classList.add(d?"dark":"light")}catch(e){}})()`
@@ -59,7 +66,62 @@ export function Layout({ children }: { children: ReactNode }) {
   )
 }
 
+// Onboarding is a one-time transition, so the answer is cached briefly: a
+// page load should not pay a round trip to the API for the rest of its life,
+// but a UI that started before its API was configured still notices the change.
+let setupProbe: { at: number; url: string; required: boolean } | null = null
+
+async function apiNeedsSetup(): Promise<boolean> {
+  const url = serverApiUrl()
+  const now = Date.now()
+  if (setupProbe && setupProbe.url === url && now - setupProbe.at < 30_000) {
+    return setupProbe.required
+  }
+  try {
+    const response = await fetch(`${url}/onboarding`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(2000),
+    })
+    if (!response.ok) return false
+    const body = (await response.json()) as { required?: boolean }
+    const required = body?.required === true
+    setupProbe = { at: now, url, required }
+    return required
+  } catch {
+    // An unreachable API is the registry-down gate's problem, not a reason to
+    // send the visitor to a setup page that cannot be reached either.
+    return false
+  }
+}
+
 export async function loader({ request }: { request: Request }) {
+  const config = getConfig()
+  const url = new URL(request.url)
+  const onOnboarding = url.pathname === "/onboarding"
+  const apiBaseUrl = browserApiUrl()
+  configureApiBaseUrl(apiBaseUrl)
+
+  if (config.setupRequired) {
+    if (!onOnboarding) throw redirect("/onboarding")
+    return {
+      setup: true as const,
+      user: null,
+      accounts: [],
+      apiBaseUrl,
+      banner: null,
+    }
+  }
+
+  // The UI has a configuration, so its own setup screen is done. A stale link
+  // to it goes home rather than showing a form that would save nothing new.
+  if (onOnboarding) throw redirect("/")
+
+  // The API can still be waiting for its first-run settings. Its own screen
+  // collects those; this app only knows how to send the visitor there.
+  if (await apiNeedsSetup()) {
+    throw redirect(`${apiBaseUrl}/onboarding`)
+  }
+
   requireSessionSecret()
 
   const session = await readSession(request)
@@ -71,7 +133,13 @@ export async function loader({ request }: { request: Request }) {
     resolveActiveAccount(session),
     readBanner(),
   ])
-  const payload = { user, accounts, apiBaseUrl: SERVER_API_URL, banner }
+  const payload = {
+    setup: false as const,
+    user,
+    accounts,
+    apiBaseUrl,
+    banner,
+  }
 
   return cookie
     ? Response.json(payload, { headers: { "Set-Cookie": cookie } })
@@ -105,8 +173,13 @@ export function meta() {
 }
 
 export default function App() {
-  const { user, accounts } = useLoaderData<typeof loader>()
+  const { setup, user, accounts, apiBaseUrl } = useLoaderData<typeof loader>()
   const { pathname } = useLocation()
+
+  // The browser half of the app builds links from the same API address the
+  // server used. Applying it before the page renders keeps server and client
+  // markup identical.
+  configureApiBaseUrl(apiBaseUrl)
 
   // Embed documents are rendered inside someone else's page, so they skip the
   // site header, footer and toaster and keep only the providers.
@@ -117,6 +190,12 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.clientReady = "true"
   }, [])
+
+  // The first-run screen is the whole page until the file is complete. It has
+  // no session, no account menu, and no registry calls to make.
+  if (setup) {
+    return <Outlet />
+  }
 
   return (
     <ThemeProvider>

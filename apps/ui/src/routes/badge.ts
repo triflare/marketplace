@@ -1,4 +1,4 @@
-import { SERVER_API_URL } from "@/lib/api.server"
+import { serverApiUrl } from "@/lib/api.server"
 
 // A badge is the one registry response that cannot go through the JSON bridge
 // the rest of the app uses: an <img> in the page is the browser asking for it.
@@ -45,7 +45,7 @@ export async function loader({
     return new Response("Not found", { status: 404 })
   }
 
-  const target = new URL(`${SERVER_API_URL}${path}`)
+  const target = new URL(`${serverApiUrl()}${path}`)
   // ?label= is what repaints the left pill; the registry bounds its width.
   const label = new URL(request.url).searchParams.get("label")
   if (label) {

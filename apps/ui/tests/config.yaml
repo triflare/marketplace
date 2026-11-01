@@ -1,0 +1,13 @@
+# Used only by the Playwright suite. `TRIFLARE_TEST_UI_CONFIG` points the dev
+# server at this file so the mock API can own its own ports.
+port: 3101
+environment: development
+api:
+  url: http://127.0.0.1:3200/v1
+  publicUrl: http://127.0.0.1:3200/v1
+session:
+  name: triflare_session
+  secret: playwright-session-secret
+  secure: false
+onboarding:
+  completed: true

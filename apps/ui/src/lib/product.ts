@@ -52,7 +52,7 @@ export const extend = {
     product.extend?.configFilename ?? FALLBACK_EXTEND.configFilename,
 }
 
-// The instance a browser build points at when VITE_TRIFLARE_API_URL is unset.
+// The instance a build falls back to when config.yaml names no API URL.
 export const officialApiUrl =
   product.defaults?.apiUrl ?? "https://twexts.sdisk.us/api/v1"
 

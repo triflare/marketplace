@@ -13,9 +13,6 @@ dist-ssr
 build
 .react-router
 *.local
-.env
-.env.*
-!.env.example
 
 # Playwright
 test-results

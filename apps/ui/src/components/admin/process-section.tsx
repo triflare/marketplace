@@ -131,8 +131,8 @@ export function ProcessSection() {
           <AlertDescription>
             Nothing outside this process is set up to start it again, so a
             restart would end the service. Run it under Docker’s `restart:
-            unless-stopped`, systemd, or an equivalent, and set the supervised
-            environment variable.
+            unless-stopped`, systemd, or an equivalent, and set
+            `process.supervised` in the API’s `config.yaml`.
           </AlertDescription>
         </Alert>
       )}

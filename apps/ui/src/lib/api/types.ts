@@ -254,6 +254,13 @@ export interface GeneratedPasswordSession extends AuthSession {
   passwordShownOnce: true
 }
 
+// A replacement password from the same driver. It is again the only copy, so a
+// page shows it before moving on.
+export interface RotatedPassword {
+  password: string
+  passwordShownOnce: true
+}
+
 // The challenge a passkey sign-in is verified against, and the token that names
 // it. The browser's assertion never touches the session token.
 export interface PasskeySigninChallenge {
@@ -846,6 +853,7 @@ export interface AuthResource {
     payload: { email: string },
     options?: RequestOptions
   ): Promise<GeneratedPasswordSession>
+  rotateGeneratedPassword(options?: RequestOptions): Promise<RotatedPassword>
   getOidcAuthorizeUrl(
     options?: OidcAuthorizeOptions
   ): Promise<OidcAuthorizeResult>

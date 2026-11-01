@@ -1,4 +1,4 @@
-import { SERVER_API_URL } from "@/lib/api.server"
+import { serverApiUrl } from "@/lib/api.server"
 
 export async function loader({ request }: { request: Request }) {
   const path = new URL(request.url).searchParams.get("path")
@@ -9,7 +9,7 @@ export async function loader({ request }: { request: Request }) {
 
   let target: URL
   try {
-    const origin = new URL(SERVER_API_URL).origin
+    const origin = new URL(serverApiUrl()).origin
     target = new URL(path, origin)
     if (target.origin !== origin) {
       return new Response("Not found", { status: 404 })

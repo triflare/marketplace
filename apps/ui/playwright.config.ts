@@ -28,9 +28,9 @@ export default defineConfig({
       command: "npx react-router dev --host 127.0.0.1 --port 3101 --strictPort",
       url: "http://127.0.0.1:3101",
       env: {
-        TRIFLARE_API_URL: API_URL,
-        VITE_TRIFLARE_API_URL: API_URL,
-        SESSION_SECRET: "playwright-session-secret",
+        // The only environment variable the UI reads: it points the test run at
+        // the mock API's config instead of the checkout's config.yaml.
+        TRIFLARE_TEST_UI_CONFIG: "tests/config.yaml",
       },
       reuseExistingServer: !process.env.CI,
     },

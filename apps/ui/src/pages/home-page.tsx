@@ -27,19 +27,31 @@ import { HOME_FEED_KEY } from "@/lib/preload"
 import { extend, product } from "@/lib/product"
 import { CLI_HUB_URL_FLAG, th } from "@/lib/registry"
 
-const QUICK_STEPS = [
-  { label: "Install the CLI", command: `npm install -g ${extend.package}` },
-  { label: "Create a project", command: `${extend.command} init` },
-  { label: "Sign in", command: `${extend.command} login${CLI_HUB_URL_FLAG}` },
-  {
-    label: "Publish it",
-    command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
-  },
+const QUICK_STEP_LABELS = [
+  "Install the CLI",
+  "Create a project",
+  "Sign in",
+  "Publish it",
 ]
 
 export function HomePage() {
   const navigate = useNavigate()
   const [query, setQuery] = useState("")
+
+  // Built during render, not at module load: the API address comes from
+  // config.yaml and is not known until the root loader hands it over.
+  const quickSteps = [
+    { label: QUICK_STEP_LABELS[0], command: `npm install -g ${extend.package}` },
+    { label: QUICK_STEP_LABELS[1], command: `${extend.command} init` },
+    {
+      label: QUICK_STEP_LABELS[2],
+      command: `${extend.command} login${CLI_HUB_URL_FLAG}`,
+    },
+    {
+      label: QUICK_STEP_LABELS[3],
+      command: `${extend.command} publish${CLI_HUB_URL_FLAG}`,
+    },
+  ]
 
   usePageMeta(
     "Extensions for TurboWarp",
@@ -124,7 +136,7 @@ export function HomePage() {
               publish it here without leaving the terminal.
             </p>
             <ol className="flex flex-col gap-2">
-              {QUICK_STEPS.map((step, index) => (
+              {quickSteps.map((step, index) => (
                 <li key={step.label} className="flex items-start gap-2">
                   <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] text-muted-foreground">
                     {index + 1}

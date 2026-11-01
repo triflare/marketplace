@@ -11,19 +11,21 @@ import {
   IS_OFFICIAL_INSTANCE,
 } from "@/lib/registry"
 
-const INSTALL = `npm install -g ${extend.package}`
-const INIT = `${extend.command} init`
-const BUILD = `${extend.command} build`
-const DEV = `${extend.command} dev`
-const SIGNUP = `${extend.command} signup${CLI_HUB_URL_FLAG}`
-const LOGIN = `${extend.command} login${CLI_HUB_URL_FLAG}`
-const PUBLISH = `${extend.command} publish${CLI_HUB_URL_FLAG}`
-const TOKEN_CREATE = `${extend.command} token create --name ci --scope publish${CLI_HUB_URL_FLAG}`
-const CI_PUBLISH = `${
-  IS_OFFICIAL_INSTANCE ? "" : `TRIFLARE_URL=${API_BASE_URL} `
-}TRIFLARE_TOKEN=<token> ${extend.command} publish`
-
 export function DevelopersPage() {
+  // Built during render: the API address comes from config.yaml, so the flag
+  // is not known at module load.
+  const install = `npm install -g ${extend.package}`
+  const init = `${extend.command} init`
+  const build = `${extend.command} build`
+  const dev = `${extend.command} dev`
+  const signup = `${extend.command} signup${CLI_HUB_URL_FLAG}`
+  const login = `${extend.command} login${CLI_HUB_URL_FLAG}`
+  const publish = `${extend.command} publish${CLI_HUB_URL_FLAG}`
+  const tokenCreate = `${extend.command} token create --name ci --scope publish${CLI_HUB_URL_FLAG}`
+  const ciPublish = `${
+    IS_OFFICIAL_INSTANCE ? "" : `TRIFLARE_URL=${API_BASE_URL} `
+  }TRIFLARE_TOKEN=<token> ${extend.command} publish`
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
@@ -39,8 +41,8 @@ export function DevelopersPage() {
             title="Create a project"
             description={`Install the CLI, then create a project in an empty folder. ${extend.name} writes the configuration and a working starter block.`}
           >
-            <Command value={INSTALL} />
-            <Command value={INIT} />
+            <Command value={install} />
+            <Command value={init} />
           </GuideStep>
 
           <GuideStep
@@ -48,8 +50,8 @@ export function DevelopersPage() {
             title="Build and try it"
             description="Build once, or start the development server and reload TurboWarp after each save."
           >
-            <Command value={BUILD} />
-            <Command value={DEV} />
+            <Command value={build} />
+            <Command value={dev} />
             <p className="text-xs text-muted-foreground">
               The dev server serves the extension at a local URL so you can add
               it to TurboWarp without downloading a file.
@@ -61,10 +63,10 @@ export function DevelopersPage() {
             title="Publish a release"
             description={`Sign in once, then publish from the project folder. ${extend.name} validates and builds the project before it uploads anything.`}
           >
-            <Command value={LOGIN} />
-            <Command value={PUBLISH} />
+            <Command value={login} />
+            <Command value={publish} />
             <p className="text-xs text-muted-foreground">
-              No account yet? Run <span className="font-mono">{SIGNUP}</span>{" "}
+              No account yet? Run <span className="font-mono">{signup}</span>{" "}
               first. A first release waits for review. Later releases from the
               same account appear immediately unless a moderator asks for
               changes.
@@ -147,8 +149,8 @@ export function DevelopersPage() {
           secret store, not in the repository.
         </p>
         <div className="mt-3 flex flex-col gap-2">
-          <Command value={TOKEN_CREATE} />
-          <Command value={CI_PUBLISH} />
+          <Command value={tokenCreate} />
+          <Command value={ciPublish} />
         </div>
       </section>
     </div>

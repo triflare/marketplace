@@ -64,6 +64,7 @@ import type {
   ReplaceDriversPayload,
   ReplaceDriversResult,
   RequestOptions,
+  RotatedPassword,
   SystemReloadResult,
   SystemStatus,
   ReviewVersionPayload,
@@ -193,6 +194,18 @@ export class AuthResource {
     return this.client.request("/auth/magic-password/register", {
       method: "POST",
       json: { email: payload.email },
+      ...requestOptions(options),
+    })
+  }
+
+  // A new generated password replaces the stored one. The response is the only
+  // copy, so the page shows it before moving on. Recent authentication is the
+  // server's requirement, and its refusal names what to do about it.
+  rotateGeneratedPassword(
+    options: RequestOptions = {}
+  ): Promise<RotatedPassword> {
+    return this.client.request("/auth/magic-password/rotate", {
+      method: "POST",
       ...requestOptions(options),
     })
   }

@@ -1,4 +1,4 @@
-import { SERVER_API_URL } from "@/lib/api.server"
+import { serverApiUrl } from "@/lib/api.server"
 import { readSession } from "@/lib/session.server"
 
 export async function action({ request }: { request: Request }) {
@@ -28,7 +28,7 @@ export async function action({ request }: { request: Request }) {
 
   let upstream: Response
   try {
-    upstream = await fetch(`${SERVER_API_URL}/auth/oidc/link`, {
+    upstream = await fetch(`${serverApiUrl()}/auth/oidc/link`, {
       method: "POST",
       headers: {
         accept: "application/json",
