@@ -191,7 +191,24 @@ function canWrite(target) {
     accessSync(target, constants.W_OK);
     return true;
   } catch {
-    return false;
+    // A file that is not there yet is writable when the nearest directory that
+    // does exist is, because the first save creates the missing directories.
+    // An existing file that refuses the check is not rescued by walking up.
+    if (existsSync(target)) return false;
+  }
+  let dir = path.dirname(target);
+  for (;;) {
+    if (existsSync(dir)) {
+      try {
+        accessSync(dir, constants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
   }
 }
 
@@ -205,9 +222,9 @@ function canWrite(target) {
  * or a bind mount.
  *
  * A file that is not there yet is writable when its directory is, because the
- * first save creates it. That is the state an environment-only deployment is
- * in: the image carries no `config.yaml`, and the default path points into the
- * data directory, so the file appears there the first time an admin saves.
+ * first save creates it. That is the state of a container that has not been
+ * onboarded yet: the image carries no `config.yaml`, and the default path
+ * points into the data directory, so the first save creates the file there.
  *
  * On Linux the mount table answers the persistence question: the root mount is
  * the image's own writable layer, and anything else that covers the file came

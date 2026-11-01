@@ -17,10 +17,8 @@ services:
     build: .
     ports:
       - '3000:3000'
-    environment:
-      TRIFLARE_DATABASE_URL: postgres://triflare:triflare@db:5432/triflare
-      TRIFLARE_PUBLIC_BASE_URL: http://localhost:3000
     volumes:
+      # Holds published blobs and the config.yaml the setup screen writes.
       - triflare-data:/app/data
     depends_on:
       db:

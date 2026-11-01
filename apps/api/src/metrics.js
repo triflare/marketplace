@@ -1,7 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { normalizeValue } from './db.js';
 import { downloadAddressKey } from './download-address.js';
-import { envName } from './product.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -75,7 +74,7 @@ export async function hashDownloadAddress(db, config, ip) {
   return createHmac('sha256', key).update(ip).digest('base64url').slice(0, 22);
 }
 
-export function dailyAggregationJob(db) {
+export function dailyAggregationJob(db, config) {
   let timer = null;
   let running = false;
   const aggregateDay = aggregateDayLoader(db);
@@ -94,8 +93,7 @@ export function dailyAggregationJob(db) {
   };
   return {
     start() {
-      const interval = Number(process.env[envName('METRICS_INTERVAL_MS')] ?? 60 * 60 * 1000);
-      timer = setInterval(tick, interval);
+      timer = setInterval(tick, config.metrics.intervalMs);
       timer.unref?.();
       void tick();
       return this;

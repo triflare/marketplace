@@ -38,6 +38,7 @@ const ALLOWED_RAW_FUNCTIONS = new Map([
   ['organizationsOwnedBy', 'one statement joins owners and organizations'],
   ['owned', 'row locks and a grouped refund in one transaction'],
   ['pendingTransfersFor', 'one statement joins both addresses'],
+  ['probeDatabase', 'SELECT 1 checks the connection before any table is known'],
   ['promote', 'conditional status update with RETURNING'],
   ['publishVersion', 'the locked quota check and search-text folding'],
   ['record', 'the bucket increment derives its value from the stored one'],

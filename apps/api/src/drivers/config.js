@@ -141,7 +141,7 @@ function checkPasskeyConfiguration(config, entry, errors) {
   }
 }
 
-function validate(config, instances, { env = process.env } = {}) {
+function validate(config, instances) {
   const errors = [];
 
   // A kind this build does not have would otherwise be merged in and ignored,
@@ -195,7 +195,10 @@ function validate(config, instances, { env = process.env } = {}) {
       });
     }
   }
-  if (instances.mail.some((entry) => entry.driver === 'log') && env.NODE_ENV === 'production') {
+  if (
+    instances.mail.some((entry) => entry.driver === 'log') &&
+    config.environment === 'production'
+  ) {
     errors.push({
       field: 'mail.drivers',
       message: 'The log mail driver is refused in production, where nobody reads the log.',
@@ -220,10 +223,10 @@ function validate(config, instances, { env = process.env } = {}) {
 // Everything the host needs, keyed by kind. `auth` and `mail` come from their
 // own sections because those were the two that existed before the registry;
 // the rest live under `drivers`.
-export function resolveDriverConfig(config, options) {
+export function resolveDriverConfig(config) {
   const instances = {};
   for (const kind of listKinds()) instances[kind.id] = kindEntries(config, kind.id);
-  validate(config, instances, options);
+  validate(config, instances);
   return instances;
 }
 
@@ -246,7 +249,7 @@ function projectLegacyFields(config, methods) {
   config.auth.device.verificationUrl = device?.options.verificationUrl ?? null;
 }
 
-export function normalizeDriverConfig(config, options) {
+export function normalizeDriverConfig(config) {
   const methods = methodEntries(config);
   config.auth.methods = methods.map((entry) => ({
     driver: entry.driver,
@@ -254,7 +257,7 @@ export function normalizeDriverConfig(config, options) {
     ...(Object.keys(entry.options ?? {}).length ? { options: entry.options } : {}),
   }));
   projectLegacyFields(config, methods);
-  const instances = resolveDriverConfig(config, options);
+  const instances = resolveDriverConfig(config);
   config.driverInstances = instances;
   return config;
 }

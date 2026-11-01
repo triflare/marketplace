@@ -12,9 +12,6 @@ extend:
   command: 'extend'
   configFilename: 'extend.yml'
 
-# The prefix every environment variable this server reads starts with.
-envPrefix: 'TRIFLARE'
-
 # Branding
 branding:
   colors:

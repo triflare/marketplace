@@ -20,7 +20,7 @@ This is the user-facing documentation for the Triflare Marketplace API. Start wi
 
 ## 📖 Reference
 
-- [Configuration Reference](./configure.md): every key in `config.yaml`, the environment variables that override them, and what the build sandbox does.
+- [Configuration Reference](./configure.md): every key in `config.yaml`, first-run onboarding, and what the build sandbox does.
 - [Drivers](./drivers.md): the sign-in, mail, storage, scanner, and compiler drivers, and how an admin changes them on a running instance.
 
 ## 🧑‍💻 Working on the Triflare Marketplace API

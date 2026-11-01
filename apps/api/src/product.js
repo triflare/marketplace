@@ -45,16 +45,6 @@ export function extendConfigFilename() {
   return product.extend?.configFilename ?? 'extend.yml';
 }
 
-// The prefix of every environment variable this server reads, so a rename moves
-// the operator-facing surface along with the rest of the brand.
-export function envPrefix() {
-  return product.envPrefix ?? 'TRIFLARE';
-}
-
-export function envName(suffix) {
-  return `${envPrefix()}_${suffix}`;
-}
-
 // A header-safe, metric-safe, lowercase form of the product name. Renaming the
 // product in product.yml carries through to the user agent, the webhook headers,
 // and the Prometheus metric prefix.

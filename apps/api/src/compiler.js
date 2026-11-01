@@ -22,10 +22,9 @@ function validatedCompilerPath(command) {
 
 // The bundled compiler lives behind Triflare Extend's package "exports" watch,
 // so it cannot be imported by specifier; spawn it by absolute path instead.
-// compiler.command (TRIFLARE_COMPILER) names a Node.js script to run in place of
-// it, so the path is resolved here: the child runs with the project as its cwd,
-// and the read grant below has to be absolute to reach a script outside that
-// directory.
+// compiler.command names a Node.js script to run in place of it, so the path is
+// resolved here: the child runs with the project as its cwd, and the read grant
+// below has to be absolute to reach a script outside that directory.
 export function compilerCommand(config) {
   const command = config.compiler?.command;
   if (command == null) {

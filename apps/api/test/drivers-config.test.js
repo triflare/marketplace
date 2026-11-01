@@ -25,13 +25,8 @@ test('a mail-using method without a mail driver is refused', (t) => {
 });
 
 test('the log mail driver is refused in production', (t) => {
-  const previous = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  t.after(() => {
-    if (previous === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = previous;
-  });
   const file = withConfig(t, {
+    environment: 'production',
     auth: { methods: [{ driver: 'password' }, { driver: 'magic-link' }] },
     mail: { drivers: [{ driver: 'log' }] },
   });

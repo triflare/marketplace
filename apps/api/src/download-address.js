@@ -1,11 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { envName } from './product.js';
-
-// Set this to manage the key yourself (Kubernetes secret, config management);
-// it is read once per process.
-const KEY_ENV = envName('DOWNLOAD_HASH_KEY');
 
 const resolved = new Map();
 
@@ -29,10 +24,13 @@ export async function downloadAddressKey(db, config) {
   const cached = resolved.get(config.dataDir);
   if (cached) return cached;
 
-  const fromEnv = process.env[KEY_ENV];
-  if (fromEnv) {
-    resolved.set(config.dataDir, fromEnv);
-    return fromEnv;
+  // An operator who manages secrets elsewhere (a Kubernetes secret, config
+  // management) can put the key in the configuration file instead of the data
+  // directory. It is read once per process, like the generated one.
+  const configured = config.secrets?.downloadHashKey;
+  if (configured) {
+    resolved.set(config.dataDir, configured);
+    return configured;
   }
 
   const file = keyFile(config.dataDir);

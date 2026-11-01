@@ -3,13 +3,10 @@ data
 .git
 .github
 *.log
-.env
-.env.*
-!.env.example
 .DS_Store
 
-# The image is configured via env vars (TRIFLARE_*); a baked-in config.yaml
-# would pin a database URL that is only meaningful on some machine.
+# The image carries no configuration. Onboarding writes config.yaml into the
+# data directory, where a mounted volume keeps it.
 config.yaml
 
 # Test-only assets are not needed at runtime.

@@ -31,7 +31,7 @@ function fileShape(kind, instances) {
 // operator's comments and key order survive the write, the same way the
 // settings endpoint edits its keys.
 export function writeDriverInstances({ configPath, kind, instances }) {
-  // The first such change on an environment-only deployment creates the file.
+  // The first such change on an instance that has no config file yet creates it.
   const document = YAML.parseDocument(
     existsSync(configPath) ? readFileSync(configPath, 'utf8') : '',
   );

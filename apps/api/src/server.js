@@ -1,8 +1,9 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
-import { brandText, envName, product } from './product.js';
+import { brandText, product } from './product.js';
 import { createApp } from './app.js';
+import { createSetupApp } from './setup-app.js';
 import { HttpError } from './errors.js';
 import { createDb, ensureDataDirs, reconcileOnBoot, runMigrations } from './db.js';
 import { dailyAggregationJob } from './metrics.js';
@@ -19,6 +20,21 @@ export async function bootstrap(
   config = loadConfig(),
   { backgroundJobs = true, storageProbe, resolveTarget, migrations = true, system } = {},
 ) {
+  // Before the database exists there is nothing to open, reconcile, or migrate.
+  // The setup app is the whole instance until onboarding writes a URL.
+  if (config.setupRequired) {
+    if (storageProbe && system) system.storageProbe = storageProbe;
+    const { app } = createSetupApp({ config, system });
+    return {
+      app,
+      db: null,
+      config,
+      rateLimiter: null,
+      telemetry: null,
+      drivers: null,
+      blobs: null,
+    };
+  }
   ensureDataDirs(config.dataDir);
   const db = createDb(config);
   try {
@@ -38,7 +54,7 @@ export async function bootstrap(
     if (!backgroundJobs) {
       return { app, db, config, rateLimiter, telemetry, drivers, blobs };
     }
-    const metricsJob = dailyAggregationJob(db).start();
+    const metricsJob = dailyAggregationJob(db, config).start();
     const webhookWorker = makeWebhooks({ db }).worker().start();
     const maintenanceJob = makeMaintenanceJob({ db, config, blobs }).start();
     return {
@@ -63,17 +79,17 @@ const isMain = process.argv[1] && process.argv[1] === fileURLToPath(import.meta.
 
 if (isMain) {
   const configPath = process.argv[2];
-  const drainSeconds = Number(process.env[envName('DRAIN_SECONDS')] ?? 10);
   // Read before the system record: loadConfig is what resolves the path when the
   // operator named none, and the record has to report the file in use.
   const config = loadConfig(configPath);
   // The supervisor check is opt-in: the operator says something outside will
   // start this process again, and only then may it exit on request.
   const system = {
-    supervised: process.env[envName('SUPERVISED')] === '1',
+    supervised: config.process.supervised,
     startedAt: new Date(),
     configPath: config.configPath,
     lastReload: null,
+    setupRequired: config.setupRequired,
   };
 
   let booted = await bootstrap(config, { system });
@@ -83,12 +99,60 @@ if (isMain) {
   const server = http.createServer((req, res) => currentApp(req, res));
 
   async function stopApp(app) {
-    app.locals.rateLimiter?.stop?.();
-    await app.locals.drivers?.close?.();
+    app.locals?.rateLimiter?.stop?.();
+    await app.locals?.drivers?.close?.();
   }
+
+  // The socket belongs to the process, not to an app, so a setup app can be
+  // replaced by the full one without dropping connections.
+  async function swap(next) {
+    const previous = currentApp;
+    currentApp = next.app;
+    await stopApp(previous);
+    booted = next;
+    system.setupRequired = next.config.setupRequired === true;
+    system.lastReload = new Date();
+  }
+
+  // Called by the setup app once onboarding has written a usable config. The
+  // fresh config is passed in because the setup app already validated it; a
+  // reload from disk goes through loadConfig instead.
+  system.onboard = async (freshConfig) => {
+    const fresh = freshConfig ?? loadConfig(configPath);
+    if (fresh.setupRequired) {
+      throw new HttpError(409, {
+        slug: 'setup-required',
+        detail: 'The configuration is not complete yet.',
+      });
+    }
+    const rebuilt = await bootstrap(fresh, { system });
+    await swap(rebuilt);
+    return {
+      setupRequired: false,
+      driversRevision: rebuilt.drivers?.revision?.() ?? null,
+    };
+  };
 
   system.reload = async () => {
     const fresh = loadConfig(configPath);
+    if (fresh.setupRequired) {
+      const rebuilt = createSetupApp({ config: fresh, system });
+      await swap({
+        app: rebuilt.app,
+        db: null,
+        config: fresh,
+        rateLimiter: null,
+        telemetry: null,
+        drivers: null,
+        blobs: null,
+      });
+      return { setupRequired: true };
+    }
+    if (!booted.db) {
+      // The file gained a database URL while the setup app was serving: this is
+      // the transition onboarding makes, so run it through the same path.
+      return system.onboard(fresh);
+    }
     if (fresh.database.url !== booted.config.database.url) {
       // Reopening the pool under the workers that already hold the old one is
       // a restart's job, not a reload's.
@@ -104,23 +168,22 @@ if (isMain) {
       resolveTarget: undefined,
       system,
     });
-    const previous = currentApp;
-    currentApp = rebuilt.app;
-    await stopApp(previous);
-    booted = {
+    await swap({
       ...booted,
       app: rebuilt.app,
       config: fresh,
+      rateLimiter: rebuilt.rateLimiter,
+      telemetry: rebuilt.telemetry,
       drivers: rebuilt.drivers,
       blobs: rebuilt.blobs,
-    };
-    system.lastReload = new Date();
+    });
     return { driversRevision: rebuilt.drivers.revision() };
   };
 
   system.restart = async () => {
     if (system.restarting) return;
     system.restarting = true;
+    const drainSeconds = booted.config.process.drainSeconds;
     server.close();
     // In-flight requests get the drain window, then the connections are torn
     // down. Drivers close before the process leaves, so a message already
@@ -132,13 +195,13 @@ if (isMain) {
     });
     clearTimeout(force);
     await stopApp(currentApp);
-    await booted.db.$disconnect();
+    await booted.db?.$disconnect();
     process.exit(0);
   };
 
   server.listen(booted.config.port, () => {
     console.log(
-      `${brandText(product.name)} v${product.version} listening on http://localhost:${booted.config.port}${system.supervised ? ' (supervised)' : ''}`,
+      `${brandText(product.name)} v${product.version} listening on http://localhost:${booted.config.port}${system.supervised ? ' (supervised)' : ''}${config.setupRequired ? ' (first-run setup)' : ''}`,
     );
   });
 
@@ -154,7 +217,7 @@ if (isMain) {
     const force = setTimeout(() => server.closeAllConnections(), 5000);
     await new Promise((resolve) => server.close(resolve));
     clearTimeout(force);
-    await booted.db.$disconnect();
+    await booted.db?.$disconnect();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);

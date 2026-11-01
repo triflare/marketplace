@@ -117,18 +117,36 @@ test('loadConfig keeps the null that switches a rate-limit bucket off', () => {
   assert.equal(config.pagination.maxLimit, DEFAULTS.pagination.maxLimit);
 });
 
-test('TRIFLARE_CORS_ALLOWED_ORIGINS parses as a list or a wildcard', () => {
-  const file = tempConfig('database:\n  url: postgres://u@localhost:5432/db\n');
-  const prev = process.env.TRIFLARE_CORS_ALLOWED_ORIGINS;
-  try {
-    process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = 'https://hub.example, https://editor.example';
-    const config = loadConfig(file);
-    assert.deepEqual(config.cors.allowedOrigins, ['https://hub.example', 'https://editor.example']);
+test('cors.allowedOrigins accepts a comma separated string or a wildcard', () => {
+  const file = tempConfig(
+    [
+      'database:',
+      '  url: postgres://u@localhost:5432/db',
+      'cors:',
+      '  allowedOrigins: https://hub.example, https://editor.example',
+    ].join('\n'),
+  );
+  assert.deepEqual(loadConfig(file).cors.allowedOrigins, [
+    'https://hub.example',
+    'https://editor.example',
+  ]);
 
-    process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = '*';
-    assert.equal(loadConfig(file).cors.allowedOrigins, '*');
-  } finally {
-    if (prev === undefined) delete process.env.TRIFLARE_CORS_ALLOWED_ORIGINS;
-    else process.env.TRIFLARE_CORS_ALLOWED_ORIGINS = prev;
-  }
+  const wildcard = tempConfig(
+    ['database:', '  url: postgres://u@localhost:5432/db', 'cors:', "  allowedOrigins: '*'"].join(
+      '\n',
+    ),
+  );
+  assert.equal(loadConfig(wildcard).cors.allowedOrigins, '*');
+});
+
+test('a CORS entry that is not an origin is refused', () => {
+  const file = tempConfig(
+    [
+      'database:',
+      '  url: postgres://u@localhost:5432/db',
+      'cors:',
+      '  allowedOrigins: https://hub.example/path',
+    ].join('\n'),
+  );
+  assert.throws(() => loadConfig(file), /cors\.allowedOrigins entries must be absolute origins/);
 });

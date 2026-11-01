@@ -149,7 +149,7 @@ auth:
       options:
         issuer: https://id.example.com
         clientId: marketplace
-        clientSecret: ${TRIFLARE_OIDC_CLIENT_SECRET}
+        clientSecret: your-client-secret
     - driver: passkey
   policy:
     registration: open
@@ -159,7 +159,7 @@ mail:
   drivers:
     - driver: resend
       options:
-        apiKey: ${TRIFLARE_RESEND_API_KEY}
+        apiKey: your-resend-api-key
         from: no-reply@example.com
     - driver: smtp
       options:
@@ -171,14 +171,14 @@ drivers:
   cache: { driver: memory }
 ```
 
-The existing layering is unchanged: built-in defaults, then `config.yaml`, then environment variables with the prefix from `product.yml` (`TRIFLARE_` by default). Boot refuses to start on an invalid mixture, with one message per problem:
+The configuration is the file, with the built-in defaults underneath: there are no environment variables that override `config.yaml`. Boot refuses to start on an invalid mixture, with one message per problem:
 
 | Condition                                                            | Result        |
 | -------------------------------------------------------------------- | ------------- |
 | `magic-link`, `email-otp`, or `magic-password` without a mail driver | startup error |
 | `oidc` without issuer and client id                                  | startup error |
 | `passkey` sign-in without `webauthn.rpId` or a public base URL       | startup error |
-| `log` mail driver with `NODE_ENV=production`                         | startup error |
+| `log` mail driver with `environment: production`                     | startup error |
 | Duplicate driver ids within a kind                                   | startup error |
 | `none` mail with an auth method requiring mail                       | startup error |
 
@@ -195,7 +195,7 @@ Driver settings join the existing runtime-editable settings (`src/server-config.
 - `GET /admin/mail/outbox/:id` — one message with the body that was sent, which for a sign-in notice includes the one-time link.
 - `POST /admin/mail/outbox/:id/retry` — send a message down the chain again, recording the attempt on the same row. A delivered message answers `409`; a refused one answers `502` with the provider's own words and keeps the failure on the row.
 
-Secrets are masked on read (`{ set: true }`), kept when omitted on write, cleared only by an explicit `null`, and redacted from logs and audit entries. They live in `config.yaml` beside `oidc.clientSecret` today; environment variables still override them.
+Secrets are masked on read (`{ set: true }`), kept when omitted on write, cleared only by an explicit `null`, and redacted from logs and audit entries. They live in `config.yaml` beside `oidc.clientSecret`.
 
 The web UI's Registry tab lists the same instances and edits them with a form generated from each driver's published option schema: driver choice, instance id, ordering (the chain is tried in order), and one field per option. Secrets are never filled in; a stored one is kept unless a new value is typed. A change that would affect existing accounts shows the confirmation the endpoint asked for and is sent again with `confirm: true` once it is accepted.
 
@@ -212,7 +212,7 @@ server.on('request', (req, res) => currentApp(req, res));
 
 A reload builds a fresh app (config, drivers, routers, rate limiter, background workers), swaps the pointer, then closes the previous one — drivers first, then the webhook, metrics and maintenance workers, then the Prisma pool if the database URL changed. The listening socket never closes.
 
-**Process restart is the escape hatch.** `POST /admin/system/restart` with `{ confirm: 'restart' }` returns `202`, stops accepting connections, drains for up to `drainSeconds` (default 10), closes drivers and Prisma, and exits 0. It requires `TRIFLARE_SUPERVISED=1` — Docker's `restart: unless-stopped`, systemd's `Restart=always`, or an equivalent — and returns `409` without it, because exiting unsupervised is an outage with extra steps. Builds in flight are killed; their publish fails and the client retries.
+**Process restart is the escape hatch.** `POST /admin/system/restart` with `{ confirm: 'restart' }` returns `202`, stops accepting connections, drains for up to `process.drainSeconds` (default 10), closes drivers and Prisma, and exits 0. It requires `process.supervised: true` — Docker's `restart: unless-stopped`, systemd's `Restart=always`, or an equivalent — and returns `409` without it, because exiting unsupervised is an outage with extra steps. Builds in flight are killed; their publish fails and the client retries.
 
 What actually needs what:
 

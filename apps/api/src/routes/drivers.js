@@ -76,7 +76,7 @@ export function makeDriversRouter(shared) {
     else candidate.drivers[kind] = withSecrets.length === 1 ? withSecrets[0] : withSecrets;
     let resolved;
     try {
-      normalizeDriverConfig(candidate, { env: process.env });
+      normalizeDriverConfig(candidate);
       resolved = candidate.driverInstances[kind];
     } catch (error) {
       if (error instanceof DriverConfigError) throw fieldErrors(error.errors);
@@ -192,7 +192,7 @@ export function makeDriversRouter(shared) {
       throw new HttpError(409, {
         slug: 'not-supervised',
         detail:
-          'This process is not supervised, so exiting would end the service. Start it under a supervisor and set the supervised environment variable.',
+          'This process is not supervised, so exiting would end the service. Start it under a supervisor and set process.supervised to true.',
       });
     }
     if (typeof system.restart !== 'function') {

@@ -10,12 +10,6 @@ test('loadConfig validates the device approval page', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'config.yaml');
-  const previous = process.env.TRIFLARE_DEVICE_VERIFICATION_URL;
-  delete process.env.TRIFLARE_DEVICE_VERIFICATION_URL;
-  t.after(() => {
-    if (previous === undefined) delete process.env.TRIFLARE_DEVICE_VERIFICATION_URL;
-    else process.env.TRIFLARE_DEVICE_VERIFICATION_URL = previous;
-  });
   function writeConfig(verificationUrl) {
     fs.writeFileSync(
       file,
@@ -42,12 +36,6 @@ test('loadConfig validates and normalizes the recent-authentication window', (t)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'config.yaml');
-  const previous = process.env.TRIFLARE_REAUTH_WINDOW_MINUTES;
-  delete process.env.TRIFLARE_REAUTH_WINDOW_MINUTES;
-  t.after(() => {
-    if (previous === undefined) delete process.env.TRIFLARE_REAUTH_WINDOW_MINUTES;
-    else process.env.TRIFLARE_REAUTH_WINDOW_MINUTES = previous;
-  });
   function writeConfig(reauthWindowMinutes) {
     fs.writeFileSync(
       file,
@@ -125,18 +113,6 @@ test('the announcement banner is one line, and a link without a message is dropp
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'config.yaml');
-  const previous = {
-    TRIFLARE_BANNER_MESSAGE: process.env.TRIFLARE_BANNER_MESSAGE,
-    TRIFLARE_BANNER_LINK: process.env.TRIFLARE_BANNER_LINK,
-  };
-  delete process.env.TRIFLARE_BANNER_MESSAGE;
-  delete process.env.TRIFLARE_BANNER_LINK;
-  t.after(() => {
-    for (const [name, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-  });
   function writeConfig(banner) {
     fs.writeFileSync(
       file,
@@ -176,28 +152,17 @@ test('the announcement banner is one line, and a link without a message is dropp
   }
 });
 
-// The image carries no config.yaml and the deployment is configured through
-// environment variables, so a file named by default has to land where the volume
-// is -- otherwise the settings an admin saves belong to the container's own
-// writable layer and vanish on the next deploy.
+// The image carries no config.yaml, so a file named by default has to land
+// where the volume is -- otherwise the settings onboarding writes belong to the
+// container's own writable layer and vanish on the next deploy.
 test('keeps the default file in the data directory when the working directory has none', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
   const cwd = process.cwd();
-  const previous = {
-    TRIFLARE_DATABASE_URL: process.env.TRIFLARE_DATABASE_URL,
-    TRIFLARE_DATA_DIR: process.env.TRIFLARE_DATA_DIR,
-  };
   t.after(() => {
     process.chdir(cwd);
     fs.rmSync(dir, { recursive: true, force: true });
-    for (const [name, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
   });
   process.chdir(dir);
-  process.env.TRIFLARE_DATABASE_URL = 'postgres://u@localhost:5432/db';
-  delete process.env.TRIFLARE_DATA_DIR;
 
   assert.equal(loadConfig().configPath, path.join(dir, 'data', 'config.yaml'));
 
@@ -205,9 +170,67 @@ test('keeps the default file in the data directory when the working directory ha
   // there, is the one the operator meant.
   fs.writeFileSync(path.join(dir, 'config.yaml'), '');
   assert.equal(loadConfig().configPath, path.join(dir, 'config.yaml'));
+});
 
-  // A data directory named in the environment is where the fallback goes.
-  process.env.TRIFLARE_DATA_DIR = path.join(dir, 'volume');
-  fs.rmSync(path.join(dir, 'config.yaml'));
-  assert.equal(loadConfig().configPath, path.join(dir, 'volume', 'config.yaml'));
+test('a config with a database URL is already onboarded, and one without is not', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'config.yaml');
+
+  fs.writeFileSync(file, YAML.stringify({ database: { url: 'postgres://u@localhost:5432/db' } }));
+  const configured = loadConfig(file);
+  assert.equal(configured.onboarding.completed, true);
+  assert.equal(configured.setupRequired, false);
+
+  fs.writeFileSync(file, 'port: 3000\n');
+  const fresh = loadConfig(file);
+  assert.equal(fresh.onboarding.completed, false);
+  assert.equal(fresh.setupRequired, true);
+  assert.equal(fresh.database.url, null);
+
+  // An explicit marker overrides the inference in both directions.
+  fs.writeFileSync(
+    file,
+    YAML.stringify({
+      database: { url: 'postgres://u@localhost:5432/db' },
+      onboarding: { completed: false },
+    }),
+  );
+  assert.equal(loadConfig(file).setupRequired, true);
+
+  fs.writeFileSync(file, YAML.stringify({ onboarding: { completed: true } }));
+  assert.equal(loadConfig(file).setupRequired, true, 'a marker without a database is not enough');
+});
+
+test('the server settings are validated at startup', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'config.yaml');
+  const write = (value) =>
+    fs.writeFileSync(
+      file,
+      YAML.stringify({ database: { url: 'postgres://u@localhost:5432/db' }, ...value }),
+    );
+
+  for (const environment of ['staging', true]) {
+    write({ environment });
+    assert.throws(() => loadConfig(file), /environment must be "development" or "production"/);
+  }
+  for (const processSettings of [
+    { supervised: 'yes' },
+    { drainSeconds: 0 },
+    { drainSeconds: 1.5 },
+  ]) {
+    write({ process: processSettings });
+    assert.throws(() => loadConfig(file), /process\.(supervised|drainSeconds) must be/);
+  }
+  write({ metrics: { intervalMs: 0 } });
+  assert.throws(() => loadConfig(file), /metrics\.intervalMs must be/);
+  write({ secrets: { downloadHashKey: '  ' } });
+  assert.throws(() => loadConfig(file), /secrets\.downloadHashKey must be/);
+
+  write({ environment: 'production' });
+  assert.equal(loadConfig(file).environment, 'production');
+  write({ secrets: { downloadHashKey: ' key ' } });
+  assert.equal(loadConfig(file).secrets.downloadHashKey, 'key');
 });

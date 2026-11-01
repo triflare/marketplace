@@ -48,14 +48,15 @@ While installation with Node.js exists, you should prefer Docker because it's sa
    cp compose.example.yml <YOUR_DIRECTORY>/compose.yaml
    ```
 
-2. Set `TRIFLARE_DATABASE_URL` and `TRIFLARE_PUBLIC_BASE_URL` in it. The image is configured through `TRIFLARE_*` environment variables.
-3. Deploy:
+2. Deploy:
 
    ```bash
    docker compose up -d
    ```
 
-The container applies the schema and any pending migrations on boot, so a first deploy needs no manual migrate step. Upgrading a database that an earlier release built with its own SQL files requires its `schema_migrations` table to hold every legacy migration name; the [deploy guide](./docs/deploy.md#-upgrading-from-the-sql-migration-releases) has the details.
+3. Open <http://localhost:3000/onboarding> and fill in the database URL and the settings the instance should start with. The screen writes `config.yaml` into the mounted data volume and starts the full instance without a restart.
+
+The image carries no configuration and reads no environment variables; `config.yaml` is the only configuration. The container applies the schema and any pending migrations on boot, so a first deploy needs no manual migrate step. Upgrading a database that an earlier release built with its own SQL files requires its `schema_migrations` table to hold every legacy migration name; the [deploy guide](./docs/deploy.md#-upgrading-from-the-sql-migration-releases) has the details.
 
 ## 💭 Feedback and Contributing
 

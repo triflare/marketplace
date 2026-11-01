@@ -52,8 +52,8 @@ before(async () => {
   token = account.token;
 });
 
-// The image carries no config.yaml, so the first driver change on an
-// environment-only deployment is what brings the file into being.
+// The image carries no config.yaml, so the first driver change on a fresh
+// instance is what brings the file into being.
 test('a driver change creates the config file when there is none', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-admin-drivers-'));
   const target = path.join(dir, 'config.yaml');

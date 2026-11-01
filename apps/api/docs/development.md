@@ -52,13 +52,13 @@ npm test
 
 `npm install` runs `prisma generate` as its `postinstall`, which writes the client to `prisma/generated/client` (not in version control). If you change `prisma/schema.prisma` without reinstalling, run `npm run generate` yourself — importing a client that is older than the schema fails with a type error rather than a useful message.
 
-To run the API itself, point it at a database and start it:
+To run the API itself, start it:
 
 ```bash
-TRIFLARE_DATABASE_URL=postgres://postgres:postgres@localhost:5432/triflare npm run dev
+npm run dev
 ```
 
-`npm run dev` restarts on file changes; `npm start` runs it once. Both read `config.yaml` from the working directory, and the server runs `prisma migrate deploy` on boot, so there's no migrate step to remember. `npm run migrate` applies migrations on its own if you'd rather not start the server.
+`npm run dev` restarts on file changes; `npm start` runs it once. Both read `config.yaml` from the working directory — the checkout's copy points at the local PostgreSQL — and the server runs `prisma migrate deploy` on boot, so there's no migrate step to remember. Pass a different file as the first argument (`node src/server.js path/to/config.yaml`), and use `--config path/to/config.yaml` with `npm run migrate` to apply migrations on their own. A checkout with no `database.url` starts in setup mode and serves `/onboarding` instead of failing; see the [configuration reference](./configure.md#-first-run-setup).
 
 While developing a schema change, `npx prisma migrate dev --name <change>` writes a new migration from the difference between `prisma/schema.prisma` and a scratch database and regenerates the client. It needs a database it may reset; point it at your own, not at `triflare_test`.
 
@@ -70,7 +70,7 @@ The first account to sign up on a fresh database becomes the admin, which is wor
 | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/server.js`                                                                         | Entry point: loads the config, migrates the database, boots the app and the background jobs, and shuts them down on a signal.                                                                                               |
 | `src/app.js`                                                                            | Builds the Express app: the middleware order, the HTTPS and CORS gates, and which routers mount where under the API root.                                                                                                   |
-| `src/config.js`                                                                         | The defaults, the `config.yaml` merge, and the environment variable overrides. See the [configuration reference](./configure.md).                                                                                           |
+| `src/config.js`                                                                         | The defaults, the `config.yaml` merge, and the first-run setup state. See the [configuration reference](./configure.md).                                                                                                    |
 | `src/db.js`                                                                             | The Prisma client and its pool, the shared `BigInt`/lock helpers, the migration bridge, and the boot-time reconciliation of the data directory.                                                                             |
 | `src/routes/`                                                                           | One file per resource — sessions, tokens, users, orgs, packages, blobs, discovery, notifications, admin. Each exports a factory that takes `shared`.                                                                        |
 | `src/auth.js`                                                                           | Bearer token authentication, the automation-token scopes, and the admin/owner checks routes call.                                                                                                                           |
@@ -84,7 +84,7 @@ The first account to sign up on a fresh database becomes the admin, which is wor
 | `src/maintenance.js`                                                                    | Blob garbage collection, the daily integrity sweep that re-hashes stored files, and the startup cleanup of stale temp files.                                                                                                |
 | `src/observability.js`                                                                  | Request counts and timings, the optional per-request JSON log, and the Prometheus endpoint at `/admin/metrics`.                                                                                                             |
 | `src/metrics.js`                                                                        | The daily download rollup into `ExtensionDailyDownloads`, and the distinct-download hashing.                                                                                                                                |
-| `src/download-address.js`                                                               | The key that hashes client addresses for those statistics — read from the environment or `dataDir/secrets/`.                                                                                                                |
+| `src/download-address.js`                                                               | The key that hashes client addresses for those statistics — read from `secrets.downloadHashKey` or `dataDir/secrets/`.                                                                                                      |
 | `src/webhooks.js`                                                                       | Webhook signing, delivery, and retries.                                                                                                                                                                                     |
 | `src/notify.js`, `src/audit.js`                                                         | Notification inserts (they join their caller's transaction) and the append-only audit trail.                                                                                                                                |
 | `src/server-config.js`                                                                  | The settings an admin may change at runtime, and the check that the config file can hold them.                                                                                                                              |
@@ -144,7 +144,7 @@ Concurrency follows `os.availableParallelism()`, kept between two and eight. Set
 
 `test/helpers.mjs` is where the shared pieces live: `boot()` builds the app once per file (cloning its database when the run is isolated), `makeConfig()` composes test settings over the production defaults, `resetDb()` truncates between tests, and the signup/publish helpers drive the API the way a client would.
 
-The suite runs against the real PostgreSQL its own migrations build, and the template is migrated with the same `runMigrations` the server does. A consequence worth knowing: a `PRISMA_*` or `TRIFLARE_DATABASE_URL` in your shell affects it like it would the server.
+The suite runs against the real PostgreSQL its own migrations build, and the template is migrated with the same `runMigrations` the server does. The suite's database URL comes from `TRIFLARE_TEST_DATABASE_URL` (test-only) rather than the server's `config.yaml`.
 
 ### Raw SQL
 

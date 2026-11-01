@@ -23,12 +23,9 @@ To deploy an instance of Triflare Marketplace, you will need:
 
 1. Node.js v24 or newer.
 2. A reachable PostgreSQL database (v16 recommended).
-3. The PostgreSQL database URL set
+3. A PostgreSQL connection URL. First-run onboarding asks for it, or you can set `database.url` in `config.yaml` before the instance starts.
 
-   > You can either:
-   >
-   > 1. Set it in your environment variables: `TRIFLARE_DATABASE_URL`.
-   > 2. Or, set it in `config.yaml`: `database.url`.
+   > The configuration file is the only place settings live; there are no environment variables to set.
 
 4. A database role that may create tables, indexes, functions, and triggers. The schema is applied by the instance itself on first boot.
 5. The `pg_trgm` extension available to that role. The baseline migration runs `CREATE EXTENSION IF NOT EXISTS pg_trgm` before the trigram index that uses it, and on a managed PostgreSQL that extension is often restricted to a superuser or a role with `CREATE` on the database. Enable it once as an operator (`CREATE EXTENSION pg_trgm`) if booting with the extension already installed is easier than granting the privilege.
@@ -53,16 +50,16 @@ This is a one-way door. Taking a backup first is not optional — the baseline i
 Recovery, if a deployment is interrupted mid-adoption and leaves the baseline recorded without the rest of the history in place:
 
 ```bash
-DATABASE_URL="$TRIFLARE_DATABASE_URL" npx prisma migrate resolve --rolled-back 0_baseline --config prisma.config.mjs
+npx prisma migrate resolve --rolled-back 0_baseline --config prisma.config.mjs
 ```
 
-The `DATABASE_URL` prefix matters: `prisma.config.mjs` reads that variable and falls back to a local default when it is unset, so naming it here keeps the command pointed at the database you configured through `TRIFLARE_DATABASE_URL` rather than one on the host.
+`prisma.config.mjs` reads `database.url` from the same `config.yaml` the server uses, so the command is pointed at the instance's database without a `DATABASE_URL` variable.
 
 That removes the baseline's row so the next boot records it again. `--applied` does the opposite, marking it applied without running it, which is what the bridge does for a complete legacy history and should not be needed by hand.
 
 ## ➕ Deploy with Docker Compose
 
-You can run a prebuilt image of Triflare Marketplace at `ghcr.io/triflare/marketplace-api`. Although, that image only supports environment variables, **not** `config.yaml`.
+You can run a prebuilt image of Triflare Marketplace at `ghcr.io/triflare/marketplace-api`. The image carries no configuration, so the first boot serves a setup screen.
 
 1. Copy the compose file to a directory of your choice:
 
@@ -70,25 +67,27 @@ You can run a prebuilt image of Triflare Marketplace at `ghcr.io/triflare/market
    cp compose.example.yml <YOUR_DIRECTORY>/compose.yaml
    ```
 
-2. Set `TRIFLARE_DATABASE_URL` and `TRIFLARE_PUBLIC_BASE_URL` in it. The image is configured through `TRIFLARE_*` variables, and the compose file already carries both keys with values to replace.
-3. Deploy:
+2. Deploy:
 
    ```bash
    docker compose up -d
    ```
 
+3. Open <http://localhost:3000/onboarding> and fill in the database URL and the settings the instance should start with. The screen writes `config.yaml` into the mounted data volume and starts the full instance without a restart.
+
 The container applies the schema and any pending migrations on boot, before it starts serving, so a first deploy needs no manual migrate step. On a database that a previous SQL-migration release built, read the upgrade section above first.
 
-To configure the instance from a file instead, mount one and pass its path as the first argument: `node src/server.js /app/config.yaml` with `/app/config.yaml` bind-mounted from the host. The keys are the ones in the [configuration reference](./configure.md).
+To configure the instance from a file instead, mount one and pass its path as the first argument: `node src/server.js /app/config.yaml` with `/app/config.yaml` bind-mounted from the host. The keys are the ones in the [configuration reference](./configure.md). A mounted file must be writable by the process if you also want to use the setup screen or the admin configuration endpoint.
 
 ## ⚙️ Configuration
 
 The [configuration reference](./configure.md) has every key you can set in Triflare Marketplace. These keys matter the most in a production deployment:
 
-- `TRIFLARE_PUBLIC_BASE_URL`: the public URL of the instance.
-- `TRIFLARE_TRUST_PROXY`: set when the API is running behind a reverse proxy. [See Express' trust proxy values](https://expressjs.com/en/guide/behind-proxies/).
-- `TRIFLARE_REQUIRE_HTTPS`: reject HTTP requests.
-- `TRIFLARE_API_ROOT`: the URL prefix all routes are served under (default is the `defaults.apiRoot` in `product.yml`, currently `/v1`).
+- `publicBaseUrl`: the public URL of the instance.
+- `trustProxy`: set when the API is running behind a reverse proxy. [See Express' trust proxy values](https://expressjs.com/en/guide/behind-proxies/).
+- `requireHttps`: reject HTTP requests.
+- `apiRoot`: the URL prefix all routes are served under (default is the `defaults.apiRoot` in `product.yml`, currently `/v1`).
+- `environment`: set it to `production` on a live instance.
 
 ## ℹ️ The Build Sandbox
 
@@ -103,13 +102,13 @@ When it does, it runs its own copy of Triflare Extend to compile the code. But, 
 
 But, one important thing worth noting is that the environment can't sandbox the network. You are in charge of your own network isolation.
 
-You can substitute the default Triflare Extend build tool with your own (called by `node <command> build -o <out>`), with the `TRIFLARE_COMPILER` environment variable.
+You can substitute the default Triflare Extend build tool with your own (called by `node <command> build -o <out>`) with `compiler.command` in `config.yaml`.
 
 ## 📊 Data Persistence
 
 Published extension source code is saved to disk, not a database. So, you must mount a persistent Docker volume at `/app/data` (or whatever data directory you have set) to keep the saved data. If you are running your deployed instance on multiple servers, you must find a way to share that persistent storage.
 
-The instance's own `config.yaml` lives there too when you do not pass one: an image configured only through environment variables has no file of its own, so the settings an admin saves from the interface are written to `config.yaml` in the data directory. That file is read on the next boot, so a setting that needs a restart takes effect on the next deploy.
+The instance's own `config.yaml` lives there too: the image carries no configuration, so the first-run screen writes `config.yaml` into the data directory, and the admin configuration endpoints edit that same file. It is read on the next boot, so a setting that needs a restart takes effect on the next deploy. The file must be writable by the process for either screen to save anything.
 
 ## ⏭️ What's Next
 

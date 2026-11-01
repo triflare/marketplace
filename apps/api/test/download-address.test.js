@@ -79,13 +79,11 @@ test('an unreadable key file is reported instead of quietly rotated', async () =
   await assert.rejects(() => downloadAddressKey(db, { dataDir: emptyFile }), /empty/);
 });
 
-test('an operator-supplied key is used as is', async () => {
+test('a key configured in the file is used as is', async () => {
   const dataDir = tempDataDir();
-  process.env.TRIFLARE_DOWNLOAD_HASH_KEY = 'operator-key';
-  try {
-    assert.equal(await downloadAddressKey(db, { dataDir }), 'operator-key');
-    assert.ok(!fs.existsSync(keyPath(dataDir)), 'no key file is written behind the operator');
-  } finally {
-    delete process.env.TRIFLARE_DOWNLOAD_HASH_KEY;
-  }
+  assert.equal(
+    await downloadAddressKey(db, { dataDir, secrets: { downloadHashKey: 'operator-key' } }),
+    'operator-key',
+  );
+  assert.ok(!fs.existsSync(keyPath(dataDir)), 'no key file is written behind the operator');
 });

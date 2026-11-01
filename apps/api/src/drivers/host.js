@@ -286,8 +286,8 @@ export function createDriverHost({ config, db, log = console }) {
     await entry.descriptor.close?.();
   }
 
-  // Built-in defaults plus whatever the file and environment said, as the
-  // configuration module resolves them. Kept out of the host so one place
+  // Built-in defaults plus whatever the file said, as the configuration module
+  // resolves them. Kept out of the host so one place
   // decides what a kind's instances are.
   function bootKinds(resolved) {
     for (const kind of listKinds()) {
