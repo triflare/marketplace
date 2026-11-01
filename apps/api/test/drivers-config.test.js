@@ -30,7 +30,7 @@ test('the log mail driver is refused in production', (t) => {
     auth: { methods: [{ driver: 'password' }, { driver: 'magic-link' }] },
     mail: { drivers: [{ driver: 'log' }] },
   });
-  assert.throws(() => loadConfig(file), /log mail driver is refused in production/);
+  assert.throws(() => loadConfig(file), /log mail driver.*production/i);
 });
 
 test('an unknown driver names what is available', (t) => {

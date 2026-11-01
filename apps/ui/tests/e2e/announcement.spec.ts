@@ -31,7 +31,7 @@ test("an announcement is read with the page and sits above the header", async ({
   })
   await visit(page, "/")
 
-  // The text is rendered twice so the scroll loops seamlessly; either copy is
+  // The text is rendered twice so the scroll has no gap; either copy is
   // the same sentence.
   await expect(
     page.getByText("Scheduled maintenance at 02:00 UTC.").first()
@@ -53,7 +53,9 @@ test("an announcement without a link has no details link", async ({ page }) => {
   await announce(page, { message: "Auth methods changed today." })
   await visit(page, "/login")
 
-  await expect(page.getByText("Auth methods changed today.").first()).toBeVisible()
+  await expect(
+    page.getByText("Auth methods changed today.").first()
+  ).toBeVisible()
   await expect(page.getByRole("link", { name: "Details" })).toHaveCount(0)
 })
 

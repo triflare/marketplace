@@ -41,7 +41,10 @@ export function HomePage() {
   // Built during render, not at module load: the API address comes from
   // config.yaml and is not known until the root loader hands it over.
   const quickSteps = [
-    { label: QUICK_STEP_LABELS[0], command: `npm install -g ${extend.package}` },
+    {
+      label: QUICK_STEP_LABELS[0],
+      command: `npm install -g ${extend.package}`,
+    },
     { label: QUICK_STEP_LABELS[1], command: `${extend.command} init` },
     {
       label: QUICK_STEP_LABELS[2],
@@ -323,7 +326,7 @@ export function HomePage() {
 
       <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-muted/30 p-5">
         <div>
-          <h2 className="text-base font-medium">Have an extension to share?</h2>
+          <h2 className="text-base font-medium">Share an extension</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Publish it with {extend.name}, or upload a project archive from the
             publish page.

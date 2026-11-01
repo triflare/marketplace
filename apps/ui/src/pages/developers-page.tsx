@@ -48,7 +48,7 @@ export function DevelopersPage() {
           <GuideStep
             step="2"
             title="Build and try it"
-            description="Build once, or start the development server and reload TurboWarp after each save."
+            description="Run a build, or start the development server and reload TurboWarp after each save."
           >
             <Command value={build} />
             <Command value={dev} />
@@ -142,7 +142,7 @@ export function DevelopersPage() {
       </section>
 
       <section className="rounded-lg border bg-muted/30 p-5">
-        <h2 className="text-base font-medium">Prefer to publish from CI?</h2>
+        <h2 className="text-base font-medium">Publish from CI</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
           Create an automation token with the publish scope, then pass it to the
           CLI as an environment variable. Keep the token in your CI provider’s

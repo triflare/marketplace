@@ -201,7 +201,8 @@ function validate(config, instances) {
   ) {
     errors.push({
       field: 'mail.drivers',
-      message: 'The log mail driver is refused in production, where nobody reads the log.',
+      message:
+        'The log mail driver only writes to the log, so production refuses it: mail would not be delivered.',
     });
   }
 

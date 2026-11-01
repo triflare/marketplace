@@ -1625,7 +1625,7 @@ export class AdminResource {
     )
   }
 
-  // The running process: what a change needs in order to reach this build, and
+  // The running process: what a change needs to reach this build, and
   // the two ways to make it do so.
   getSystem(options: RequestOptions = {}): Promise<SystemStatus> {
     return this.client.request("/admin/system", requestOptions(options))

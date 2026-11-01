@@ -73,7 +73,7 @@ export const ONBOARDING_FIELDS = [
     key: 'cors.allowedOrigins',
     type: 'origins',
     label: 'Browser origins',
-    help: 'The web client origin(s), comma separated, or * for any. Passkeys and magic links need this.',
+    help: 'Comma-separated origins of the web clients, or * for any. Passkeys and magic links need this.',
     placeholder: 'https://registry.example.com',
   },
   {
@@ -98,7 +98,7 @@ export const ONBOARDING_FIELDS = [
     key: 'auth.webauthn.rpId',
     type: 'text',
     label: 'Passkey domain',
-    help: 'Bare hostname passkeys are scoped to. Leave empty to use the hostname of the public base URL.',
+    help: 'The bare hostname that passkeys are scoped to. Leave empty to use the hostname of the public base URL.',
     placeholder: 'example.com',
     nullable: true,
   },

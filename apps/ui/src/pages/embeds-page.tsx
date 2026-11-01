@@ -50,7 +50,7 @@ export function EmbedsPage({
       <PageHeader
         eyebrow="For developers"
         title="Embeds"
-        description="Put a live extension or profile card on your own site or in a README. Cards are plain iframes: no scripts, no API keys, and the light and dark themes follow the card, not the page around it."
+        description="Put a live extension or profile card on your own site or in a README. Cards are plain iframes with no scripts or API keys. Their light and dark themes follow the card, not the page around it."
       />
 
       <EmbedSection

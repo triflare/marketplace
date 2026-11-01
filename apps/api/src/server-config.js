@@ -149,7 +149,7 @@ export const EDITABLE_SETTINGS = [
     type: 'origins',
     restartRequired: true,
     label: 'Allowed origins',
-    help: 'A comma separated list, or * for any.',
+    help: 'A comma-separated list, or * for any.',
   },
 ];
 

@@ -144,7 +144,7 @@ export function DashboardPage() {
       <PageHeader
         eyebrow={`@${user.namespace}`}
         title={`Welcome back, ${user.displayName}`}
-        description="Manage your extensions, read moderation decisions, and keep your account in order."
+        description="Manage your extensions, read moderation decisions, and update your account settings."
         actions={
           <>
             <ButtonLink variant="outline" to="/settings">

@@ -196,8 +196,7 @@
   }
 }
 /* The announcement banner: one line, scrolled. Each copy carries its own
-   trailing space so translating by half the track is a seamless loop rather
-   than a jump at the wrap. */
+   trailing space, so translating by half the track has no jump at the wrap. */
 @keyframes announcement-marquee {
   from {
     transform: translateX(0);

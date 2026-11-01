@@ -100,9 +100,11 @@ export function makeDriversRouter(shared) {
       });
     }
     if (confirmationNeeded && req.body.confirm !== true) {
+      const passkeys = counts.passkeys === 1 ? 'passkey' : 'passkeys';
+      const identities = counts.identities === 1 ? 'identity' : 'identities';
       throw new HttpError(409, {
         slug: 'confirmation-required',
-        detail: `This change affects ${counts.passkeys} passkey(s) and ${counts.identities} linked identity(ies). Send confirm: true to apply it.`,
+        detail: `This change affects ${counts.passkeys} ${passkeys} and ${counts.identities} linked ${identities}. Send confirm: true to apply it.`,
         extra: { destructive: counts },
       });
     }

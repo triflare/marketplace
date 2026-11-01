@@ -64,8 +64,7 @@ function RegistryDown() {
       </h1>
       <p className="text-sm text-muted-foreground">
         The registry isn’t answering right now, so extension pages, search, and
-        publishing can’t load. Nothing you did caused this, and everything
-        already published is safe.
+        publishing can’t load. Published extensions are unaffected.
       </p>
       {stillDown ? (
         <p role="status" className="text-sm text-destructive">

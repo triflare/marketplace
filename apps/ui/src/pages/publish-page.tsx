@@ -103,7 +103,7 @@ export function PublishPage() {
       <PageHeader
         eyebrow="Publishing"
         title="Publish an extension"
-        description={`Use the ${extend.name} CLI to build and publish, or upload a project archive if you already have one. The registry checks every submission before it appears.`}
+        description={`Use the ${extend.name} CLI to build and publish, or upload a project archive if you already have one. A first submission is reviewed before it appears.`}
       />
 
       {needsTerms ? (

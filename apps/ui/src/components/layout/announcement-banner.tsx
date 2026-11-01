@@ -1,7 +1,7 @@
 // The instance announcement: one line scrolled across the top of every page,
 // for the things an operator cannot expect anyone to read on a status page —
 // a maintenance window, a sign-in method that just changed. The text is
-// duplicated so the loop is seamless, and the copy is hidden from assistive
+// duplicated so the loop has no gap, and the copy is hidden from assistive
 // technology: the same sentence is rendered once, statically, for it to read.
 export function AnnouncementBanner({
   banner,
