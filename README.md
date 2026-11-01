@@ -13,36 +13,36 @@ PostgreSQL:
 ## Running the stack
 
 ```bash
-cp .env.example .env
-# fill in SESSION_SECRET, e.g. openssl rand -hex 32
 docker compose up --build
 ```
 
-Then open <http://localhost:3001>. The API answers on
-<http://localhost:3000/v1>, the frontend reaches it over the compose network at
-`http://api:3000/v1`, and PostgreSQL listens on `127.0.0.1:5432`.
+Then open the API's setup screen at <http://localhost:3000/onboarding> and the
+frontend's at <http://localhost:3001/onboarding>. Each writes its own
+`config.yaml` into a data volume, so a redeploy keeps the settings. There are no
+environment variables to fill in.
+
+The API answers on <http://localhost:3000/v1>, the frontend reaches it over the
+compose network at `http://api:3000/v1`, and PostgreSQL listens on
+`127.0.0.1:5432`.
 
 The API container applies the Prisma schema and any pending migrations on boot,
 so a first run needs no manual migrate step.
 
-Two named volumes hold the state: `postgres-data` for the database and
-`triflare-data` for the published sources and blobs. Deleting the second loses
-the registry's contents even though the database survives.
-
-`docker compose up` requires `SESSION_SECRET`; the frontend refuses to start in
-production without it, because sessions would not survive a restart.
+Three named volumes hold the state: `postgres-data` for the database,
+`triflare-data` for the published sources, blobs, and API `config.yaml`, and
+`ui-data` for the frontend's `config.yaml`. Deleting `triflare-data` loses the
+registry's contents even though the database survives.
 
 ## Deploying
 
 The compose file is a development stack: plain HTTP, PostgreSQL credentials in
-the file, and ports on localhost. Behind a proxy or on a real domain, set
-`TRIFLARE_PUBLIC_BASE_URL` and `TRIFLARE_UI_PUBLIC_BASE_URL` to the public
-origins (they end up in install links, badges, and OIDC redirects), and turn on
-`TRIFLARE_REQUIRE_HTTPS` and `TRIFLARE_TRUST_PROXY` so the API reads the
-forwarded scheme and client address. The API's
-[configuration reference](apps/api/docs/configure.md) lists every
-`TRIFLARE_*` variable, and its [deploy guide](apps/api/docs/deploy.md) covers
-upgrades.
+the file, and ports on localhost. Behind a proxy or on a real domain, use the
+setup screens to set `publicBaseUrl` and the frontend's `api.publicUrl` to the
+public origins (they end up in install links, badges, and OIDC redirects), and
+turn on `requireHttps` and `trustProxy` so the API reads the forwarded scheme
+and client address. The API's
+[configuration reference](apps/api/docs/configure.md) lists every key, and its
+[deploy guide](apps/api/docs/deploy.md) covers upgrades.
 
 ## Working on one app
 
@@ -75,19 +75,19 @@ npm run test:e2e   # Playwright against a mock API
 ```
 
 In development the app talks to `http://localhost:3000/v1` unless
-`TRIFLARE_API_URL` says otherwise, so run the API first (or point it at an
-existing instance). `apps/ui/.env.example` lists the three variables it reads.
+`apps/ui/config.yaml` says otherwise, so run the API first (or point it at an
+existing instance). The file also holds the session secret; the first-run screen
+at <http://localhost:3001/onboarding> writes it when the app has no config.
 
 ## Product identity
 
 Each app keeps its identity in a `product.yml`: name, version, tagline, author,
 homepage, the brand palette, the API's config filename, the `extend` block that
 names the compiler and CLI (`name`, `package`, `command`, `configFilename`) and
-the project file every install and publish instruction is built from, and the
-`envPrefix` its environment variables start with. The API reads its file at
-boot, so a rebrand is an edit and a restart. The frontend parses its copy during the build and
-inlines the values into both bundles, so a rebrand there needs `npm run build`
-(or `docker compose up --build`) again.
+the project file every install and publish instruction is built from. The API
+reads its file at boot, so a rebrand is an edit and a restart. The frontend parses
+its copy during the build and inlines the values into both bundles, so a rebrand
+there needs `npm run build` (or `docker compose up --build`) again.
 
 ## Repository layout
 
@@ -97,7 +97,6 @@ apps/
   ui/       Triflare Marketplace frontend, plus the Dockerfile this repo adds
 .github/    CI, CD, and Dependabot for the whole repository
 docker-compose.yml
-.env.example
 ```
 
 ## CI

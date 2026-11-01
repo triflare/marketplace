@@ -1,8 +1,11 @@
 # The whole product in one stack: the registry API, the web frontend that talks
 # to it, and the PostgreSQL the API keeps its schema and data in.
 #
-#   cp .env.example .env   # set SESSION_SECRET
 #   docker compose up --build
+#
+# Then open the API's setup screen at http://localhost:3000/onboarding and the
+# frontend's at http://localhost:3001/onboarding. Each writes its own
+# config.yaml into the data volume, so a redeploy keeps the settings.
 #
 # The API listens on http://localhost:3000 and the frontend on
 # http://localhost:3001.
@@ -30,46 +33,28 @@ services:
 
   api:
     build: ./apps/api
-    environment:
-      TRIFLARE_DATABASE_URL: postgres://triflare:triflare@db:5432/triflare
-      # Absolute URL the API advertises in install links, badges, and the OIDC
-      # redirect. Browsers resolve it, so it is the published host port.
-      TRIFLARE_PUBLIC_BASE_URL: ${TRIFLARE_PUBLIC_BASE_URL:-http://localhost:3000}
-      # Page a browser opens to approve a CLI sign-in. Without it the device
-      # flow stays off, since there would be no page to approve on.
-      TRIFLARE_DEVICE_VERIFICATION_URL: ${TRIFLARE_UI_PUBLIC_BASE_URL:-http://localhost:3001}/device
-      # The frontend is on its own origin here, so the API has to be told that
-      # origin is trusted: a passkey ceremony runs there, and a magic link has
-      # to be allowed to send the browser back to it.
-      TRIFLARE_CORS_ALLOWED_ORIGINS: ${TRIFLARE_UI_PUBLIC_BASE_URL:-http://localhost:3001}
-      TRIFLARE_LOG_REQUESTS: 'false'
     ports:
       - '3000:3000'
     volumes:
-      # Published sources and blobs. Losing it loses the registry's contents
-      # even though the database survives.
+      # Published sources and blobs, plus the config.yaml onboarding writes.
+      # Losing it loses the registry's contents even though the database
+      # survives.
       - triflare-data:/app/data
     depends_on:
       db:
         condition: service_healthy
 
   ui:
-    build:
-      context: ./apps/ui
-      args:
-        # Inlined into the browser bundle, so it has to be the API URL a
-        # visitor's browser can reach, not the service name.
-        VITE_TRIFLARE_API_URL: ${TRIFLARE_PUBLIC_BASE_URL:-http://localhost:3000}/v1
-    environment:
-      # Server-side requests stay on the compose network.
-      TRIFLARE_API_URL: http://api:3000/v1
-      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET must be set — copy .env.example to .env and fill it in}
-      PORT: 3000
+    build: ./apps/ui
     ports:
-      - '3001:3000'
+      - '3001:3001'
+    volumes:
+      # The web frontend's config.yaml, written by its setup screen.
+      - ui-data:/app/data
     depends_on:
       - api
 
 volumes:
   postgres-data:
   triflare-data:
+  ui-data:
