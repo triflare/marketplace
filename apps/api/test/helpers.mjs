@@ -31,21 +31,20 @@ export const TEST_DATABASE_URL =
   process.env.TRIFLARE_TEST_DATABASE_URL ??
   'postgres://postgres:postgres@localhost:5432/triflare_test';
 
-// `scripts/test-run.mjs` sets this when it runs the files concurrently: each
-// file then builds its app against a clone of the migrated database instead of
-// the one every other file is resetting, so two files running at once cannot
-// truncate each other's rows. A file run straight from the shell (`node --test
-// test/foo.test.js`) leaves the flag unset and shares the one database, which
-// is what the runner expects without the orchestrator.
+// When the flag is set, each file builds its app against a clone of the
+// migrated database instead of the one every other file is resetting, so two
+// files running at once cannot truncate each other's rows. A file run straight
+// from the shell (`node --test test/foo.test.js`) leaves the flag unset and
+// shares the one database.
 const ISOLATED = process.env.TRIFLARE_TEST_ISOLATED === '1';
 
 // A clone is named `<base>_w<runId>_<pid>`: the run that made it, then the
 // process. The pid keeps two files in the same run apart; the run id — this
-// run's start time, set by `scripts/test-run.mjs` alongside the isolated flag —
-// lets that runner tell the clones a live concurrent run is using from the ones
-// a crashed run left behind, so sweeping one run's residue cannot drop the
-// other's working databases. A pid alone would not: it is unique only among the
-// processes alive at once, so two runs on one machine are indistinguishable.
+// run's start time, paired with the isolated flag — lets a run tell the clones
+// a live concurrent run is using from the ones a crashed run left behind, so
+// sweeping one run's residue cannot drop the other's working databases. A pid
+// alone would not: it is unique only among the processes alive at once, so two
+// runs on one machine are indistinguishable.
 const RUN_ID = process.env.TRIFLARE_TEST_RUN_ID ?? String(Date.now());
 const PROCESS_DATABASE_URL = (() => {
   if (!ISOLATED) return TEST_DATABASE_URL;
@@ -165,7 +164,8 @@ function describeBootFailure(error, url) {
   if (error?.code === '3D000') {
     return (
       `the test database "${database}" does not exist.\n\n` +
-      '`npm run test:setup` starts the test Postgres and creates it.'
+      '`docker compose -f compose.test.yml up -d` starts the test Postgres,\n' +
+      'and its POSTGRES_DB setting creates the database on first boot.'
     );
   }
   // The driver wraps its connect errors; the code and message worth showing can
@@ -180,16 +180,16 @@ function describeBootFailure(error, url) {
     const detail = chain.map((e) => e?.message).find(Boolean) ?? connectCode;
     return (
       `the test database at ${shown} is not reachable (${detail}).\n\n` +
-      '`npm test` needs the Postgres container CI runs — `npm run test:setup`\n' +
-      'starts it. If your database lives elsewhere, point\n' +
+      'The suite needs a Postgres container; `docker compose -f compose.test.yml\n' +
+      'up -d` starts one. If your database lives elsewhere, point\n' +
       'TRIFLARE_TEST_DATABASE_URL at it.'
     );
   }
   return null;
 }
 
-// One connection attempt, classified by describeBootFailure. `npm test` runs
-// this before the suite (see test/preflight.mjs) so a missing database is one
+// One connection attempt, classified by describeBootFailure. The preflight
+// (test/preflight.mjs) runs this before the suite so a missing database is one
 // clear message and a stop, rather than every test file failing on its own
 // boot() with the same hint 200-odd times. boot() keeps its own rewrite as the
 // fallback for files run directly, which skip the preflight.
@@ -210,10 +210,10 @@ export async function checkTestDatabase(url = TEST_DATABASE_URL) {
 
 // Each test file boots the whole app in its own process, so a boot that ran the
 // migration bridge would spawn `prisma migrate deploy` once per file just to
-// discover there is nothing to apply. In an `npm test` run the template was
-// already migrated before the files started and every clone inherits that
-// history, so this is that nothing-to-apply case; a single file run against a
-// database that has not been migrated fails the check and migrates as before.
+// discover there is nothing to apply. When the file runs against an already
+// migrated database (the template, or a clone of it), this is that
+// nothing-to-apply case; a single file run against a database that has not been
+// migrated fails the check and migrates as before.
 // `test/migrations.test.js` drives `runMigrations` directly rather than through
 // `boot()`, so the bridge itself stays covered.
 async function migrationsAreCurrent(config) {

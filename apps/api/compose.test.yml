@@ -1,8 +1,8 @@
-# The Postgres that `npm test` expects: the same image, port, and credentials
-# the CI test job runs (see .github/workflows/ci.yml), so a green suite locally
-# means the same suite is green in CI. `npm run test:setup` starts it and
-# creates the test database; the data lives in a named volume, so this is a
-# one-time start per machine rather than something to re-run before every test.
+# The Postgres the test suite expects. The data lives in a named volume, so this
+# is a one-time start per machine rather than something to re-run before every
+# test:
+#
+#   docker compose -f compose.test.yml up -d
 #
 # Its own compose project (`triflare-test`, not the directory's `triflare`) so
 # its up/down never touches a compose.example.yml stack running from the same
