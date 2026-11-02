@@ -3,6 +3,18 @@
 // a maintenance window, a sign-in method that just changed. The text is
 // duplicated so the loop has no gap, and the copy is hidden from assistive
 // technology: the same sentence is rendered once, statically, for it to read.
+// The banner comes from the API, so the link is treated as untrusted: only
+// http(s) and same-origin paths are rendered, never `javascript:` or `data:`.
+function safeHref(value: string): string | null {
+  if (value.startsWith("/") && !value.startsWith("//")) return value
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? value : null
+  } catch {
+    return null
+  }
+}
+
 export function AnnouncementBanner({
   banner,
 }: {
@@ -11,6 +23,8 @@ export function AnnouncementBanner({
   if (!banner) {
     return null
   }
+
+  const href = banner.link ? safeHref(banner.link) : null
 
   return (
     <div className="border-b bg-primary text-primary-foreground">
@@ -27,9 +41,9 @@ export function AnnouncementBanner({
           </div>
         </div>
         <span className="sr-only">{banner.message}</span>
-        {banner.link ? (
+        {href ? (
           <a
-            href={banner.link}
+            href={href}
             className="shrink-0 font-medium underline underline-offset-2 hover:opacity-80"
             rel="noreferrer noopener"
             target="_blank"
