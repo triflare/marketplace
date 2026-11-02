@@ -30,7 +30,13 @@ import { formatDate, formatNumber } from "@/lib/format"
 import { manageKeys } from "@/lib/preload"
 import { errorMessage, saveBlob, th } from "@/lib/registry"
 
-export function VersionsTab({ extension }: { extension: ExtensionDetail }) {
+export function VersionsTab({
+  extension,
+  onChanged,
+}: {
+  extension: ExtensionDetail
+  onChanged?: () => void
+}) {
   const [deprecateTarget, setDeprecateTarget] = useState<VersionInfo | null>(
     null
   )
@@ -74,6 +80,7 @@ export function VersionsTab({ extension }: { extension: ExtensionDetail }) {
       toast.success("Version updated.")
       setDeprecateTarget(null)
       hidden.reload()
+      onChanged?.()
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
@@ -95,6 +102,7 @@ export function VersionsTab({ extension }: { extension: ExtensionDetail }) {
       toast.success("Version removed.")
       setYankTarget(null)
       hidden.reload()
+      onChanged?.()
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {

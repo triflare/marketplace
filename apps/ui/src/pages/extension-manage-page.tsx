@@ -169,7 +169,7 @@ function ExtensionManage({ namespace, id }: { namespace: string; id: string }) {
         </TabsList>
 
         <TabsContent value="releases">
-          <VersionsTab extension={extension} />
+          <VersionsTab extension={extension} onChanged={access.reload} />
         </TabsContent>
         <TabsContent value="labels">
           <TagsTab extension={extension} />
