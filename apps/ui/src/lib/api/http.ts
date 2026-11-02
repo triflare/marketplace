@@ -274,7 +274,8 @@ export class HttpClient {
       // `/me` and its `/users/{namespace}`. A profile edit names the latter, so
       // the revision read from either has to be remembered for both.
       if (path === "/me") {
-        const namespace = (body as { namespace?: unknown } | undefined)?.namespace
+        const namespace = (body as { namespace?: unknown } | undefined)
+          ?.namespace
         const tag = response.headers.get("etag")
         if (typeof namespace === "string" && tag) {
           this.#etags.set(`/users/${namespace}`, tag)

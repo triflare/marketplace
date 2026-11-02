@@ -362,13 +362,11 @@ export function SecurityTab() {
 
               {generatedPassword ? (
                 <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3">
-                  <p className="text-sm font-medium">
-                    Save this password now
-                  </p>
+                  <p className="text-sm font-medium">Save this password now</p>
                   <p className="text-xs text-muted-foreground">
                     It is shown once, and the registry keeps no readable copy.
                   </p>
-                  <p className="break-all font-mono text-sm">
+                  <p className="font-mono text-sm break-all">
                     {generatedPassword}
                   </p>
                   <CopyButton

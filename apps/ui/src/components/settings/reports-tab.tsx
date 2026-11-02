@@ -110,9 +110,7 @@ function ReportDialog({
 }) {
   return (
     <Dialog open={id !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
-        {id ? <ReportDetail id={id} /> : null}
-      </DialogContent>
+      <DialogContent>{id ? <ReportDetail id={id} /> : null}</DialogContent>
     </Dialog>
   )
 }

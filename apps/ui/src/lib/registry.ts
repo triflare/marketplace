@@ -31,12 +31,7 @@ export function configureApiBaseUrl(value: string): void {
   CLI_HUB_URL_FLAG = IS_OFFICIAL_INSTANCE ? "" : ` --url ${API_BASE_URL}`
 }
 
-export {
-  API_BASE_URL,
-  API_ORIGIN,
-  CLI_HUB_URL_FLAG,
-  IS_OFFICIAL_INSTANCE,
-}
+export { API_BASE_URL, API_ORIGIN, CLI_HUB_URL_FLAG, IS_OFFICIAL_INSTANCE }
 export const ASSET_PATH = "/__asset"
 export const BADGE_PATH = "/__badge"
 

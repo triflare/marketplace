@@ -21,11 +21,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { ButtonLink } from "@/components/common/button-link"
 import { AuthProvider } from "@/context/auth"
 import { resolveActiveAccount } from "@/lib/accounts.server"
-import {
-  browserApiUrl,
-  serverApi,
-  serverApiUrl,
-} from "@/lib/api.server"
+import { browserApiUrl, serverApi, serverApiUrl } from "@/lib/api.server"
 import { getConfig } from "@/lib/config.server"
 import { PreloadProvider } from "@/lib/preload"
 import { product } from "@/lib/product"

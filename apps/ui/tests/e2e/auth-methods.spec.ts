@@ -316,7 +316,9 @@ test("a passwordless sign-up can add a passkey on the spot", async ({
   ).toBeVisible()
 
   await page.getByRole("button", { name: "Continue" }).click()
-  await expect(page.getByRole("heading", { name: "Add a passkey?" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Add a passkey?" })
+  ).toBeVisible()
 
   await page.getByRole("button", { name: "Create a passkey" }).click()
   // The first passkey is the second factor, so its backup codes are shown once.
@@ -340,7 +342,9 @@ test("skipping the passkey offer goes straight to the session choice", async ({
   await page.getByLabel("Email").fill("skipping@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
   await page.getByRole("button", { name: "Continue" }).click()
-  await expect(page.getByRole("heading", { name: "Add a passkey?" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Add a passkey?" })
+  ).toBeVisible()
 
   await page.getByRole("button", { name: "Not now" }).click()
   await expect(
