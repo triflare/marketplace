@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Router } from 'express';
-import { hashToken, requireSession } from '../auth.js';
+import { hashToken, makeRequireRecentAuth, requireSession } from '../auth.js';
 import { beginSigninMfa, hasPasskeys } from '../mfa.js';
 import { makeOidcClient, newSecret, oidcEnabled, OidcError } from '../oidc.js';
 import { methodSummaries } from '../drivers/auth.js';
 import { deviceEnabled } from '../device.js';
-import { conflict, fieldErrors, HttpError, notFound } from '../errors.js';
+import { conflict, fieldErrors, forbidden, HttpError, notFound } from '../errors.js';
 import { productSlug } from '../product.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
 import { sessionToObject, userToObject } from '../serialize.js';
@@ -30,6 +30,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   const enabled = oidcEnabled(config);
   const client = enabled ? makeOidcClient(config) : null;
   const sessionTtlMs = config.auth.sessionTtlDays * 86_400_000;
+  const requireRecentAuth = makeRequireRecentAuth(config);
 
   // The flow is bound to the browser that started it by a secret in a cookie:
   // the callback has to present the same secret, so a callback minted in one
@@ -227,8 +228,11 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
   // is a lasting change to how the account can be signed into: a session is
   // the account acting as itself, while an automation token is a credential
   // that should not be able to bind a new identity to the account.
-  router.post('/oidc/link', requireSession, async (req, res) => {
+  router.post('/oidc/link', requireSession, requireRecentAuth, async (req, res) => {
     if (!enabled) throw notFound();
+    if (config.auth.policy.allowAccountLinking === false) {
+      throw forbidden('Linking another sign-in method is turned off on this instance.');
+    }
     requireObjectBody(req);
     const returnTo = returnToPath(req.body.returnTo, config);
     const state = newSecret();
