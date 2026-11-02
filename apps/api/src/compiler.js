@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { product } from './product.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_LOG_BYTES = 16384;
+// The child may write anywhere in the project directory, so its output is
+// bounded before it is read: a stray large file must not become an API-sized
+// allocation. This sits above any output a real build can minify down to the
+// configured blob limit.
+const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 // The build tool named in product.yml; a rename there moves the path too.
 const EXTEND_PACKAGE = product.extend?.package ?? '@triflare/extend';
@@ -212,6 +217,16 @@ exec ${command}`;
         return;
       }
       try {
+        const info = await stat(output);
+        if (info.size > MAX_OUTPUT_BYTES) {
+          resolve({
+            ok: false,
+            error: `The compiler wrote ${info.size} bytes, more than the ${MAX_OUTPUT_BYTES} allowed.`,
+            log: log(),
+            durationMs: Date.now() - started,
+          });
+          return;
+        }
         const codeBuffer = await readFile(output);
         resolve({
           ok: true,
