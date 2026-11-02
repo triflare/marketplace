@@ -116,7 +116,11 @@ function ConfigSection() {
           <SettingRow
             key={setting.key}
             setting={setting}
-            value={overrides[setting.key] ?? setting.value}
+            value={
+              Object.hasOwn(overrides, setting.key)
+                ? overrides[setting.key]
+                : setting.value
+            }
             onChange={(value) => setValue(setting, value)}
           />
         ))}
