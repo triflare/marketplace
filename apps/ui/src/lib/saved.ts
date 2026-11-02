@@ -41,7 +41,13 @@ function isSavedExtension(value: unknown): value is SavedExtension {
 
 function publish(next: SavedExtension[]) {
   saved = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+  } catch {
+    // Storage can be blocked or full. The in-memory list is still the one this
+    // tab acts on, and subscribers still hear about the change; only the copy
+    // that would survive a reload is missing.
+  }
   for (const listener of listeners) {
     listener()
   }

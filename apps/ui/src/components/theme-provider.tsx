@@ -86,7 +86,13 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme)
+      // Storage can be blocked (private windows, hardened profiles). The choice
+      // still applies to this tab even when it cannot be remembered.
+      try {
+        localStorage.setItem(storageKey, nextTheme)
+      } catch {
+        // Ignored: the applied class below is what the reader sees.
+      }
       setThemeState(nextTheme)
     },
     [storageKey]
