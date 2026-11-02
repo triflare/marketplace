@@ -41,9 +41,16 @@ export function makeEmailOtpRouter({ db, config, rateLimiter, drivers }) {
     const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
     // Guessing is bounded per caller and per address, the same pair of buckets
     // the password route uses for the same reason.
-    await rateLimiter.loginCheck(`email-otp:verify:${req.ip}`);
-    await rateLimiter.loginCheck(`email-otp:verify:${email}`);
-    await consumeEmailOtp(db, email, code);
+    const recordFailures = await Promise.all([
+      rateLimiter.loginCheck(`email-otp:verify:${req.ip}`),
+      rateLimiter.loginCheck(`email-otp:verify:${email}`),
+    ]);
+    try {
+      await consumeEmailOtp(db, email, code);
+    } catch (error) {
+      await Promise.all(recordFailures.map((record) => record()));
+      throw error;
+    }
     const { user } = await accountForEmailOtp(db, config, email);
 
     if (await hasPasskeys(db, user.Id)) {
