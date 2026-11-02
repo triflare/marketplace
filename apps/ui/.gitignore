@@ -19,6 +19,9 @@ test-results
 playwright-report
 blob-report
 
+# Runtime data the setup screen writes (including config.yaml and its secrets)
+data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
