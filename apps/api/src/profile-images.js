@@ -13,6 +13,13 @@ import { payloadTooLarge, unsupportedMediaType } from './errors.js';
 // route will read.
 export const MAX_PROFILE_IMAGE_BYTES = 16 * 1024 * 1024;
 
+// A 16 MiB file can still decode to far more pixels than the stored image will
+// ever use: an uncompressed PNG within the byte cap reaches roughly a gigabyte
+// of RGBA. The pixel and frame budgets bound what the decoder allocates, not
+// just what the upload weighs.
+const DECODE_LIMITS = { limitInputPixels: 40_000_000 };
+const MAX_ANIMATED_FRAMES = 128;
+
 // Which images an account can upload, and how each maps to the columns and the
 // serving path. Keeping both in one table means adding a third image later
 // cannot half-work in the upload route and the serving route.
@@ -104,9 +111,17 @@ export async function fitProfileImage(kind, buffer, contentType) {
   const { width, height, fit } = PROFILE_IMAGES[kind];
   let source;
   try {
-    source = await sharp(buffer).metadata();
+    source = await sharp(buffer, DECODE_LIMITS).metadata();
   } catch {
     throw unsupportedMediaType('The uploaded file is not a readable image.');
+  }
+  // A GIF can carry thousands of frames, each a full decode, and the pixel
+  // limit is a per-frame bound. The page count comes from the header, before
+  // the decoder is asked to expand them.
+  if ((source.pages ?? 1) > MAX_ANIMATED_FRAMES) {
+    throw unsupportedMediaType(
+      `The image has ${source.pages} frames, more than the ${MAX_ANIMATED_FRAMES} allowed.`,
+    );
   }
   // An avatar is left alone at any size that fits, since inside is a bound and
   // not a target. A banner has to reach the ratio as well as the size, so the
@@ -124,7 +139,10 @@ export async function fitProfileImage(kind, buffer, contentType) {
   // asked for on a file that was accepted seconds earlier.
   let resized;
   try {
-    resized = await sharp(buffer, { animated: contentType === 'image/gif' })
+    resized = await sharp(buffer, {
+      ...(contentType === 'image/gif' ? { animated: true } : {}),
+      ...DECODE_LIMITS,
+    })
       .resize(width, height, { fit, position: 'centre', withoutEnlargement: true })
       .toBuffer({ resolveWithObject: true });
   } catch {
