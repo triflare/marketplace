@@ -213,7 +213,18 @@ export function publicApiUrl(config = getConfig()) {
 
 /** null where the platform has no mount table to read. */
 function inContainer() {
-  return existsSync("/.dockerenv") || existsSync("/run/.containerenv")
+  if (existsSync("/.dockerenv") || existsSync("/run/.containerenv")) return true
+  // Kubernetes does not create either marker, so recognize the service
+  // account mount and cgroup names containerd and kubelet leave behind.
+  if (process.env.KUBERNETES_SERVICE_HOST) return true
+  if (existsSync("/var/run/secrets/kubernetes.io/serviceaccount")) return true
+  try {
+    return /(?:^|\/)(?:kubepods|docker|containerd|libpod)(?:\/|$)/i.test(
+      readFileSync("/proc/1/cgroup", "utf8")
+    )
+  } catch {
+    return false
+  }
 }
 
 function readMountInfo() {
