@@ -3,7 +3,7 @@ import compression from 'compression';
 import { makeCors } from './cors.js';
 import { makeRequestId } from './request-id.js';
 import { makeResponseHints } from './http-hints.js';
-import { errorHandler, notFound } from './errors.js';
+import { errorHandler, HttpError, notFound } from './errors.js';
 import { normalizeApiRoot } from './util.js';
 import { makeOnboardingRouter } from './routes/onboarding.js';
 import { product } from './product.js';
@@ -21,6 +21,12 @@ export function createSetupApp({ config, system = {} }) {
   app.use(makeRequestId());
   app.use(compression());
   app.use(makeResponseHints());
+  if (config.requireHttps) {
+    app.use((req, res, next) => {
+      if (req.secure) return next();
+      return next(new HttpError(403, { title: 'Forbidden', detail: 'HTTPS is required.' }));
+    });
+  }
   app.use(makeCors(config.cors));
 
   const jsonBody = express.json({ limit: '100kb' });
