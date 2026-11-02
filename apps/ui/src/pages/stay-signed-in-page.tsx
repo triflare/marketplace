@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { product } from "@/lib/product"
+import { safeReturnPath } from "@/lib/return-path"
 
 export function StaySignedInPage() {
   const { user, loading, remember } = useAuth()
@@ -18,11 +19,7 @@ export function StaySignedInPage() {
     "Choose how long this browser keeps you signed in."
   )
 
-  const rawNext = params.get("next")
-  const next =
-    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
-      ? rawNext
-      : "/dashboard"
+  const next = safeReturnPath(params.get("next"))
 
   if (loading) {
     return null

@@ -1,5 +1,6 @@
 import { redirect } from "react-router"
 
+import { safeReturnPath } from "@/lib/return-path"
 import { readSession } from "@/lib/session.server"
 
 export { LoginPage as default } from "@/pages/login-page"
@@ -13,8 +14,5 @@ export async function loader({ request }: { request: Request }) {
     return null
   }
 
-  const next = params.get("next")
-  const target =
-    next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard"
-  throw redirect(target)
+  throw redirect(safeReturnPath(params.get("next")))
 }

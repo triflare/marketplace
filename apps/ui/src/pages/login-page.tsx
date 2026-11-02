@@ -30,18 +30,12 @@ import {
 } from "@/lib/auth-methods"
 import { product } from "@/lib/product"
 import { API_BASE_URL, errorMessage, th } from "@/lib/registry"
+import { safeReturnPath } from "@/lib/return-path"
 
 // The forms this page has, in the order it offers them. A driver that is
 // advertised but not in this list is named in the copy instead of being given a
 // form that could not finish.
 type Pane = "password" | "passkey" | "email"
-
-function safeNext(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/dashboard"
-  }
-  return value
-}
 
 function defaultPane(methods: AuthMethod[]): Pane | null {
   if (hasMethod(methods, "password")) return "password"
@@ -62,7 +56,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const { user, loading, signIn, acceptSession } = useAuth()
-  const next = safeNext(params.get("next"))
+  const next = safeReturnPath(params.get("next"))
   // Signing in from the account menu adds to the accounts this browser holds
   // instead of replacing the one in use.
   const adding = params.get("add") === "1"
