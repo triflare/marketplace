@@ -126,7 +126,9 @@ export function compileProject(
       `--allow-fs-read=${projectDir}`,
       `--allow-fs-read=${path.join(HERE, '..', 'node_modules')}`,
       // Node reads the entrypoint implicitly from 24.2 on, and a substituted
-      // compiler lives outside both paths above.
+      // compiler lives outside both paths above. Its directory is granted too,
+      // so a multi-file compiler can import the modules beside it.
+      `--allow-fs-read=${path.dirname(cli)}`,
       `--allow-fs-read=${cli}`,
       `--allow-fs-write=${projectDir}`,
       cli,
