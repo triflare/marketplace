@@ -20,6 +20,7 @@ export function TransfersTab({ extension }: { extension: ExtensionDetail }) {
   const [target, setTarget] = useState("")
   const [pending, setPending] = useState(false)
   const [withdrawTarget, setWithdrawTarget] = useState<string | null>(null)
+  const [acceptTarget, setAcceptTarget] = useState<string | null>(null)
 
   const transfers = useAsync(
     (signal) =>
@@ -78,6 +79,7 @@ export function TransfersTab({ extension }: { extension: ExtensionDetail }) {
         extension.id,
         to
       )
+      setAcceptTarget(null)
       transfers.reload()
       toast.success("Transfer accepted.")
     } catch (error) {
@@ -133,7 +135,7 @@ export function TransfersTab({ extension }: { extension: ExtensionDetail }) {
                   <Button
                     size="xs"
                     variant="outline"
-                    onClick={() => void accept(transfer.to)}
+                    onClick={() => setAcceptTarget(transfer.to)}
                     disabled={pending}
                   >
                     Accept
@@ -181,6 +183,16 @@ export function TransfersTab({ extension }: { extension: ExtensionDetail }) {
         destructive
         pending={pending}
         onConfirm={() => void withdraw()}
+      />
+
+      <ConfirmDialog
+        open={acceptTarget !== null}
+        onOpenChange={(open) => !open && setAcceptTarget(null)}
+        title={`Take over @${extension.namespace}/${extension.id}?`}
+        description="Every release and owner invitation moves to your account. This cannot be undone from the page."
+        confirmLabel="Accept transfer"
+        pending={pending}
+        onConfirm={() => acceptTarget && void accept(acceptTarget)}
       />
     </div>
   )
