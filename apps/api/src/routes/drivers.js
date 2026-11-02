@@ -43,6 +43,13 @@ export function makeDriversRouter(shared) {
     return entries;
   }
 
+  function maskInstances(kind, instances) {
+    return instances.map((entry) => ({
+      ...entry,
+      options: maskOptions(kind, entry),
+    }));
+  }
+
   router.get('/admin/drivers', requireAdmin, (req, res) => {
     res.json({ drivers: catalog(), revision: drivers.revision() });
   });
@@ -94,7 +101,7 @@ export function makeDriversRouter(shared) {
       return res.json({
         dryRun: true,
         kind,
-        instances: resolved,
+        instances: maskInstances(kind, resolved),
         destructive: counts,
         requiresConfirmation: confirmationNeeded,
       });
@@ -146,7 +153,18 @@ export function makeDriversRouter(shared) {
       }
     }
 
-    await audit(db, req.auth.user, 'drivers.update', {}, { kind, instances: resolved });
+    // The audit record is read back through the admin API, so it gets the same
+    // masked shape as a read: the fact that a secret changed, never the secret.
+    await audit(
+      db,
+      req.auth.user,
+      'drivers.update',
+      {},
+      {
+        kind,
+        instances: maskInstances(kind, resolved),
+      },
+    );
     res.json({
       kind,
       applied: rebuilt || !['auth', 'mail'].includes(kind) ? 'live' : 'restart',
