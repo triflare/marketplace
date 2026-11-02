@@ -52,7 +52,7 @@ interface AuthContextValue {
   acceptSession: (session: AuthSession) => void
   /** Make another account this browser holds the one every request runs as. */
   switchAccount: (namespace: string) => Promise<void>
-  remember: (remember: boolean) => void
+  remember: (remember: boolean) => Promise<void>
   signOut: () => Promise<void>
   refresh: () => Promise<void>
   setUser: (user: User) => void
@@ -138,13 +138,18 @@ export function AuthProvider({
     [acceptSession]
   )
 
-  const remember = useCallback((stay: boolean) => {
-    void fetch("/__session/remember", {
+  const remember = useCallback(async (stay: boolean) => {
+    const response = await fetch("/__session/remember", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ remember: stay }),
       credentials: "same-origin",
     })
+    // The page navigates on the strength of this answer, so a refusal has to
+    // reach it: otherwise "only this tab" leaves the long-lived cookie in place.
+    if (!response.ok) {
+      throw new Error("We couldn’t save that choice.")
+    }
   }, [])
 
   const switchAccount = useCallback(async (namespace: string) => {

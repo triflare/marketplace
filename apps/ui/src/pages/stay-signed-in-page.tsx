@@ -1,11 +1,13 @@
 import { useState } from "react"
 import { Navigate, useNavigate, useSearchParams } from "react-router"
+import { toast } from "sonner"
 
 import { UserAvatar } from "@/components/common/user-avatar"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/auth"
 import { usePageMeta } from "@/hooks/use-page-meta"
 import { product } from "@/lib/product"
+import { errorMessage } from "@/lib/registry"
 import { safeReturnPath } from "@/lib/return-path"
 
 export function StaySignedInPage() {
@@ -29,10 +31,15 @@ export function StaySignedInPage() {
     return <Navigate to="/login" replace />
   }
 
-  function choose(stay: boolean) {
+  async function choose(stay: boolean) {
     setLeaving(true)
-    remember(stay)
-    navigate(next, { replace: true })
+    try {
+      await remember(stay)
+      navigate(next, { replace: true })
+    } catch (error) {
+      setLeaving(false)
+      toast.error(errorMessage(error))
+    }
   }
 
   return (
