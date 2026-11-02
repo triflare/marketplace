@@ -166,6 +166,9 @@ function mergeDeep(base, override, path = '') {
   if (typeof base === 'object' && base !== null) {
     const out = structuredClone(base);
     for (const [key, value] of Object.entries(override)) {
+      // YAML can name these, and assigning them would retarget the object's
+      // prototype instead of adding a setting nobody asked for.
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
       if (value !== undefined)
         out[key] = mergeDeep(base[key], value, path ? `${path}.${key}` : key);
     }
