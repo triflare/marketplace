@@ -1,7 +1,7 @@
 # The build stage produces both halves of the app: the browser assets and the
 # SSR bundle server.js runs. The API address is not baked into the browser
 # bundle; it comes from config.yaml at runtime.
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+FROM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ RUN npm run build
 
 # The runtime only needs the server, the client assets, and production
 # dependencies: the compiler and dev server are build-time tools.
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53
+FROM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
 
 WORKDIR /app
 
