@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import { createCookieSessionStorage, type Session } from "react-router"
 
 import type { AccountSummary } from "@/lib/accounts"
@@ -27,7 +29,10 @@ let sessionStorage: ReturnType<
 function sessionStore() {
   if (sessionStorage) return sessionStorage
   const config = getConfig()
-  const secret = config.session.secret ?? "triflare-setup-mode-session-secret"
+  // Before onboarding there is no configured secret and the cookie is only a
+  // placeholder. It is still a per-process random value: a constant would make
+  // every setup-mode cookie verifiable by anyone reading this file.
+  const secret = config.session.secret ?? randomBytes(32).toString("base64url")
   sessionStorage = createCookieSessionStorage<SessionData>({
     cookie: {
       name: config.session.name,
