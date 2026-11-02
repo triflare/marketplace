@@ -54,13 +54,7 @@ function errorFor(
   return errors?.find((error) => error.field === key)?.message
 }
 
-function Field({
-  field,
-  error,
-}: {
-  field: OnboardingField
-  error?: string
-}) {
+function Field({ field, error }: { field: OnboardingField; error?: string }) {
   const id = `field-${field.key.replaceAll(".", "-")}`
   const placeholder =
     field.key === "session.secret" && field.configured
@@ -72,7 +66,10 @@ function Field({
   if (field.type === "boolean") {
     return (
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={id} className="flex items-center gap-2 text-sm font-medium">
+        <label
+          htmlFor={id}
+          className="flex items-center gap-2 text-sm font-medium"
+        >
           <input
             id={id}
             name={field.key}
@@ -128,7 +125,13 @@ function Field({
       <Input
         id={id}
         name={field.key}
-        type={field.type === "number" ? "number" : field.secret ? "password" : "text"}
+        type={
+          field.type === "number"
+            ? "number"
+            : field.secret
+              ? "password"
+              : "text"
+        }
         defaultValue={field.secret ? "" : String(field.value ?? "")}
         placeholder={placeholder}
         min={field.min ?? undefined}
@@ -164,7 +167,9 @@ export default function Onboarding() {
 
       <section className="rounded-lg border p-4 text-sm">
         <p className="font-medium">Configuration file</p>
-        <code className="mt-1 block break-all text-xs">{status.configPath}</code>
+        <code className="mt-1 block text-xs break-all">
+          {status.configPath}
+        </code>
         <p className="mt-1 text-xs text-muted-foreground">
           {status.editable
             ? status.persistent

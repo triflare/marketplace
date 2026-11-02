@@ -23,9 +23,7 @@ const IN_CONTAINER = inContainer()
 const DEFAULT_SERVER_API_URL = IN_CONTAINER
   ? "http://api:3000/v1"
   : "http://localhost:3000/v1"
-const DEFAULT_BROWSER_API_URL = IN_CONTAINER
-  ? "http://localhost:3000/v1"
-  : null
+const DEFAULT_BROWSER_API_URL = IN_CONTAINER ? "http://localhost:3000/v1" : null
 
 // Every setting the web frontend needs. There are no environment variables to
 // override these: the file is the configuration, and the first-run screen writes
@@ -360,7 +358,9 @@ export const ONBOARDING_FIELDS = [
   },
 ]
 
-const FIELD_BY_KEY = new Map(ONBOARDING_FIELDS.map((field) => [field.key, field]))
+const FIELD_BY_KEY = new Map(
+  ONBOARDING_FIELDS.map((field) => [field.key, field])
+)
 
 function readAt(source, key) {
   return key
