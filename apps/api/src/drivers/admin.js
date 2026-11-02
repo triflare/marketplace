@@ -1,4 +1,6 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import YAML from 'yaml';
 
 // Where a kind's instances live in the file. Auth and mail predate the
@@ -37,7 +39,21 @@ export function writeDriverInstances({ configPath, kind, instances }) {
   );
   if (document.contents === null) document.contents = document.createNode({});
   document.setIn(pathFor(kind), fileShape(kind, instances));
-  writeFileSync(configPath, document.toString(), 'utf8');
+  // Same temp-and-rename as the settings endpoint: a failed write must not
+  // leave the file truncated, and a file with secrets is owner-only.
+  const dir = path.dirname(configPath);
+  mkdirSync(dir, { recursive: true });
+  const temporary = path.join(
+    dir,
+    `.${path.basename(configPath)}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+  try {
+    writeFileSync(temporary, document.toString(), { encoding: 'utf8', mode: 0o600 });
+    renameSync(temporary, configPath);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 // The secret options an admin did not resend are kept: the read side masks

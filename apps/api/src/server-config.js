@@ -1,9 +1,13 @@
+import { randomBytes } from 'node:crypto';
 import {
   accessSync,
   constants,
   existsSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -429,7 +433,22 @@ export function applyServerConfig({ config, configPath, patch, mountInfo, contai
   if (errors.length) throw fieldErrors(errors);
   if (Object.keys(changes).length === 0) return { changes: {}, restartRequired: [] };
 
-  writeFileSync(storage.path, document.toString(), 'utf8');
+  // Written to a sibling temp file and renamed, so a crash mid-write leaves the
+  // previous file intact rather than a truncated one with no database URL. The
+  // mode keeps a config that holds secrets readable by its owner only.
+  const dir = path.dirname(storage.path);
+  mkdirSync(dir, { recursive: true });
+  const temporary = path.join(
+    dir,
+    `.${path.basename(storage.path)}.${randomBytes(6).toString('hex')}.tmp`,
+  );
+  try {
+    writeFileSync(temporary, document.toString(), { encoding: 'utf8', mode: 0o600 });
+    renameSync(temporary, storage.path);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
   // Applied to the live object too, so a hot setting takes effect on the next
   // request rather than after a restart nobody may be planning.
   for (const [key, change] of Object.entries(changes)) writeAt(config, key, change.after);
