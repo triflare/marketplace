@@ -503,6 +503,14 @@ function yamlSource(file) {
  * original file exactly as it was.
  */
 export function applyOnboarding(config, patch, options = {}) {
+  // The setup screen is only an entry point for an unconfigured instance. A
+  // direct POST after setup would otherwise let anyone rewrite the API URL and
+  // session secret, so refuse before reading or writing the file.
+  if (config.setupRequired !== true) {
+    const error = new Error("Setup is already complete.")
+    error.status = 409
+    throw error
+  }
   if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
     const error = new Error("Must be an object of settings.")
     error.errors = [{ field: "settings", message: error.message }]

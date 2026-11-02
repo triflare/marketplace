@@ -19,6 +19,11 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
+  if (!getConfig().setupRequired) {
+    return {
+      errors: [{ field: "settings", message: "Setup is already complete." }],
+    }
+  }
   const form = await request.formData()
   const settings: Record<string, string | boolean> = {}
   for (const field of ONBOARDING_FIELDS) {
