@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { create as createTar, extract as extractTar } from 'tar';
 
@@ -12,6 +13,24 @@ export function createTarballBuffer(cwd, files, { gzip = true } = {}) {
     stream.on('end', () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
   });
+}
+
+// A path is accepted only when it is relative and resolves inside destDir. tar
+// also checks this, but doing it in the filter keeps `seen` honest: an entry tar
+// later rejects must not be reported as extracted or spend the entry cap.
+function isSafeEntryPath(destDir, filePath) {
+  if (filePath.includes('\0')) return false;
+  const normalized = filePath.replaceAll('\\', '/');
+  if (
+    normalized.startsWith('/') ||
+    normalized.startsWith('//') ||
+    /^[A-Za-z]:/.test(normalized) ||
+    normalized.split('/').includes('..')
+  ) {
+    return false;
+  }
+  const relative = path.relative(destDir, path.resolve(destDir, normalized));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 // Expand an in-memory gzip tarball into destDir. Extraction is bounded: entries
@@ -30,7 +49,7 @@ export function extractTarballBuffer(buffer, destDir, { maxTotalBytes = Infinity
       preservePaths: false,
       onwarn: () => {},
       filter: (filePath, entry) => {
-        if (filePath.includes('\0')) return false;
+        if (!isSafeEntryPath(destDir, filePath)) return false;
         if (entry.type === 'SymbolicLink' || entry.type === 'Link') return false;
         if (entries >= MAX_ENTRIES) return false;
         if (accounted + Math.max(entry.size, 0) > maxTotalBytes) return false;
