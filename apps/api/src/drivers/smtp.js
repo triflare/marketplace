@@ -37,6 +37,12 @@ class Connection {
 
   receive(chunk) {
     this.buffer += chunk;
+    // A relay that sends one enormous line is a relay this client will not
+    // buffer: the reply it is waiting for is a status line, not a payload.
+    if (this.buffer.length > 64 * 1024) {
+      this.fail(new SmtpError('The SMTP server sent an oversized response.'));
+      return;
+    }
     let index;
     while ((index = this.buffer.indexOf('\n')) !== -1) {
       const line = this.buffer.slice(0, index).replace(/\r$/, '');
@@ -56,7 +62,10 @@ class Connection {
 
   fail(error) {
     this.error = error;
+    this.buffer = '';
+    this.lines = [];
     for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+    this.socket.destroy();
   }
 
   readLine() {
@@ -152,38 +161,43 @@ async function authenticate(connection, { user, password }) {
 
 async function open(options) {
   const connection = new Connection(await connect(options));
-  const greeting = await connection.reply();
-  if (greeting.code !== 220) {
-    throw new SmtpError(`The SMTP server said ${greeting.code} at connect.`, {
-      code: greeting.code,
-    });
-  }
-  connection.capabilities = new Set();
-  const ehlo = await connection
-    .command(`EHLO ${options.ehloName}`, { expect: [250] })
-    .catch(async () => connection.command(`HELO ${options.ehloName}`, { expect: [250] }));
-  for (const line of ehlo.lines) {
-    const [name, ...rest] = line.slice(4).split(' ');
-    if (name) connection.capabilities.add(name.toUpperCase());
-    if (name?.toUpperCase() === 'AUTH') {
-      for (const mechanism of rest) connection.capabilities.add(mechanism.toUpperCase());
+  try {
+    const greeting = await connection.reply();
+    if (greeting.code !== 220) {
+      throw new SmtpError(`The SMTP server said ${greeting.code} at connect.`, {
+        code: greeting.code,
+      });
     }
+    connection.capabilities = new Set();
+    const ehlo = await connection
+      .command(`EHLO ${options.ehloName}`, { expect: [250] })
+      .catch(async () => connection.command(`HELO ${options.ehloName}`, { expect: [250] }));
+    for (const line of ehlo.lines) {
+      const [name, ...rest] = line.slice(4).split(' ');
+      if (name) connection.capabilities.add(name.toUpperCase());
+      if (name?.toUpperCase() === 'AUTH') {
+        for (const mechanism of rest) connection.capabilities.add(mechanism.toUpperCase());
+      }
+    }
+    if (!options.secure && options.starttls && connection.capabilities.has('STARTTLS')) {
+      await connection.command('STARTTLS', { expect: [220] });
+      await connection.upgrade(options.host);
+      await connection.command(`EHLO ${options.ehloName}`, { expect: [250] });
+    }
+    if (!options.secure && options.user && !connection.socket.encrypted) {
+      // Credentials over a plaintext connection are refused rather than sent:
+      // an operator who wants them sent anyway has to turn starttls off and
+      // accept that this is now the network's problem.
+      throw new SmtpError(
+        'The SMTP server did not offer STARTTLS, so credentials were not sent. Set starttls to false to allow it.',
+      );
+    }
+    await authenticate(connection, options);
+    return connection;
+  } catch (error) {
+    connection.close();
+    throw error;
   }
-  if (!options.secure && options.starttls && connection.capabilities.has('STARTTLS')) {
-    await connection.command('STARTTLS', { expect: [220] });
-    await connection.upgrade(options.host);
-    await connection.command(`EHLO ${options.ehloName}`, { expect: [250] });
-  }
-  if (!options.secure && options.user && !connection.socket.encrypted) {
-    // Credentials over a plaintext connection are refused rather than sent:
-    // an operator who wants them sent anyway has to turn starttls off and
-    // accept that this is now the network's problem.
-    throw new SmtpError(
-      'The SMTP server did not offer STARTTLS, so credentials were not sent. Set starttls to false to allow it.',
-    );
-  }
-  await authenticate(connection, options);
-  return connection;
 }
 
 function encodeHeader(value) {
