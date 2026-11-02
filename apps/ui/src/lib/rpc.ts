@@ -31,6 +31,66 @@ export interface RpcSuccess {
   result: EncodedValue
 }
 
+// Large enough for a 16 MiB image after base64 expansion (about 21.4 MiB)
+// plus JSON overhead, and small enough that one request cannot grow unbounded.
+export const MAX_RPC_BODY_BYTES = 32 * 1024 * 1024
+
+export class RpcBodyTooLargeError extends Error {
+  constructor() {
+    super("The request body is too large.")
+    this.name = "RpcBodyTooLargeError"
+  }
+}
+
+async function readLimitedBody(
+  request: Request,
+  maxBytes: number
+): Promise<string> {
+  const declared = request.headers.get("content-length")
+  if (declared !== null) {
+    const bytes = Number(declared)
+    if (Number.isFinite(bytes) && bytes > maxBytes) {
+      throw new RpcBodyTooLargeError()
+    }
+  }
+
+  if (!request.body) return request.text()
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        throw new RpcBodyTooLargeError()
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(merged)
+}
+
+/** Read the RPC JSON body without letting a client grow this process without bound. */
+export async function readRpcJson(
+  request: Request,
+  maxBytes = MAX_RPC_BODY_BYTES
+): Promise<unknown> {
+  return JSON.parse(await readLimitedBody(request, maxBytes))
+}
+
 function isBlob(value: unknown): value is Blob {
   return typeof Blob !== "undefined" && value instanceof Blob
 }

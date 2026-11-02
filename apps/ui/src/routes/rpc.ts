@@ -6,6 +6,8 @@ import { serverApi } from "@/lib/api.server"
 import {
   decodeValue,
   encodeValue,
+  readRpcJson,
+  RpcBodyTooLargeError,
   type EncodedValue,
   type RpcRequestBody,
 } from "@/lib/rpc"
@@ -104,8 +106,14 @@ export async function action({ request }: { request: Request }) {
 
   let body: RpcRequestBody
   try {
-    body = (await request.json()) as RpcRequestBody
-  } catch {
+    body = (await readRpcJson(request)) as RpcRequestBody
+  } catch (error) {
+    if (error instanceof RpcBodyTooLargeError) {
+      return Response.json(
+        { error: { message: error.message, status: 413 } },
+        { status: 413 }
+      )
+    }
     return Response.json(
       { error: { message: "Invalid request body.", status: 400 } },
       { status: 400 }
