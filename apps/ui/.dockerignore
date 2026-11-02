@@ -1,0 +1,20 @@
+node_modules
+build
+dist
+.react-router
+test-results
+playwright-report
+blob-report
+.git
+.github
+*.log
+.DS_Store
+
+# The image carries no configuration. Onboarding writes config.yaml into the
+# data directory, where a mounted volume keeps it.
+config.yaml
+
+# Only `npm run build` runs inside the image; the end-to-end suite drives a
+# browser against a mock API and has no place in it.
+tests
+playwright.config.ts

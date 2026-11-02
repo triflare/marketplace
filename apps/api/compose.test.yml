@@ -1,0 +1,33 @@
+# The Postgres the test suite expects. The data lives in a named volume, so this
+# is a one-time start per machine rather than something to re-run before every
+# test:
+#
+#   docker compose -f compose.test.yml up -d
+#
+# Its own compose project (`triflare-test`, not the directory's `triflare`) so
+# its up/down never touches a compose.example.yml stack running from the same
+# checkout, or vice versa.
+name: triflare-test
+
+services:
+  test-db:
+    container_name: triflare-pg
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: triflare_test
+    ports:
+      # Published on loopback only: the credentials are a fixture shared in
+      # source control, and nothing outside the machine needs to reach it.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d triflare_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-test-data:

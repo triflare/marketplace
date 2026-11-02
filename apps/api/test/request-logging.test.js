@@ -1,0 +1,47 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import request from 'supertest';
+import { apiPath, ensureTestDatabase, makeConfig } from './helpers.mjs';
+import { createApp } from '../src/app.js';
+import { createDb, ensureDataDirs } from '../src/db.js';
+
+test('logging.requests emits one JSON line per request', async () => {
+  // This file builds its own app instead of calling boot(), so it creates its
+  // per-process database clone itself.
+  await ensureTestDatabase();
+  const config = makeConfig({ logging: { requests: true } });
+  ensureDataDirs(config.dataDir);
+  const db = createDb(config);
+  const { app } = createApp({ config, db });
+
+  const lines = [];
+  const original = console.log;
+  console.log = (...args) => lines.push(args);
+
+  try {
+    await request(app).get(apiPath('/meta')).expect(200);
+    await request(app).get(apiPath('/definitely-not-here')).expect(404);
+  } finally {
+    console.log = original;
+  }
+
+  const parsed = lines.map((args) => {
+    assert.equal(args.length, 1, 'log lines go to stdout via a single console.log argument');
+    return JSON.parse(args[0]);
+  });
+  const ok = parsed.filter((entry) => entry.msg === 'request');
+  assert.equal(ok.length, 2, `expected two request logs, got ${JSON.stringify(parsed)}`);
+
+  const matched = ok.find((entry) => entry.route === apiPath('/meta'));
+  assert.ok(matched, 'matched route is labeled by pattern, including the apiRoot');
+  assert.equal(matched.method, 'GET');
+  assert.equal(matched.status, 200);
+  assert.equal(typeof matched.durationMs, 'number');
+  assert.match(matched.path, new RegExp(`^${apiPath('/meta')}$`));
+
+  const unmatched = ok.find((entry) => entry.route === 'unmatched');
+  assert.ok(unmatched, 'unmatched paths still get a line');
+  assert.equal(unmatched.status, 404);
+
+  await db.$disconnect();
+});

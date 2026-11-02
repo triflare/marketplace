@@ -1,0 +1,60 @@
+# The whole product in one stack: the registry API, the web frontend that talks
+# to it, and the PostgreSQL the API keeps its schema and data in.
+#
+#   docker compose up --build
+#
+# Then open the API's setup screen at http://localhost:3000/onboarding and the
+# frontend's at http://localhost:3001/onboarding. Each writes its own
+# config.yaml into the data volume, so a redeploy keeps the settings.
+#
+# The API listens on http://localhost:3000 and the frontend on
+# http://localhost:3001.
+name: marketplace
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: triflare
+      POSTGRES_PASSWORD: triflare
+      POSTGRES_DB: triflare
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Loopback only, so a dev server running on the host can reach it. This
+      # collides with apps/api/compose.test.yml, which publishes 5432 too; stop
+      # one of them before starting the other.
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U triflare -d triflare']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./apps/api
+    ports:
+      - '3000:3000'
+    volumes:
+      # Published sources and blobs, plus the config.yaml onboarding writes.
+      # Losing it loses the registry's contents even though the database
+      # survives.
+      - triflare-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ui:
+    build: ./apps/ui
+    ports:
+      - '3001:3001'
+    volumes:
+      # The web frontend's config.yaml, written by its setup screen.
+      - ui-data:/app/data
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  triflare-data:
+  ui-data:
