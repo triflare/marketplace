@@ -51,6 +51,10 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     return `${flowCookieBase}_${state}`;
   };
   const setFlowCookie = (res, state, value) =>
+    // The cookie is the browser's half of the flow binding and the only copy of
+    // the secret: the flow row keeps just its digest, so a database read does
+    // not yield a value that completes the flow.
+    // codeql[js/clear-text-storage-of-sensitive-data]
     res.cookie(flowCookieName(state), value, flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 

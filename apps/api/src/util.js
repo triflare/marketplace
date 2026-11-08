@@ -55,20 +55,26 @@ export function stripTrailingSlashes(text) {
 }
 
 // Route parameters and driver messages can carry line breaks and other control
-// characters, which would let a caller forge additional log lines. Replacing
-// them keeps one event on one line.
-// The characters that would let a caller break out of one log line. A predicate
-// rather than a regular expression: these codepoints are the point here, not the
-// accident no-control-regex exists to catch.
-function isLogControl(code) {
-  return code <= 0x1f || code === 0x7f || code === 0x2028 || code === 0x2029;
+// characters, which would let a caller forge additional log lines. Line breaks
+// are dropped and other controls become a space, so one event stays on one
+// line.
+//
+// The character test is a predicate rather than a character class: these
+// codepoints are the point here, not the accident no-control-regex exists to
+// catch.
+function isOtherControl(code) {
+  return (
+    code !== 0x0a &&
+    code !== 0x0d &&
+    (code <= 0x1f || code === 0x7f || code === 0x2028 || code === 0x2029)
+  );
 }
 
 export function sanitizeLogText(value) {
   let out = '';
   let needsSpace = false;
   for (const char of String(value)) {
-    if (isLogControl(char.codePointAt(0))) {
+    if (isOtherControl(char.codePointAt(0))) {
       needsSpace = out.length > 0;
       continue;
     }
@@ -78,7 +84,7 @@ export function sanitizeLogText(value) {
     }
     out += char;
   }
-  return out;
+  return out.replace(/\n|\r/g, '');
 }
 
 // Read a file that may not exist, in one operation. existsSync() followed by a

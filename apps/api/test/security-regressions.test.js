@@ -51,8 +51,8 @@ test('js/polynomial-redos: a long run of trailing slashes normalises in linear t
 
 test('js/log-injection: a control character in a logged value cannot start a new line', () => {
   assert.equal(sanitizeLogText('plain'), 'plain');
-  assert.equal(sanitizeLogText('ns\nforged line'), 'ns forged line');
-  assert.equal(sanitizeLogText('a\r\nb\tc\u0000d'), 'a b c d');
+  assert.equal(sanitizeLogText('ns\nforged line'), 'nsforged line');
+  assert.equal(sanitizeLogText('a\r\nb\tc\u0000d'), 'ab c d');
   assert.equal(sanitizeLogText('x\u2028y\u2029z'), 'x y z');
 });
 
