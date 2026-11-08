@@ -77,7 +77,7 @@ test('the method set is projected onto the settings the routers read', (t) => {
         { driver: 'passkey', options: { rpId: 'example.com', rpName: 'Example' } },
       ],
     },
-    secrets: { flowCookieKey: 'k'.repeat(32) },
+    secrets: { flowCookieKey: 'k'.repeat(44) },
     mail: { drivers: [{ driver: 'file' }] },
   });
   const config = loadConfig(file);
@@ -94,7 +94,7 @@ test('the method set is projected onto the settings the routers read', (t) => {
 test('the old oidc settings still derive the same method set', (t) => {
   const file = withConfig(t, {
     auth: { oidc: { issuer: 'https://id.example.com', clientId: 'marketplace', required: true } },
-    secrets: { flowCookieKey: 'k'.repeat(32) },
+    secrets: { flowCookieKey: 'k'.repeat(44) },
   });
   const config = loadConfig(file);
   assert.equal(config.auth.passwordEnabled, false);

@@ -11,6 +11,8 @@ metrics:
   intervalMs: 3600000
 secrets:
   downloadHashKey: null
+  # At least 44 characters of random data, e.g. `openssl rand -base64 32`.
+  # Required once an OIDC provider is configured.
   flowCookieKey: null
 requireHttps: false
 database:

@@ -390,14 +390,18 @@ function normalizeServerSettings(config) {
     throw new Error('secrets.downloadHashKey must be a non-empty string or null');
   }
   if (key !== null) config.secrets.downloadHashKey = key.trim();
-  // The flow cookie key encrypts the OIDC binding, so a short value would leave
-  // the ciphertext open to guessing regardless of the cipher.
+  // The flow cookie key encrypts the OIDC binding, so a guessable key leaves the
+  // ciphertext open regardless of the cipher. Length is not entropy, but 44
+  // characters is the floor a random 32-byte value in base64 clears, and a
+  // shorter key is the sign of one typed by hand.
   const flowCookieKey = config.secrets?.flowCookieKey ?? null;
-  if (
-    flowCookieKey !== null &&
-    (typeof flowCookieKey !== 'string' || flowCookieKey.trim().length < 32)
-  ) {
-    throw new Error('secrets.flowCookieKey must be a string of at least 32 characters or null');
+  if (flowCookieKey !== null && typeof flowCookieKey !== 'string') {
+    throw new Error('secrets.flowCookieKey must be a string or null');
+  }
+  if (flowCookieKey !== null && flowCookieKey.trim().length < 44) {
+    throw new Error(
+      'secrets.flowCookieKey must be at least 44 characters of random data (openssl rand -base64 32) or null',
+    );
   }
   config.secrets.flowCookieKey = flowCookieKey === null ? null : flowCookieKey.trim();
 }

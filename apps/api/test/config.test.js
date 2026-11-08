@@ -238,7 +238,7 @@ test('the server settings are validated at startup', (t) => {
 // The flow cookie is sealed with this key, so a provider without one is an
 // instance whose callbacks could not be verified, and a short key is a cipher
 // with a guessable key.
-test('the OIDC flow cookie key is required and long enough once a provider is set', (t) => {
+test('the OIDC flow cookie key is required and must be a long string', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'config.yaml');
@@ -255,10 +255,13 @@ test('the OIDC flow cookie key is required and long enough once a provider is se
   write({});
   assert.throws(() => loadConfig(file), /secrets\.flowCookieKey must be set/);
 
-  write({ secrets: { flowCookieKey: 'short' } });
-  assert.throws(() => loadConfig(file), /secrets\.flowCookieKey must be a string of at least 32/);
+  write({ secrets: { flowCookieKey: 42 } });
+  assert.throws(() => loadConfig(file), /secrets\.flowCookieKey must be a string or null/);
 
-  const key = 'k'.repeat(32);
+  write({ secrets: { flowCookieKey: 'k'.repeat(32) } });
+  assert.throws(() => loadConfig(file), /at least 44/);
+
+  const key = 'k'.repeat(44);
   write({ secrets: { flowCookieKey: ` ${key} ` } });
   assert.equal(loadConfig(file).secrets.flowCookieKey, key);
 
