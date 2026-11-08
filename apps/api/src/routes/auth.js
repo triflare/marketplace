@@ -68,12 +68,15 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const parts = sealed.split('.');
     if (parts.length !== 3) return null;
     try {
+      const tag = Buffer.from(parts[1], 'base64url');
+      if (tag.length !== 16) return null;
       const decipher = createDecipheriv(
         'aes-256-gcm',
         flowCookieKey,
         Buffer.from(parts[0], 'base64url'),
+        { authTagLength: 16 },
       );
-      decipher.setAuthTag(Buffer.from(parts[1], 'base64url'));
+      decipher.setAuthTag(tag);
       const ciphertext = Buffer.from(parts[2], 'base64url');
       return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
     } catch {
