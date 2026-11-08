@@ -51,3 +51,27 @@ export function makeHttpRateLimiter(config) {
   });
   return middleware;
 }
+
+// A limiter scoped to one route. The backstop above covers every request but
+// deliberately skips loopback addresses, so a route that writes files needs its
+// own cap that applies wherever it is called from. The store is in-memory and
+// lives as long as the app it was built for.
+// Configure deployment-specific `trust proxy` before first-run setup calls this
+// helper so onboarding limits distinguish clients behind the reverse proxy.
+// Accept forwarded headers only from trusted proxies; never enable blanket
+// trust for untrusted clients.
+export function makeRouteLimiter({ limit, windowMs }) {
+  return rateLimit({
+    windowMs,
+    limit,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: (req) =>
+      typeof req.ip === 'string' && req.ip.length > 0 ? ipKeyGenerator(req.ip) : 'unknown-address',
+    handler: (req, res, next) => {
+      const resetTime = req.rateLimit?.resetTime;
+      const remaining = resetTime ? resetTime - Date.now() : windowMs;
+      next(tooManyRequests(Math.max(1, Math.ceil(remaining / 1000))));
+    },
+  });
+}

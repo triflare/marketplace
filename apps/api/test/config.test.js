@@ -234,3 +234,38 @@ test('the server settings are validated at startup', (t) => {
   write({ secrets: { downloadHashKey: ' key ' } });
   assert.equal(loadConfig(file).secrets.downloadHashKey, 'key');
 });
+
+// The flow cookie is sealed with this key, so a provider without one is an
+// instance whose callbacks could not be verified, and a short key is a cipher
+// with a guessable key.
+test('the OIDC flow cookie key is required and must be a long string', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'triflare-config-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'config.yaml');
+  const write = (extra) =>
+    fs.writeFileSync(
+      file,
+      YAML.stringify({
+        database: { url: 'postgres://u@localhost:5432/db' },
+        auth: { oidc: { issuer: 'https://idp.test', clientId: 'triflare-test' } },
+        ...extra,
+      }),
+    );
+
+  write({});
+  assert.throws(() => loadConfig(file), /secrets\.flowCookieKey must be set/);
+
+  write({ secrets: { flowCookieKey: 42 } });
+  assert.throws(() => loadConfig(file), /secrets\.flowCookieKey must be a string or null/);
+
+  write({ secrets: { flowCookieKey: 'k'.repeat(32) } });
+  assert.throws(() => loadConfig(file), /at least 44/);
+
+  const key = 'k'.repeat(44);
+  write({ secrets: { flowCookieKey: ` ${key} ` } });
+  assert.equal(loadConfig(file).secrets.flowCookieKey, key);
+
+  // No provider, no sealing: an instance that predates the key still boots.
+  fs.writeFileSync(file, YAML.stringify({ database: { url: 'postgres://u@localhost:5432/db' } }));
+  assert.equal(loadConfig(file).secrets.flowCookieKey, null);
+});

@@ -20,6 +20,15 @@ import { makeWebhooks, WebhookInputError } from '../webhooks.js';
 import { makeWebhookDeliveryRoutes } from './webhook-deliveries.js';
 import { audit } from '../audit.js';
 
+// Whether the session may act on the target account and at what level. Both
+// answers come from the session and the target row, never from the request
+// body, so a caller cannot select an administrative path by sending a field.
+export function accountAuthority(auth, target) {
+  const admin = isAdmin(auth);
+  const self = Boolean(auth?.user && target && Number(auth.user.Id) === Number(target.Id));
+  return { admin, self, allowed: admin || self };
+}
+
 export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTarget, blobs }) {
   const root = normalizeApiRoot(config.apiRoot);
   // normalizeApiRoot strips the surrounding slashes, so the prefix is rebuilt
@@ -267,8 +276,16 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     }
     if (errors.length > 0) throw fieldErrors(errors);
 
-    if (role !== undefined && !isAdmin(req.auth)) {
+    // Authority is decided here, before any body-dependent branch: which
+    // fields the caller happened to send must not stand in for a permission
+    // check, and the answer is reused by the password path below.
+    const authority = accountAuthority(req.auth, target);
+
+    if (role !== undefined && !authority.admin) {
       throw forbidden('Only an admin can change a role.');
+    }
+    if (!authority.allowed) {
+      throw forbidden('You can only change your own account.');
     }
 
     const patch = { UpdatedAt: new Date() };
@@ -280,7 +297,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       // The current-password confirmation is the self-service path. An admin
       // resetting somebody else's password has no password to confirm, which
       // is why this asks for authority rather than for a role alone.
-      if (!isAdmin(req.auth)) {
+      if (!authority.admin) {
         // An account created through the provider has no password to confirm,
         // and letting a session set one would turn a stolen session into a
         // standing credential, so that stays an admin action.

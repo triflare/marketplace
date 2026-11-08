@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { product } from './product.js';
@@ -11,6 +11,39 @@ const MAX_LOG_BYTES = 16384;
 // allocation. This sits above any output a real build can minify down to the
 // configured blob limit.
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+// Read the compiler's output through a single descriptor, so the size check and
+// the read observe the same file. Checking with stat() and then reading by path
+// leaves a window in which the path can name a different (larger) file. The read
+// stops at the first byte past the cap, so a small output never reserves the
+// whole limit, and the buffer returned holds only what was read.
+const READ_CHUNK_BYTES = 1024 * 1024;
+
+export async function readBoundedOutput(file, maxBytes = MAX_OUTPUT_BYTES) {
+  const handle = await open(file, 'r');
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) return { ok: false, reason: 'not-a-file' };
+    if (info.size > maxBytes) return { ok: false, reason: 'too-large', size: info.size };
+    const chunks = [];
+    let size = 0;
+    // The +1 is what detects a file that grew past the cap after stat(): the
+    // loop stops as soon as one byte more than maxBytes has been read.
+    while (size <= maxBytes) {
+      const chunk = Buffer.allocUnsafe(Math.min(READ_CHUNK_BYTES, maxBytes + 1 - size));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      chunks.push(chunk.subarray(0, bytesRead));
+      size += bytesRead;
+    }
+    if (size > maxBytes) {
+      return { ok: false, reason: 'too-large', size };
+    }
+    return { ok: true, buffer: Buffer.concat(chunks, size), size };
+  } finally {
+    await handle.close();
+  }
+}
 
 // The build tool named in product.yml; a rename there moves the path too.
 const EXTEND_PACKAGE = product.extend?.package ?? '@triflare/extend';
@@ -217,21 +250,23 @@ exec ${command}`;
         return;
       }
       try {
-        const info = await stat(output);
-        if (info.size > MAX_OUTPUT_BYTES) {
+        const read = await readBoundedOutput(output);
+        if (!read.ok) {
           resolve({
             ok: false,
-            error: `The compiler wrote ${info.size} bytes, more than the ${MAX_OUTPUT_BYTES} allowed.`,
+            error:
+              read.reason === 'too-large'
+                ? `The compiler wrote ${read.size} bytes, more than the ${MAX_OUTPUT_BYTES} allowed.`
+                : 'The compiler reported success but produced no regular file.',
             log: log(),
             durationMs: Date.now() - started,
           });
           return;
         }
-        const codeBuffer = await readFile(output);
         resolve({
           ok: true,
-          code: codeBuffer,
-          size: codeBuffer.length,
+          code: read.buffer,
+          size: read.size,
           log: log(),
           durationMs: Date.now() - started,
         });

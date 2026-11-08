@@ -7,6 +7,7 @@ import { createDb } from './db.js';
 import { fieldErrors, HttpError } from './errors.js';
 import { configStorage } from './server-config.js';
 import { product } from './product.js';
+import { stripTrailingSlashes } from './util.js';
 
 // Everything the first-run screen asks for. The list is deliberately longer
 // than "a database URL": an instance that starts and then has to be fixed by
@@ -199,7 +200,7 @@ function coerce(field, value) {
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         invalid(field, 'Must be an http or https URL.');
       }
-      return text.replace(/\/+$/, '') || text;
+      return stripTrailingSlashes(text) || text;
     }
     case 'number': {
       const n = typeof value === 'number' ? value : Number(value);

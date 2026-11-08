@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createDecipheriv, createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { hashToken, makeRequireRecentAuth, requireSession } from '../auth.js';
 import { beginSigninMfa, hasPasskeys } from '../mfa.js';
@@ -50,8 +50,45 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     if (typeof state !== 'string' || state === '') return flowCookieBase;
     return `${flowCookieBase}_${state}`;
   };
-  const setFlowCookie = (res, state, secret) =>
-    res.cookie(flowCookieName(state), secret, flowCookieOptions);
+  // The cookie holds the binding sealed with a key from the config, so what the
+  // browser stores is ciphertext: the flow row keeps only a digest, and neither
+  // the row nor a cookie store holds the value the callback compares.
+  const flowCookieKey = enabled
+    ? createHash('sha256').update(config.secrets.flowCookieKey).digest()
+    : null;
+  const sealFlowCookieValue = (value) => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', flowCookieKey, iv);
+    const ciphertext = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${iv.toString('base64url')}.${tag.toString('base64url')}.${ciphertext.toString('base64url')}`;
+  };
+  const openFlowCookieValue = (sealed) => {
+    if (typeof sealed !== 'string' || sealed === '') return null;
+    const parts = sealed.split('.');
+    if (parts.length !== 3) return null;
+    try {
+      const tag = Buffer.from(parts[1], 'base64url');
+      if (tag.length !== 16) return null;
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        flowCookieKey,
+        Buffer.from(parts[0], 'base64url'),
+        { authTagLength: 16 },
+      );
+      decipher.setAuthTag(tag);
+      const ciphertext = Buffer.from(parts[2], 'base64url');
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    } catch {
+      return null;
+    }
+  };
+  const setFlowCookie = (res, state, value) =>
+    // The cookie is the browser's half of the flow binding: the callback has to
+    // open it with this instance's key and present the same secret, so a flow
+    // started in one browser cannot be completed in another.
+    // codeql[js/clear-text-storage-of-sensitive-data]
+    res.cookie(flowCookieName(state), sealFlowCookieValue(value), flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 
   // What a sign-in page needs to render: one entry per configured method, in
@@ -86,6 +123,9 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
+    // Only the browser receives the secret; the stored digest cannot be used
+    // as a cookie to complete the flow.
+    const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
     await db.OidcFlows.deleteMany({ where: { ExpiresAt: { lt: new Date() } } });
@@ -93,7 +133,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
       data: {
         Kind: 'signin',
         StateHash: hashToken(state),
-        FlowSecretHash: hashToken(binding),
+        FlowSecretHash: bindingDigest,
         CodeVerifier: verifier,
         Nonce: nonce,
         ReturnTo: returnTo,
@@ -127,12 +167,13 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     // complete a sign-in for this one. A conditional update across two unique
     // filters has no typed equivalent that both claims the row and returns it.
     const exchangeCode = newSecret();
-    const binding = readCookie(req, flowCookieName(state));
+    const binding = openFlowCookieValue(readCookie(req, flowCookieName(state)));
+    const bindingDigest = binding ? hashToken(binding) : null;
     const [flow] = await db.$queryRaw`
       UPDATE "OidcFlows"
       SET "ExchangeCodeHash" = ${hashToken(exchangeCode)}
       WHERE "StateHash" = ${hashToken(state)}
-        AND "FlowSecretHash" = ${hashToken(binding ?? '')}
+        AND "FlowSecretHash" = ${bindingDigest ?? ''}
         AND "ExchangeCodeHash" IS NULL AND "ExpiresAt" > now()
       RETURNING *
     `;
@@ -239,6 +280,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
+    // Store only the digest, as in the sign-in flow above.
+    const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
     await db.OidcFlows.deleteMany({ where: { ExpiresAt: { lt: new Date() } } });
@@ -246,7 +289,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
       data: {
         Kind: 'link',
         StateHash: hashToken(state),
-        FlowSecretHash: hashToken(binding),
+        FlowSecretHash: bindingDigest,
         CodeVerifier: verifier,
         Nonce: nonce,
         UserId: req.auth.user.Id,

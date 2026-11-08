@@ -112,6 +112,7 @@ export function makeConfig(overrides = {}) {
     requireHttps: false,
     trustProxy: false,
     database: { url: PROCESS_DATABASE_URL, maxConnections: 6 },
+    secrets: { flowCookieKey: 'test-only-flow-cookie-key-0123456789abcdefghijkl' },
     // scrypt at production cost would dominate the suite's runtime. The cost is
     // recorded in each hash as `N:r:p`, so a hash written here still verifies;
     // no test asserts on the parameters themselves.

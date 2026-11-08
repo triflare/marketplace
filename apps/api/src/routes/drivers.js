@@ -55,8 +55,13 @@ export function makeDriversRouter(shared) {
   });
 
   router.put('/admin/drivers/:kind', requireAdmin, async (req, res) => {
-    const kind = req.params.kind;
-    if (!getKind(kind)) throw notFound('No such driver kind.');
+    const requested = getKind(req.params.kind);
+    if (!requested) throw notFound('No such driver kind.');
+    // Everything below keys the configuration by the registry's own id, never by
+    // the string from the URL: the request can only select a registered kind, and
+    // the key written is the table's, so a name like __proto__ has no path to a
+    // prototype slot.
+    const kind = requested.id;
     requireObjectBody(req);
     const instances = req.body.instances;
     if (!Array.isArray(instances)) {

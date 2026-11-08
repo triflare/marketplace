@@ -1,6 +1,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
+import { hashToken } from '../src/auth.js';
 import {
   boot,
   resetDb,
@@ -14,11 +15,12 @@ import {
 import { roundTripProvider, startFakeIdp } from './fake-idp.mjs';
 
 let app;
+let db;
 let idp;
 
 before(async () => {
   idp = await startFakeIdp();
-  ({ app } = await boot({
+  ({ app, db } = await boot({
     auth: { oidc: { issuer: idp.issuer, clientId: 'triflare-test' } },
     rateLimits: { signupsPerIpPerWindow: 10_000 },
   }));
@@ -135,6 +137,74 @@ test('replaying a state is refused', async () => {
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(201);
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(400);
 });
+
+for (const kind of ['signin', 'link']) {
+  test(`${kind} cookies seal the binding and reject the stored digest`, async () => {
+    const agent = browser();
+    let start;
+    if (kind === 'link') {
+      const { token } = await signupAndAccept(app, uniqNs());
+      start = await agent.post(apiPath('/auth/oidc/link')).set(bearer(token)).send({}).expect(200);
+    } else {
+      start = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+    }
+    const { code, state } = await roundTripProvider(start.body.authorizationUrl);
+    const cookie = start.headers['set-cookie'][0].split(';')[0];
+    const eq = cookie.indexOf('=');
+    const sealed = decodeURIComponent(cookie.slice(eq + 1));
+    const flow = await db.OidcFlows.findUnique({ where: { StateHash: hashToken(state) } });
+    // The cookie is sealed with the instance key, so it is not the digest in
+    // the row, and hashing it does not reproduce that digest either.
+    assert.notEqual(sealed, flow.FlowSecretHash);
+    assert.notEqual(hashToken(sealed), flow.FlowSecretHash);
+
+    // Replaying the row's digest as the cookie fails, because the callback
+    // cannot open it.
+    await request(app)
+      .get(apiPath('/auth/oidc/callback'))
+      .set('Cookie', `${cookie.slice(0, eq + 1)}${flow.FlowSecretHash}`)
+      .query({ code, state })
+      .expect(400);
+    await agent
+      .get(apiPath('/auth/oidc/callback'))
+      .query({ code, state })
+      .expect(kind === 'link' ? 200 : 201);
+  });
+}
+
+for (const kind of ['signin', 'link']) {
+  test(`${kind} cookies require a 16-byte authentication tag`, async () => {
+    const agent = browser();
+    let start;
+    if (kind === 'link') {
+      const { token } = await signupAndAccept(app, uniqNs());
+      start = await agent.post(apiPath('/auth/oidc/link')).set(bearer(token)).send({}).expect(200);
+    } else {
+      start = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+    }
+    const { code, state } = await roundTripProvider(start.body.authorizationUrl);
+    const cookie = start.headers['set-cookie'][0].split(';')[0];
+    const eq = cookie.indexOf('=');
+    const [iv, encodedTag, ciphertext] = decodeURIComponent(cookie.slice(eq + 1)).split('.');
+    const tag = Buffer.from(encodedTag, 'base64url');
+    assert.equal(tag.length, 16);
+
+    for (const length of [0, 4, 8, 12, 13, 14, 15, 17]) {
+      const resizedTag = Buffer.alloc(length);
+      tag.copy(resizedTag);
+      const sealed = `${iv}.${resizedTag.toString('base64url')}.${ciphertext}`;
+      await request(app)
+        .get(apiPath('/auth/oidc/callback'))
+        .set('Cookie', `${cookie.slice(0, eq + 1)}${sealed}`)
+        .query({ code, state })
+        .expect(400);
+    }
+    await agent
+      .get(apiPath('/auth/oidc/callback'))
+      .query({ code, state })
+      .expect(kind === 'link' ? 200 : 201);
+  });
+}
 
 test('a callback in a different browser is refused', async () => {
   idp.setClaims({ sub: 'sub-crossbrowser' });
