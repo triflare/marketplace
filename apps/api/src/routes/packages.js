@@ -37,6 +37,7 @@ import {
   maxVersionBySemver,
   normalizeApiRoot,
   normalizeSemver,
+  sanitizeLogText,
 } from '../util.js';
 import { extensionDetailFromRow, sourceUrl, versionToObject } from '../serialize.js';
 import {
@@ -1539,7 +1540,9 @@ export function makePackagesRouter({
     } catch (error) {
       // A cleanup failure costs disk, not correctness: the boot-time sweep in
       // db.js collects whatever is left unreferenced.
-      console.error(`blob cleanup deferred for ${namespace}/${id}: ${error.message}`);
+      console.error(
+        `blob cleanup deferred for ${sanitizeLogText(namespace)}/${sanitizeLogText(id)}: ${sanitizeLogText(error.message)}`,
+      );
     }
     auditSoon(
       db,

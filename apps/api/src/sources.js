@@ -14,13 +14,28 @@ export function sourcePathFor(dataDir, digest) {
   return path.join(dataDir, 'sources', digest.slice(0, 2), digest.slice(2));
 }
 
+// A source is stored so it can be downloaded later, and the only shape the
+// publish endpoint produces is the gzipped tarball the compiler extracted.
+// Verifying the container here keeps a write of arbitrary request bytes from
+// reaching the filesystem even if a future caller skips that extraction.
+export function isGzipArchive(buffer) {
+  return Buffer.isBuffer(buffer) && buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
+}
+
 export async function storeSource(dataDir, buffer) {
+  if (!isGzipArchive(buffer)) {
+    throw new Error('A source archive must be a gzip stream.');
+  }
   const digest = sha256Hex(buffer);
   const abs = sourcePathFor(dataDir, digest);
   await mkdir(path.dirname(abs), { recursive: true });
   // Write to a same-directory temporary file and rename, so a concurrent
   // reader can never observe a half-written source and a crash cannot leave
   // a truncated file under the final name.
+  // The name is derived from the digest, never from the request: the bytes land
+  // at a content-addressed path with a fixed .tmp extension and are renamed into
+  // place, so untrusted content cannot choose where or under what name it is
+  // written.
   const staged = path.join(path.dirname(abs), `.${path.basename(abs)}.${randomUUID()}.tmp`);
   try {
     await writeFile(staged, buffer);

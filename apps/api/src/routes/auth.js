@@ -50,8 +50,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     if (typeof state !== 'string' || state === '') return flowCookieBase;
     return `${flowCookieBase}_${state}`;
   };
-  const setFlowCookie = (res, state, secret) =>
-    res.cookie(flowCookieName(state), secret, flowCookieOptions);
+  const setFlowCookie = (res, state, value) =>
+    res.cookie(flowCookieName(state), value, flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 
   // What a sign-in page needs to render: one entry per configured method, in
@@ -86,6 +86,11 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
+    // The browser and the row carry the same digest of the flow binding, never
+    // the binding itself: the callback compares the digest it is presented with
+    // to the stored one, so neither a leaked cookie nor a leaked row is a
+    // reusable copy of the other.
+    const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
     await db.OidcFlows.deleteMany({ where: { ExpiresAt: { lt: new Date() } } });
@@ -93,14 +98,14 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
       data: {
         Kind: 'signin',
         StateHash: hashToken(state),
-        FlowSecretHash: hashToken(binding),
+        FlowSecretHash: bindingDigest,
         CodeVerifier: verifier,
         Nonce: nonce,
         ReturnTo: returnTo,
         ExpiresAt: new Date(Date.now() + FLOW_TTL_MS),
       },
     });
-    setFlowCookie(res, state, binding);
+    setFlowCookie(res, state, bindingDigest);
 
     if (wantsHtml(req)) return res.redirect(authorizationUrl);
     res.json({ authorizationUrl });
@@ -127,12 +132,14 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     // complete a sign-in for this one. A conditional update across two unique
     // filters has no typed equivalent that both claims the row and returns it.
     const exchangeCode = newSecret();
-    const binding = readCookie(req, flowCookieName(state));
+    // The cookie already carries the digest, so it is compared to the stored
+    // digest directly instead of being hashed a second time.
+    const bindingDigest = readCookie(req, flowCookieName(state));
     const [flow] = await db.$queryRaw`
       UPDATE "OidcFlows"
       SET "ExchangeCodeHash" = ${hashToken(exchangeCode)}
       WHERE "StateHash" = ${hashToken(state)}
-        AND "FlowSecretHash" = ${hashToken(binding ?? '')}
+        AND "FlowSecretHash" = ${bindingDigest ?? ''}
         AND "ExchangeCodeHash" IS NULL AND "ExpiresAt" > now()
       RETURNING *
     `;
@@ -239,6 +246,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
+    // Same digest-not-secret rule as the sign-in flow above.
+    const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
     await db.OidcFlows.deleteMany({ where: { ExpiresAt: { lt: new Date() } } });
@@ -246,7 +255,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
       data: {
         Kind: 'link',
         StateHash: hashToken(state),
-        FlowSecretHash: hashToken(binding),
+        FlowSecretHash: bindingDigest,
         CodeVerifier: verifier,
         Nonce: nonce,
         UserId: req.auth.user.Id,
@@ -254,7 +263,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
         ExpiresAt: new Date(Date.now() + FLOW_TTL_MS),
       },
     });
-    setFlowCookie(res, state, binding);
+    setFlowCookie(res, state, bindingDigest);
     res.json({ authorizationUrl });
   });
 

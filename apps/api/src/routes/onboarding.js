@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { Router } from 'express';
 import { applyOnboarding, onboardingStatus } from '../onboarding.js';
 import { product } from '../product.js';
+import { makeRouteLimiter } from '../http-rate-limit.js';
+import { readFileIfPresent } from '../util.js';
 import { requireObjectBody } from './shared.js';
 
 function escapeHtml(value) {
@@ -170,6 +172,10 @@ function renderPage(status, action) {
 
 export function makeOnboardingRouter({ config, system = {} }) {
   const router = Router();
+  // First-run setup writes the configuration file, and an instance that has not
+  // been set up yet is reachable before any account exists. It gets its own
+  // cap rather than relying on the app-wide backstop, which skips loopback.
+  const setupLimiter = makeRouteLimiter({ limit: 30, windowMs: 15 * 60_000 });
 
   function status() {
     return onboardingStatus(config, system.storageProbe ?? {});
@@ -189,7 +195,7 @@ export function makeOnboardingRouter({ config, system = {} }) {
     res.set('Cache-Control', 'no-store').json(status());
   });
 
-  router.post('/onboarding', async (req, res) => {
+  router.post('/onboarding', setupLimiter, async (req, res) => {
     requireObjectBody(req);
     const current = status();
     if (!current.editable) {
@@ -202,7 +208,10 @@ export function makeOnboardingRouter({ config, system = {} }) {
       return;
     }
     const originalPath = config.configPath;
-    const original = existsSync(originalPath) ? readFileSync(originalPath) : null;
+    // One read rather than an exists-then-read pair: the file can be replaced
+    // between the check and the read, and the pair would then either throw on a
+    // file that existed a moment ago or restore a stale "missing" answer.
+    const original = readFileIfPresent(originalPath);
     const { config: next } = await applyOnboarding(
       config,
       req.body.settings,
