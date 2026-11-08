@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createDecipheriv, createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import { hashToken, makeRequireRecentAuth, requireSession } from '../auth.js';
 import { beginSigninMfa, hasPasskeys } from '../mfa.js';
@@ -50,12 +50,34 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     if (typeof state !== 'string' || state === '') return flowCookieBase;
     return `${flowCookieBase}_${state}`;
   };
+  const flowCookieKey = createHash('sha256').update(String(config.sessions.secret)).digest();
+  const sealFlowCookieValue = (value) => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', flowCookieKey, iv);
+    const ciphertext = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${iv.toString('base64url')}.${tag.toString('base64url')}.${ciphertext.toString('base64url')}`;
+  };
+  const openFlowCookieValue = (sealed) => {
+    if (typeof sealed !== 'string' || sealed === '') return null;
+    const parts = sealed.split('.');
+    if (parts.length !== 3) return null;
+    try {
+      const iv = Buffer.from(parts[0], 'base64url');
+      const tag = Buffer.from(parts[1], 'base64url');
+      const ciphertext = Buffer.from(parts[2], 'base64url');
+      const decipher = createDecipheriv('aes-256-gcm', flowCookieKey, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+    } catch {
+      return null;
+    }
+  };
   const setFlowCookie = (res, state, value) =>
     // The cookie is the browser's half of the flow binding and the only copy of
     // the secret: the flow row keeps just its digest, so a database read does
     // not yield a value that completes the flow.
-    // codeql[js/clear-text-storage-of-sensitive-data]
-    res.cookie(flowCookieName(state), value, flowCookieOptions);
+    res.cookie(flowCookieName(state), sealFlowCookieValue(value), flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 
   // What a sign-in page needs to render: one entry per configured method, in
