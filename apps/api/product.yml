@@ -1,6 +1,6 @@
 # Identity
 name: 'Triflare Marketplace'
-version: '1.0.0'
+version: '1.0.1'
 tagline: 'Find extensions, and share yours.'
 author: 'Triflare'
 homepage: 'https://github.com/triflare/marketplace'
