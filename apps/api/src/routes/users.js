@@ -29,6 +29,34 @@ export function accountAuthority(auth, target) {
   return { admin, self, allowed: admin || self };
 }
 
+// The confirmation a password change needs, and the hash to store once it
+// passes. An admin resetting somebody else's password has none to confirm,
+// which is why this asks for authority rather than for a role alone.
+async function confirmPasswordChange({ password, currentPassword, target, authority, scrypt }) {
+  if (password === undefined) return undefined;
+  if (!authority.admin) {
+    // An account created through the provider has no password to confirm, and
+    // letting a session set one would turn a stolen session into a standing
+    // credential, so that stays an admin action.
+    if (!target.PasswordHash) {
+      throw forbidden(
+        'This account signs in with the identity provider. An admin can set a password for it.',
+      );
+    }
+    if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+      throw fieldErrors([
+        {
+          field: 'currentPassword',
+          message: 'Current password is required when changing your password.',
+        },
+      ]);
+    }
+    const valid = await verifyPassword(currentPassword, target.PasswordHash);
+    if (!valid) throw forbidden('Current password is incorrect.');
+  }
+  return hashPassword(password, scrypt);
+}
+
 export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTarget, blobs }) {
   const root = normalizeApiRoot(config.apiRoot);
   // normalizeApiRoot strips the surrounding slashes, so the prefix is rebuilt
@@ -293,33 +321,14 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     Object.assign(patch, profileColumns);
     if (role !== undefined) patch.Role = role;
     if (termsAcceptedVersion !== undefined) patch.TermsAcceptedVersion = currentTermsVersion;
-    if (password !== undefined) {
-      // The current-password confirmation is the self-service path. An admin
-      // resetting somebody else's password has no password to confirm, which
-      // is why this asks for authority rather than for a role alone.
-      if (!authority.admin) {
-        // An account created through the provider has no password to confirm,
-        // and letting a session set one would turn a stolen session into a
-        // standing credential, so that stays an admin action.
-        if (!target.PasswordHash) {
-          throw forbidden(
-            'This account signs in with the identity provider. An admin can set a password for it.',
-          );
-        }
-        const currentPassword = req.body.currentPassword;
-        if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
-          throw fieldErrors([
-            {
-              field: 'currentPassword',
-              message: 'Current password is required when changing your password.',
-            },
-          ]);
-        }
-        const valid = await verifyPassword(currentPassword, target.PasswordHash);
-        if (!valid) throw forbidden('Current password is incorrect.');
-      }
-      patch.PasswordHash = await hashPassword(password, config.auth.scrypt);
-    }
+    const passwordHash = await confirmPasswordChange({
+      password,
+      currentPassword: req.body.currentPassword,
+      target,
+      authority,
+      scrypt,
+    });
+    if (passwordHash !== undefined) patch.PasswordHash = passwordHash;
 
     const updated = await db.$transaction(async (tx) => {
       await tx.Users.update({ where: { Id: target.Id }, data: patch });

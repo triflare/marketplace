@@ -221,6 +221,29 @@ test('Idempotency-Key makes a publish safe to retry', async () => {
   );
 });
 
+test('an Idempotency-Key whose answer expired is free again', async () => {
+  const { token } = await signupAndAccept(app, uniqNs());
+  const body = { name: 'ci', scopes: ['publish'] };
+  const send = () =>
+    request(app)
+      .post(apiPath('/tokens'))
+      .set(bearer(token))
+      .set('Idempotency-Key', 'expired-key-0001')
+      .send(body);
+
+  const first = await send().expect(201);
+  const row = await db.IdempotencyKeys.findFirst({ where: { Key: 'expired-key-0001' } });
+  await db.IdempotencyKeys.update({
+    where: { Id: row.Id },
+    data: { ExpiresAt: new Date(Date.now() - 1000) },
+  });
+
+  const second = await send().expect(201);
+  assert.equal(second.headers['idempotent-replayed'], undefined, 'the stale answer was not served');
+  assert.notEqual(second.body.id, first.body.id, 'the work ran instead of replaying');
+  assert.equal(await db.AutomationTokens.count(), 2);
+});
+
 test('fields trims a representation and refuses names the resource lacks', async () => {
   await published();
   const trimmed = await request(app).get(apiPath('/extensions?fields=id,name')).expect(200);

@@ -61,7 +61,10 @@ export function idempotent(db) {
     if (existing) {
       const stale =
         existing.Status === null && Date.now() - existing.CreatedAt.getTime() > STALE_CLAIM_MS;
-      if (!stale) return replay(existing);
+      // Past its TTL the row is cache the sweep has not reached yet, so the key
+      // counts as unused rather than replaying an answer meant to be forgotten.
+      const expired = existing.ExpiresAt.getTime() <= Date.now();
+      if (!stale && !expired) return replay(existing);
       await db.IdempotencyKeys.deleteMany({ where: { Id: existing.Id } });
     }
 
@@ -93,23 +96,46 @@ export function idempotent(db) {
 
     const json = res.json.bind(res);
     let stored = false;
+    let released = false;
     res.json = (body) => {
       const status = res.statusCode;
+      // A failed attempt leaves the key free: the client asked for the work, it
+      // did not happen, and the same key should be able to try again. The row is
+      // deleted before the error is flushed, for the same reason the answer is
+      // written before the response: a client can retry the moment it reads it,
+      // and must not meet its own claim and be told the work is in progress.
+      if (status >= 400) {
+        if (released) return json(body);
+        released = true;
+        db.IdempotencyKeys.deleteMany({ where }).then(
+          () => json(body),
+          () => json(body),
+        );
+        return res;
+      }
       const payload =
         status >= 200 && status < 300 ? JSON.parse(JSON.stringify(body ?? null)) : null;
-      if (payload !== null && !stored) {
-        stored = true;
-        void db.IdempotencyKeys.update({ where, data: { Status: status, Body: payload } }).catch(
-          () => {},
-        );
+      if (payload === null || stored) {
+        json(body);
+        return res;
       }
-      return json(body);
+      // The answer is written before the response is flushed. A client can
+      // retry the moment it reads this answer, and a retry that met the claim
+      // while it was still empty would be told the work is in progress after it
+      // had already finished.
+      stored = true;
+      db.IdempotencyKeys.update({ where, data: { Status: status, Body: payload } }).then(
+        () => json(body),
+        () => json(body),
+      );
+      return res;
     };
 
-    // A failed attempt leaves the key free: the client asked for the work, it
-    // did not happen, and the same key should be able to try again.
+    // Covers the error paths that answer without `res.json`; the ones that went
+    // through it have released the key by the time this fires.
     res.on('finish', () => {
-      if (res.statusCode >= 400) {
+      if (res.statusCode >= 400 && !released) {
+        released = true;
         void db.IdempotencyKeys.deleteMany({ where }).catch(() => {});
       }
     });
