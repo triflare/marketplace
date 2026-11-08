@@ -44,7 +44,6 @@
     "react-markdown": "^10.1.0",
     "react-router": "^8.5.1",
     "remark-gfm": "^4.0.1",
-    "shadcn": "^4.23.0",
     "sonner": "^2.0.8",
     "spdx-license-list": "^6.12.0",
     "tailwindcss": "^4",
@@ -64,8 +63,16 @@
     "globals": "^17",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "shadcn": "^4.23.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8",
     "vite": "^8"
+  },
+  "overrides": {
+    "dompurify": "^3.4.17",
+    "minimatch": "^11.0.1",
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "^6.1.5"
+    }
   }
 }
