@@ -5,7 +5,8 @@
 // without one (`node --test test/security-regressions.test.js`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
@@ -72,6 +73,29 @@ test('js/file-system-race (compiler): output is capped and read through one desc
   assert.equal(capped.ok, false);
   assert.equal(capped.reason, 'too-large');
   assert.equal(capped.size, 4096);
+
+  const directory = path.join(dir, 'directory');
+  mkdirSync(directory);
+  const notFile = await readBoundedOutput(directory, 1024);
+  assert.equal(notFile.ok, false);
+  assert.equal(notFile.reason, 'not-a-file');
+});
+
+test('compiler output that grows after stat is read only up to the cap plus one', async (t) => {
+  const file = path.join(tempDir(t), 'growing.js');
+  writeFileSync(file, 'x');
+  const handle = await open(file, 'r');
+  const prototype = Object.getPrototypeOf(handle);
+  const stat = prototype.stat;
+  await handle.close();
+  t.mock.method(prototype, 'stat', async function (...args) {
+    const info = await stat.apply(this, args);
+    writeFileSync(file, 'x'.repeat(4096));
+    return info;
+  });
+
+  const capped = await readBoundedOutput(file, 1024);
+  assert.deepEqual(capped, { ok: false, reason: 'too-large', size: 1025 });
 });
 
 test('js/file-system-race (onboarding): a missing config is null, not an exception', (t) => {

@@ -21,11 +21,17 @@ export async function readBoundedOutput(file, maxBytes = MAX_OUTPUT_BYTES) {
     const info = await handle.stat();
     if (!info.isFile()) return { ok: false, reason: 'not-a-file' };
     if (info.size > maxBytes) return { ok: false, reason: 'too-large', size: info.size };
-    const buffer = await handle.readFile();
-    if (buffer.length > maxBytes) {
-      return { ok: false, reason: 'too-large', size: buffer.length };
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
+      if (bytesRead === 0) break;
+      size += bytesRead;
     }
-    return { ok: true, buffer, size: buffer.length };
+    if (size > maxBytes) {
+      return { ok: false, reason: 'too-large', size };
+    }
+    return { ok: true, buffer: buffer.subarray(0, size), size };
   } finally {
     await handle.close();
   }

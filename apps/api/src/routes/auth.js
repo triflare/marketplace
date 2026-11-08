@@ -86,10 +86,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
-    // The browser and the row carry the same digest of the flow binding, never
-    // the binding itself: the callback compares the digest it is presented with
-    // to the stored one, so neither a leaked cookie nor a leaked row is a
-    // reusable copy of the other.
+    // Only the browser receives the secret; the stored digest cannot be used
+    // as a cookie to complete the flow.
     const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
@@ -105,7 +103,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
         ExpiresAt: new Date(Date.now() + FLOW_TTL_MS),
       },
     });
-    setFlowCookie(res, state, bindingDigest);
+    setFlowCookie(res, state, binding);
 
     if (wantsHtml(req)) return res.redirect(authorizationUrl);
     res.json({ authorizationUrl });
@@ -132,9 +130,8 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     // complete a sign-in for this one. A conditional update across two unique
     // filters has no typed equivalent that both claims the row and returns it.
     const exchangeCode = newSecret();
-    // The cookie already carries the digest, so it is compared to the stored
-    // digest directly instead of being hashed a second time.
-    const bindingDigest = readCookie(req, flowCookieName(state));
+    const binding = readCookie(req, flowCookieName(state));
+    const bindingDigest = binding ? hashToken(binding) : null;
     const [flow] = await db.$queryRaw`
       UPDATE "OidcFlows"
       SET "ExchangeCodeHash" = ${hashToken(exchangeCode)}
@@ -246,7 +243,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const verifier = newSecret();
     const nonce = newSecret();
     const binding = newSecret();
-    // Same digest-not-secret rule as the sign-in flow above.
+    // Store only the digest, as in the sign-in flow above.
     const bindingDigest = hashToken(binding);
     const authorizationUrl = await client.authorizationUrl({ state, nonce, verifier });
 
@@ -263,7 +260,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
         ExpiresAt: new Date(Date.now() + FLOW_TTL_MS),
       },
     });
-    setFlowCookie(res, state, bindingDigest);
+    setFlowCookie(res, state, binding);
     res.json({ authorizationUrl });
   });
 

@@ -1,6 +1,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
+import { hashToken } from '../src/auth.js';
 import {
   boot,
   resetDb,
@@ -14,11 +15,12 @@ import {
 import { roundTripProvider, startFakeIdp } from './fake-idp.mjs';
 
 let app;
+let db;
 let idp;
 
 before(async () => {
   idp = await startFakeIdp();
-  ({ app } = await boot({
+  ({ app, db } = await boot({
     auth: { oidc: { issuer: idp.issuer, clientId: 'triflare-test' } },
     rateLimits: { signupsPerIpPerWindow: 10_000 },
   }));
@@ -135,6 +137,36 @@ test('replaying a state is refused', async () => {
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(201);
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(400);
 });
+
+for (const kind of ['signin', 'link']) {
+  test(`${kind} cookies carry the binding secret and reject the stored digest`, async () => {
+    const agent = browser();
+    let start;
+    if (kind === 'link') {
+      const { token } = await signupAndAccept(app, uniqNs());
+      start = await agent.post(apiPath('/auth/oidc/link')).set(bearer(token)).send({}).expect(200);
+    } else {
+      start = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+    }
+    const { code, state } = await roundTripProvider(start.body.authorizationUrl);
+    const cookie = start.headers['set-cookie'][0].split(';')[0];
+    const eq = cookie.indexOf('=');
+    const binding = decodeURIComponent(cookie.slice(eq + 1));
+    const flow = await db.OidcFlows.findUnique({ where: { StateHash: hashToken(state) } });
+    assert.notEqual(binding, flow.FlowSecretHash);
+    assert.equal(hashToken(binding), flow.FlowSecretHash);
+
+    await request(app)
+      .get(apiPath('/auth/oidc/callback'))
+      .set('Cookie', `${cookie.slice(0, eq + 1)}${flow.FlowSecretHash}`)
+      .query({ code, state })
+      .expect(400);
+    await agent
+      .get(apiPath('/auth/oidc/callback'))
+      .query({ code, state })
+      .expect(kind === 'link' ? 200 : 201);
+  });
+}
 
 test('a callback in a different browser is refused', async () => {
   idp.setClaims({ sub: 'sub-crossbrowser' });

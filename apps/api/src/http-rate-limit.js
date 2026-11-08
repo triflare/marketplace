@@ -56,6 +56,10 @@ export function makeHttpRateLimiter(config) {
 // deliberately skips loopback addresses, so a route that writes files needs its
 // own cap that applies wherever it is called from. The store is in-memory and
 // lives as long as the app it was built for.
+// Configure deployment-specific `trust proxy` before first-run setup calls this
+// helper so onboarding limits distinguish clients behind the reverse proxy.
+// Accept forwarded headers only from trusted proxies; never enable blanket
+// trust for untrusted clients.
 export function makeRouteLimiter({ limit, windowMs }) {
   return rateLimit({
     windowMs,
