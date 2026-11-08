@@ -3,6 +3,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { configFilename, product } from './product.js';
 import { normalizeApiRoot } from './util.js';
+import { oidcEnabled } from './oidc.js';
 import { normalizeDriverConfig } from './drivers/config.js';
 
 export const DEFAULTS = {
@@ -33,6 +34,10 @@ export const DEFAULTS = {
     // A key used to hash download addresses. Null means generate one into the
     // data directory on first use.
     downloadHashKey: null,
+    // The key that seals the OIDC flow cookie. Required when a provider is
+    // configured: it has to survive a restart and match across instances, so
+    // there is no generated fallback.
+    flowCookieKey: null,
   },
   // One line across the top of every page of the web client: a maintenance
   // window, a sign-in method that just changed. Null is no banner, and the
@@ -385,6 +390,16 @@ function normalizeServerSettings(config) {
     throw new Error('secrets.downloadHashKey must be a non-empty string or null');
   }
   if (key !== null) config.secrets.downloadHashKey = key.trim();
+  // The flow cookie key encrypts the OIDC binding, so a short value would leave
+  // the ciphertext open to guessing regardless of the cipher.
+  const flowCookieKey = config.secrets?.flowCookieKey ?? null;
+  if (
+    flowCookieKey !== null &&
+    (typeof flowCookieKey !== 'string' || flowCookieKey.trim().length < 32)
+  ) {
+    throw new Error('secrets.flowCookieKey must be a string of at least 32 characters or null');
+  }
+  config.secrets.flowCookieKey = flowCookieKey === null ? null : flowCookieKey.trim();
 }
 
 export function loadConfig(configPath) {
@@ -433,5 +448,10 @@ export function loadConfig(configPath) {
   // the configuration: a passkey method needs a relying party, and a mail-using
   // method needs a mail chain that can deliver.
   normalizeDriverConfig(config);
+  // Checked after that pass: an OIDC method declared through auth.methods only
+  // reaches auth.oidc when it runs, so earlier would miss it.
+  if (config.secrets.flowCookieKey === null && oidcEnabled(config)) {
+    throw new Error('secrets.flowCookieKey must be set when auth.oidc is configured');
+  }
   return config;
 }

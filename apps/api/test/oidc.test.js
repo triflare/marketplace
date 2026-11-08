@@ -139,7 +139,7 @@ test('replaying a state is refused', async () => {
 });
 
 for (const kind of ['signin', 'link']) {
-  test(`${kind} cookies carry the binding secret and reject the stored digest`, async () => {
+  test(`${kind} cookies seal the binding and reject the stored digest`, async () => {
     const agent = browser();
     let start;
     if (kind === 'link') {
@@ -151,11 +151,15 @@ for (const kind of ['signin', 'link']) {
     const { code, state } = await roundTripProvider(start.body.authorizationUrl);
     const cookie = start.headers['set-cookie'][0].split(';')[0];
     const eq = cookie.indexOf('=');
-    const binding = decodeURIComponent(cookie.slice(eq + 1));
+    const sealed = decodeURIComponent(cookie.slice(eq + 1));
     const flow = await db.OidcFlows.findUnique({ where: { StateHash: hashToken(state) } });
-    assert.notEqual(binding, flow.FlowSecretHash);
-    assert.equal(hashToken(binding), flow.FlowSecretHash);
+    // The cookie is sealed with the instance key, so it is not the digest in
+    // the row, and hashing it does not reproduce that digest either.
+    assert.notEqual(sealed, flow.FlowSecretHash);
+    assert.notEqual(hashToken(sealed), flow.FlowSecretHash);
 
+    // Replaying the row's digest as the cookie fails, because the callback
+    // cannot open it.
     await request(app)
       .get(apiPath('/auth/oidc/callback'))
       .set('Cookie', `${cookie.slice(0, eq + 1)}${flow.FlowSecretHash}`)

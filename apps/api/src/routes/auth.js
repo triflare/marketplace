@@ -50,7 +50,12 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     if (typeof state !== 'string' || state === '') return flowCookieBase;
     return `${flowCookieBase}_${state}`;
   };
-  const flowCookieKey = createHash('sha256').update(String(config.sessions.secret)).digest();
+  // The cookie holds the binding sealed with a key from the config, so what the
+  // browser stores is ciphertext: the flow row keeps only a digest, and neither
+  // the row nor a cookie store holds the value the callback compares.
+  const flowCookieKey = enabled
+    ? createHash('sha256').update(config.secrets.flowCookieKey).digest()
+    : null;
   const sealFlowCookieValue = (value) => {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', flowCookieKey, iv);
@@ -63,20 +68,23 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     const parts = sealed.split('.');
     if (parts.length !== 3) return null;
     try {
-      const iv = Buffer.from(parts[0], 'base64url');
-      const tag = Buffer.from(parts[1], 'base64url');
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        flowCookieKey,
+        Buffer.from(parts[0], 'base64url'),
+      );
+      decipher.setAuthTag(Buffer.from(parts[1], 'base64url'));
       const ciphertext = Buffer.from(parts[2], 'base64url');
-      const decipher = createDecipheriv('aes-256-gcm', flowCookieKey, iv);
-      decipher.setAuthTag(tag);
       return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
     } catch {
       return null;
     }
   };
   const setFlowCookie = (res, state, value) =>
-    // The cookie is the browser's half of the flow binding and the only copy of
-    // the secret: the flow row keeps just its digest, so a database read does
-    // not yield a value that completes the flow.
+    // The cookie is the browser's half of the flow binding: the callback has to
+    // open it with this instance's key and present the same secret, so a flow
+    // started in one browser cannot be completed in another.
+    // codeql[js/clear-text-storage-of-sensitive-data]
     res.cookie(flowCookieName(state), sealFlowCookieValue(value), flowCookieOptions);
   const clearFlowCookie = (res, state) => res.clearCookie(flowCookieName(state), flowCookieOptions);
 
@@ -156,7 +164,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
     // complete a sign-in for this one. A conditional update across two unique
     // filters has no typed equivalent that both claims the row and returns it.
     const exchangeCode = newSecret();
-    const binding = readCookie(req, flowCookieName(state));
+    const binding = openFlowCookieValue(readCookie(req, flowCookieName(state)));
     const bindingDigest = binding ? hashToken(binding) : null;
     const [flow] = await db.$queryRaw`
       UPDATE "OidcFlows"

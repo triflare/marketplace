@@ -11,6 +11,7 @@ metrics:
   intervalMs: 3600000
 secrets:
   downloadHashKey: null
+  flowCookieKey: null
 requireHttps: false
 database:
   url: postgres://postgres:postgres@localhost:5432/triflare
