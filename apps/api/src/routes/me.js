@@ -10,7 +10,6 @@ import {
 } from '../serialize.js';
 import { notFound } from '../errors.js';
 import { userEtag } from '../validators.js';
-import { DOWNLOAD_EVENT_RETENTION_DAYS, MAIL_OUTBOX_RETENTION_DAYS } from '../privacy.js';
 
 // The account the presented token belongs to. It sits at the root of the API
 // because it is not addressed by namespace: there is exactly one, and the token
@@ -136,8 +135,8 @@ export function makeMeRouter({ db, config }) {
         },
       },
       retention: {
-        downloadEventsDays: DOWNLOAD_EVENT_RETENTION_DAYS,
-        mailOutboxDays: MAIL_OUTBOX_RETENTION_DAYS,
+        downloadEventsDays: config.privacy.downloadEventRetentionDays,
+        mailOutboxDays: config.privacy.mailOutboxRetentionDays,
       },
     });
   });

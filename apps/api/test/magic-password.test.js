@@ -21,11 +21,20 @@ test('GET /auth reports the generated-password method and no password form', asy
   );
 });
 
+test('registration requires the current privacy policy', async () => {
+  await resetDb();
+  const missing = await request(app)
+    .post(apiPath('/auth/magic-password/register'))
+    .send({ email: 'consent@example.com' });
+  assert.equal(missing.status, 422);
+  assert.equal(missing.body.errors[0].field, 'privacyAcceptedVersion');
+});
+
 test('registration returns the password once and signs the account in', async () => {
   await resetDb();
   const created = await request(app)
     .post(apiPath('/auth/magic-password/register'))
-    .send({ email: 'worker@example.com' })
+    .send({ email: 'worker@example.com', privacyAcceptedVersion: 1 })
     .expect(201);
   assert.equal(created.body.user.namespace, 'worker');
   assert.ok(created.body.password.length >= 20);
@@ -45,11 +54,11 @@ test('the address is unique across accounts', async () => {
   await resetDb();
   await request(app)
     .post(apiPath('/auth/magic-password/register'))
-    .send({ email: 'once@example.com' })
+    .send({ email: 'once@example.com', privacyAcceptedVersion: 1 })
     .expect(201);
   await request(app)
     .post(apiPath('/auth/magic-password/register'))
-    .send({ email: 'ONCE@example.com' })
+    .send({ email: 'ONCE@example.com', privacyAcceptedVersion: 1 })
     .expect(409);
 });
 
@@ -57,7 +66,7 @@ test('a wrong password is refused, and rotation replaces the old one', async () 
   await resetDb();
   const created = await request(app)
     .post(apiPath('/auth/magic-password/register'))
-    .send({ email: 'rotate@example.com' })
+    .send({ email: 'rotate@example.com', privacyAcceptedVersion: 1 })
     .expect(201);
   await acceptTerms(app, created.body.user.namespace, created.body.token);
 

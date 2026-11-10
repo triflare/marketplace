@@ -188,12 +188,15 @@ export class AuthResource {
   // Registration that hands back the only copy of the password: the account is
   // created and signed in, and the page has to show the secret before leaving.
   registerWithGeneratedPassword(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options: RequestOptions = {}
   ): Promise<GeneratedPasswordSession> {
     return this.client.request("/auth/magic-password/register", {
       method: "POST",
-      json: { email: payload.email },
+      json: {
+        email: payload.email,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }
@@ -846,6 +849,7 @@ export class UsersResource {
         namespace: payload.namespace,
         password: payload.password,
         displayName: payload.displayName,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
       },
       ...requestOptions(options),
     })

@@ -140,7 +140,10 @@ export function makeMaintenanceJob({ db, config, blobs }) {
       const removed = await gcBlobs(db, blobs, config);
       if (removed > 0) console.log(`blob gc removed ${removed} orphaned file(s)`);
 
-      const purged = await purgeExpiredPersonalData(db);
+      const purged = await purgeExpiredPersonalData(db, {
+        downloadEventRetentionDays: config.privacy.downloadEventRetentionDays,
+        mailOutboxRetentionDays: config.privacy.mailOutboxRetentionDays,
+      });
       const purgedRows = Object.values(purged).reduce((sum, count) => sum + count, 0);
       if (purgedRows > 0) console.log(`retention sweep removed ${purgedRows} expired row(s)`);
 

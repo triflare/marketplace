@@ -1215,6 +1215,8 @@ paths:
         Creates the account, generates its password, and returns it once in the
         response. The address is the identifier the account signs in with, and
         the email in `passwordShownOnce` is the only place the password appears.
+        When the instance publishes a privacy policy, `privacyAcceptedVersion`
+        must name the current `version` from `GET /privacy`.
       requestBody:
         required: true
         content:
@@ -1224,6 +1226,11 @@ paths:
               required: [email]
               properties:
                 email: { type: string, format: email }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the new account
+                    accepts. Required when a privacy policy is published.
       responses:
         '201':
           description: The account, its session, and the password to keep
@@ -1526,6 +1533,11 @@ paths:
         an admin. When the instance is in identity-provider-only mode
         (`auth.oidc.required`), registration here is refused with a `403` and
         accounts are made by signing in through the provider instead.
+
+        When the instance publishes a privacy policy, the request must carry
+        the `version` from `GET /privacy` as `privacyAcceptedVersion`; the
+        account records that acceptance and its timestamp. A registry with no
+        privacy document has nothing to accept and omits the field.
       requestBody:
         required: true
         content:
@@ -1537,6 +1549,11 @@ paths:
                 namespace: { $ref: '#/components/schemas/Namespace' }
                 displayName: { type: string, maxLength: 80 }
                 password: { type: string, minLength: 8, writeOnly: true }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the new account
+                    accepts. Required when a privacy policy is published.
       responses:
         '201':
           description: Account created, with a session already open for it
@@ -5126,10 +5143,21 @@ components:
         termsAcceptedVersion:
           type: ['integer', 'null']
           description: Terms of Service `version` this account last accepted, or `null` if never accepted. Present only for self or admin viewers.
+        termsAcceptedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When `termsAcceptedVersion` was recorded. Present only for self or admin viewers.
+        privacyAcceptedVersion:
+          type: ['integer', 'null']
+          description: Privacy Policy `version` this account last accepted, or `null` if never accepted. Present only for self or admin viewers.
+        privacyAcceptedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When `privacyAcceptedVersion` was recorded. Present only for self or admin viewers.
       description: >
         An account. `GET /users/{namespace}` also answers for an organization,
-        with `kind` set to `organization` and without `role` or
-        `termsAcceptedVersion`, since an organization has neither. The
+        with `kind` set to `organization` and without `role` or consent fields,
+        since an organization has neither. The
         organization view of itself is `GET /orgs/{namespace}`.
 
     Organization:

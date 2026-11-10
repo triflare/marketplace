@@ -1,13 +1,23 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
-import { apiPath, bearer, boot, resetDb, signup, signupAndAccept, uniqNs } from './helpers.mjs';
-import { DOWNLOAD_EVENT_RETENTION_DAYS, purgeExpiredPersonalData } from '../src/privacy.js';
+import {
+  FIXTURE_PASSWORD,
+  apiPath,
+  bearer,
+  boot,
+  resetDb,
+  signup,
+  signupAndAccept,
+  uniqNs,
+} from './helpers.mjs';
+import { purgeExpiredPersonalData } from '../src/privacy.js';
 
 let app;
 let db;
+let config;
 before(async () => {
-  ({ app, db } = await boot());
+  ({ app, db, config } = await boot());
 });
 beforeEach(resetDb);
 after(async () => {
@@ -18,6 +28,8 @@ test('an account can download the data held about it', async () => {
   const account = await signup(app, uniqNs());
   const ns = account.body.user.namespace;
   const token = account.body.token;
+  assert.equal(account.body.user.privacyAcceptedVersion, 1);
+  assert.ok(account.body.user.privacyAcceptedAt);
 
   // Accepting the privacy policy alone is not behind the terms gate: the
   // record has to be writable before the terms have been accepted.
@@ -41,7 +53,11 @@ test('an account can download the data held about it', async () => {
   assert.equal(exported.body.account.privacyAcceptedVersion, 1);
   assert.equal(exported.body.legal.accepted.privacyVersion, 1);
   assert.ok(exported.body.legal.documents.length >= 2);
-  assert.equal(exported.body.retention.downloadEventsDays, DOWNLOAD_EVENT_RETENTION_DAYS);
+  assert.equal(
+    exported.body.retention.downloadEventsDays,
+    config.privacy.downloadEventRetentionDays,
+  );
+  assert.equal(exported.body.retention.mailOutboxDays, config.privacy.mailOutboxRetentionDays);
   assert.ok(Array.isArray(exported.body.sessions));
   assert.ok(Array.isArray(exported.body.emailIdentities));
 });
@@ -53,7 +69,7 @@ test('a data export needs a credential', async () => {
 test('the retention sweep removes rows past their window and keeps the rest', async () => {
   const account = await signupAndAccept(app, uniqNs());
   const user = await db.Users.findUnique({ where: { Namespace: account.user.namespace } });
-  const old = new Date(Date.now() - (DOWNLOAD_EVENT_RETENTION_DAYS + 1) * 86_400_000);
+  const old = new Date(Date.now() - (config.privacy.downloadEventRetentionDays + 1) * 86_400_000);
   const fresh = new Date();
 
   await db.DownloadEvents.create({
@@ -109,6 +125,58 @@ test('the retention sweep removes rows past their window and keeps the rest', as
   assert.equal(await db.DeviceCodes.count(), 0);
   assert.equal(await db.MfaChallenges.count(), 0);
   assert.equal(await db.IdempotencyKeys.count(), 0);
+});
+
+test('registration refuses an account that has not accepted the privacy policy', async () => {
+  const missing = await request(app)
+    .post(apiPath('/users'))
+    .send({ namespace: uniqNs(), password: FIXTURE_PASSWORD });
+  assert.equal(missing.status, 422);
+  assert.equal(missing.body.errors[0].field, 'privacyAcceptedVersion');
+
+  const stale = await request(app).post(apiPath('/users')).send({
+    namespace: uniqNs(),
+    password: FIXTURE_PASSWORD,
+    privacyAcceptedVersion: 99,
+  });
+  assert.equal(stale.status, 422);
+  assert.equal(stale.body.errors[0].field, 'privacyAcceptedVersion');
+
+  const accepted = await signup(app, uniqNs());
+  assert.equal(accepted.status, 201);
+  assert.equal(accepted.body.user.privacyAcceptedVersion, 1);
+  assert.ok(accepted.body.user.privacyAcceptedAt);
+});
+
+test('the retention windows follow configuration', async () => {
+  const before = { ...config.privacy };
+  config.privacy.downloadEventRetentionDays = 5;
+  config.privacy.mailOutboxRetentionDays = 6;
+  try {
+    const account = await signup(app, uniqNs());
+    const exported = await request(app)
+      .get(apiPath('/me/export'))
+      .set(bearer(account.body.token))
+      .expect(200);
+    assert.equal(exported.body.retention.downloadEventsDays, 5);
+    assert.equal(exported.body.retention.mailOutboxDays, 6);
+
+    await db.DownloadEvents.create({
+      data: {
+        Namespace: 'aged',
+        ExtensionId: 'ext',
+        Version: '1.0.0',
+        CreatedAt: new Date(Date.now() - 6 * 86_400_000),
+      },
+    });
+    const purged = await purgeExpiredPersonalData(db, {
+      downloadEventRetentionDays: config.privacy.downloadEventRetentionDays,
+      mailOutboxRetentionDays: config.privacy.mailOutboxRetentionDays,
+    });
+    assert.equal(purged.downloadEvents, 1);
+  } finally {
+    Object.assign(config.privacy, before);
+  }
 });
 
 test('deleting an account erases its address from mail and its handle from the audit trail', async () => {

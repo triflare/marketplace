@@ -10,6 +10,7 @@ import { ButtonLink } from "@/components/common/button-link"
 import { CopyButton } from "@/components/common/copy-button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -63,8 +64,12 @@ export function SignupPage() {
   } | null>(null)
   const [email, setEmail] = useState("")
   const [enrolling, setEnrolling] = useState(false)
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false)
 
   const descriptor = useAsync((signal) => th.auth.describe({ signal }), [])
+  const privacy = useAsync((signal) => th.instance.privacy({ signal }), [])
+  const privacyVersion =
+    privacy.statusCode === 404 ? null : (privacy.data?.version ?? null)
   // Password registration is refused when the method set leaves the password
   // driver out, and each other pane is offered only while its driver is
   // advertised. Nothing renders until the set is known.
@@ -132,6 +137,10 @@ export function SignupPage() {
       setError("The passwords do not match.")
       return
     }
+    if (privacyVersion !== null && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
+      return
+    }
 
     setSubmitted(true)
     setPending(true)
@@ -141,6 +150,7 @@ export function SignupPage() {
         namespace: namespace.trim(),
         password,
         displayName: displayName.trim() || undefined,
+        privacyAcceptedVersion: privacyVersion ?? undefined,
       })
       navigate("/stay-signed-in?next=%2Fdashboard")
     } catch (reason) {
@@ -157,6 +167,10 @@ export function SignupPage() {
       setError("Enter the email address to register with.")
       return
     }
+    if (privacyVersion !== null && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
+      return
+    }
 
     setSubmitted(true)
     setPending(true)
@@ -164,6 +178,7 @@ export function SignupPage() {
     try {
       const result = await th.auth.registerWithGeneratedPassword({
         email: address,
+        privacyAcceptedVersion: privacyVersion ?? undefined,
       })
       acceptSession(result)
       setGenerated({
@@ -325,17 +340,40 @@ export function SignupPage() {
                   required
                 />
               </div>
-              <Button type="submit" disabled={pending}>
+              {privacyVersion !== null ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) =>
+                      setAcceptedPrivacy(checked === true)
+                    }
+                  />
+                  <label
+                    htmlFor="signup-privacy"
+                    className="text-xs text-muted-foreground"
+                  >
+                    I have read and agree to the{" "}
+                    <Link
+                      to="/privacy"
+                      className="text-foreground hover:underline"
+                    >
+                      privacy policy
+                    </Link>
+                    .
+                  </label>
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                disabled={pending || privacy.status === "loading"}
+              >
                 {pending ? "Creating account…" : "Create account"}
               </Button>
               <p className="text-xs text-muted-foreground">
                 By creating an account you agree to the{" "}
                 <Link to="/terms" className="text-foreground hover:underline">
                   terms
-                </Link>{" "}
-                and{" "}
-                <Link to="/privacy" className="text-foreground hover:underline">
-                  privacy policy
                 </Link>
                 .
               </p>
@@ -355,7 +393,34 @@ export function SignupPage() {
                   placeholder="you@example.com"
                 />
               </div>
-              <Button type="submit" disabled={pending}>
+              {privacyVersion !== null ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-generated-privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) =>
+                      setAcceptedPrivacy(checked === true)
+                    }
+                  />
+                  <label
+                    htmlFor="signup-generated-privacy"
+                    className="text-xs text-muted-foreground"
+                  >
+                    I have read and agree to the{" "}
+                    <Link
+                      to="/privacy"
+                      className="text-foreground hover:underline"
+                    >
+                      privacy policy
+                    </Link>
+                    .
+                  </label>
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                disabled={pending || privacy.status === "loading"}
+              >
                 {pending ? "Creating account…" : "Create account"}
               </Button>
               <p className="text-xs text-muted-foreground">

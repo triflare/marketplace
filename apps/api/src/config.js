@@ -130,6 +130,12 @@ export const DEFAULTS = {
   cors: {
     allowedOrigins: '*',
   },
+  privacy: {
+    // How long the download log and the mail outbox keep a row before the
+    // maintenance sweep removes it.
+    downloadEventRetentionDays: 30,
+    mailOutboxRetentionDays: 30,
+  },
   // An ordered failover chain. `none` is no mail: every feature whose driver
   // requires mail refuses to be configured alongside it.
   mail: {
@@ -385,6 +391,12 @@ function normalizeServerSettings(config) {
   }
   requireInteger(config.process.drainSeconds, 'process.drainSeconds');
   requireInteger(config.metrics?.intervalMs, 'metrics.intervalMs');
+  requireInteger(config.privacy?.downloadEventRetentionDays, 'privacy.downloadEventRetentionDays', {
+    max: 3650,
+  });
+  requireInteger(config.privacy?.mailOutboxRetentionDays, 'privacy.mailOutboxRetentionDays', {
+    max: 3650,
+  });
   const key = config.secrets?.downloadHashKey;
   if (key !== null && (typeof key !== 'string' || key.trim() === '')) {
     throw new Error('secrets.downloadHashKey must be a non-empty string or null');

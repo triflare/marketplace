@@ -667,6 +667,7 @@ export interface CreateUserPayload {
   namespace: string
   password: string
   displayName?: string
+  privacyAcceptedVersion?: number | string
 }
 
 export interface UpdateUserPayload {
@@ -854,7 +855,7 @@ export interface AuthResource {
     options?: RequestOptions
   ): Promise<SessionResult>
   registerWithGeneratedPassword(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options?: RequestOptions
   ): Promise<GeneratedPasswordSession>
   rotateGeneratedPassword(options?: RequestOptions): Promise<RotatedPassword>

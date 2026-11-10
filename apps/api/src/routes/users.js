@@ -19,6 +19,7 @@ import { makeProfileImageRouter } from './profile-images.js';
 import { makeWebhooks, WebhookInputError } from '../webhooks.js';
 import { makeWebhookDeliveryRoutes } from './webhook-deliveries.js';
 import { audit } from '../audit.js';
+import { checkPrivacyAcceptance } from '../consent.js';
 
 // Whether the session may act on the target account and at what level. Both
 // answers come from the session and the target row, never from the request
@@ -85,7 +86,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       throw forbidden('Registration is closed on this instance.');
     }
     requireObjectBody(req);
-    const { namespace, password, displayName } = req.body;
+    const { namespace, password, displayName, privacyAcceptedVersion } = req.body;
 
     const errors = [];
     if (typeof namespace !== 'string' || !isValidNamespace(namespace)) {
@@ -107,6 +108,10 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
         message: 'Display name must be at most 80 characters.',
       });
     }
+    const privacy = await checkPrivacyAcceptance(db, privacyAcceptedVersion, {
+      path: mount('/privacy'),
+    });
+    errors.push(...privacy.errors);
     if (errors.length > 0) throw fieldErrors(errors);
 
     const effectiveDisplayName =
@@ -129,6 +134,8 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
             DisplayName: effectiveDisplayName,
             PasswordHash: passwordHash,
             Role: role,
+            PrivacyAcceptedVersion: privacy.version,
+            PrivacyAcceptedAt: privacy.version === null ? null : new Date(),
           },
         });
         created = await createSession(tx, user.Id, sessionTtlMs);

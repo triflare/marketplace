@@ -4,12 +4,22 @@
 // until its code expires. None of them has a reason to keep a row past that.
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const DOWNLOAD_EVENT_RETENTION_DAYS = 30;
-export const MAIL_OUTBOX_RETENTION_DAYS = 30;
+// The windows a config that names neither gets. The running instance passes
+// its configured values on every sweep, so changing one takes effect without a
+// restart.
+export const DEFAULT_DOWNLOAD_EVENT_RETENTION_DAYS = 30;
+export const DEFAULT_MAIL_OUTBOX_RETENTION_DAYS = 30;
 
-export async function purgeExpiredPersonalData(db, { now = new Date() } = {}) {
-  const downloadCutoff = new Date(now.getTime() - DOWNLOAD_EVENT_RETENTION_DAYS * DAY_MS);
-  const outboxCutoff = new Date(now.getTime() - MAIL_OUTBOX_RETENTION_DAYS * DAY_MS);
+export async function purgeExpiredPersonalData(
+  db,
+  {
+    now = new Date(),
+    downloadEventRetentionDays = DEFAULT_DOWNLOAD_EVENT_RETENTION_DAYS,
+    mailOutboxRetentionDays = DEFAULT_MAIL_OUTBOX_RETENTION_DAYS,
+  } = {},
+) {
+  const downloadCutoff = new Date(now.getTime() - downloadEventRetentionDays * DAY_MS);
+  const outboxCutoff = new Date(now.getTime() - mailOutboxRetentionDays * DAY_MS);
 
   const [downloads, outbox, challenges, deviceCodes, mfaChallenges, idempotencyKeys] =
     await db.$transaction([
