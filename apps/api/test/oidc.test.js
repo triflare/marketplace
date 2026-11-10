@@ -44,7 +44,10 @@ function browser() {
 async function signIn(claims) {
   idp.setClaims(claims);
   const agent = browser();
-  const authorize = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+  const authorize = await agent
+    .get(apiPath('/auth/oidc/authorize'))
+    .query({ privacyAcceptedVersion: 1 })
+    .expect(200);
   const { code, state } = await roundTripProvider(authorize.body.authorizationUrl);
   return agent.get(apiPath('/auth/oidc/callback')).query({ code, state });
 }
@@ -69,6 +72,8 @@ test('a first sign-in creates an admin account and a second reuses it', async ()
   assert.equal(first.status, 201, JSON.stringify(first.body));
   assert.equal(first.body.user.namespace, 'alice');
   assert.equal(first.body.user.role, 'admin');
+  assert.equal(first.body.user.privacyAcceptedVersion, 1);
+  assert.ok(first.body.user.privacyAcceptedAt);
   assert.equal(typeof first.body.token, 'string');
   assert.equal(typeof first.body.session.id, 'string');
 
@@ -83,7 +88,7 @@ test('a browser sign-in returns a one-time code that trades for a session', asyn
   const agent = browser();
   const authorize = await agent
     .get(apiPath('/auth/oidc/authorize'))
-    .query({ returnTo: '/welcome' })
+    .query({ returnTo: '/welcome', privacyAcceptedVersion: 1 })
     .set('Accept', 'text/html')
     .redirects(0)
     .expect(302);
@@ -129,10 +134,26 @@ test('a taken namespace gains a suffix', async () => {
   assert.equal(second.body.user.namespace, 'clash-2');
 });
 
+test('a first provider sign-in needs the privacy version', async () => {
+  idp.setClaims({ sub: 'sub-no-consent', preferred_username: 'no-consent' });
+  const agent = browser();
+  const authorize = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+  const { code, state } = await roundTripProvider(authorize.body.authorizationUrl);
+  const callback = await agent
+    .get(apiPath('/auth/oidc/callback'))
+    .query({ code, state })
+    .expect(422);
+  assert.match(callback.body.detail, /privacy policy/i);
+  assert.equal(await db.Users.count(), 0);
+});
+
 test('replaying a state is refused', async () => {
   idp.setClaims({ sub: 'sub-replay' });
   const agent = browser();
-  const authorize = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+  const authorize = await agent
+    .get(apiPath('/auth/oidc/authorize'))
+    .query({ privacyAcceptedVersion: 1 })
+    .expect(200);
   const { code, state } = await roundTripProvider(authorize.body.authorizationUrl);
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(201);
   await agent.get(apiPath('/auth/oidc/callback')).query({ code, state }).expect(400);
@@ -146,7 +167,10 @@ for (const kind of ['signin', 'link']) {
       const { token } = await signupAndAccept(app, uniqNs());
       start = await agent.post(apiPath('/auth/oidc/link')).set(bearer(token)).send({}).expect(200);
     } else {
-      start = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+      start = await agent
+        .get(apiPath('/auth/oidc/authorize'))
+        .query({ privacyAcceptedVersion: 1 })
+        .expect(200);
     }
     const { code, state } = await roundTripProvider(start.body.authorizationUrl);
     const cookie = start.headers['set-cookie'][0].split(';')[0];
@@ -180,7 +204,10 @@ for (const kind of ['signin', 'link']) {
       const { token } = await signupAndAccept(app, uniqNs());
       start = await agent.post(apiPath('/auth/oidc/link')).set(bearer(token)).send({}).expect(200);
     } else {
-      start = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+      start = await agent
+        .get(apiPath('/auth/oidc/authorize'))
+        .query({ privacyAcceptedVersion: 1 })
+        .expect(200);
     }
     const { code, state } = await roundTripProvider(start.body.authorizationUrl);
     const cookie = start.headers['set-cookie'][0].split(';')[0];
@@ -391,7 +418,7 @@ test('a browser exchange answers with the second factor rather than a session', 
   const agent = browser();
   const authorize = await agent
     .get(apiPath('/auth/oidc/authorize'))
-    .query({ returnTo: '/welcome' })
+    .query({ returnTo: '/welcome', privacyAcceptedVersion: 1 })
     .set('Accept', 'text/html')
     .redirects(0)
     .expect(302);

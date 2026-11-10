@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 import { hashToken } from './auth.js';
 import { unauthorized } from './errors.js';
 import { accountForMagicLink } from './magic-link.js';
+import { privacyVersionNumber } from './consent.js';
 import { codeBlock, emailLayout, escapeHtml, paragraph } from './mail-templates.js';
 import { product } from './product.js';
 
@@ -38,7 +39,11 @@ export function emailOtpMessage(config, email, code) {
   };
 }
 
-export async function beginEmailOtp({ db, config, mail, rateLimiter, ip }, email) {
+export async function beginEmailOtp(
+  { db, config, mail, rateLimiter, ip },
+  email,
+  privacyAcceptedVersion = null,
+) {
   // One bucket per address so a single inbox cannot be flooded, one per caller
   // so one client cannot enumerate addresses by mail volume.
   await rateLimiter.signupCheck(`email-otp:${email}`);
@@ -55,6 +60,7 @@ export async function beginEmailOtp({ db, config, mail, rateLimiter, ip }, email
       Driver: 'email-otp',
       Subject: email,
       SecretHash: hashToken(code),
+      PrivacyAcceptedVersion: privacyVersionNumber(privacyAcceptedVersion),
       ExpiresAt: new Date(Date.now() + EMAIL_OTP_TTL_MS),
     },
   });
@@ -83,6 +89,6 @@ export async function consumeEmailOtp(db, email, code) {
 // A correct code is a verified address, so the account is created with that
 // identity already verified. The driver name keeps the two email methods apart
 // even when both are enabled.
-export function accountForEmailOtp(db, config, email) {
-  return accountForMagicLink(db, config, email, 'email-otp');
+export function accountForEmailOtp(db, config, email, privacyAcceptedVersion = null) {
+  return accountForMagicLink(db, config, email, 'email-otp', privacyAcceptedVersion);
 }

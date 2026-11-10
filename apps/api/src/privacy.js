@@ -24,7 +24,9 @@ export async function purgeExpiredPersonalData(
   const [downloads, outbox, challenges, deviceCodes, mfaChallenges, idempotencyKeys] =
     await db.$transaction([
       db.DownloadEvents.deleteMany({ where: { CreatedAt: { lt: downloadCutoff } } }),
-      db.MailOutbox.deleteMany({ where: { CreatedAt: { lt: outboxCutoff } } }),
+      db.MailOutbox.deleteMany({
+        where: { CreatedAt: { lt: outboxCutoff }, Status: { in: ['sent', 'failed'] } },
+      }),
       db.AuthChallenges.deleteMany({ where: { ExpiresAt: { lt: now } } }),
       db.DeviceCodes.deleteMany({ where: { ExpiresAt: { lt: now } } }),
       db.MfaChallenges.deleteMany({ where: { ExpiresAt: { lt: now } } }),

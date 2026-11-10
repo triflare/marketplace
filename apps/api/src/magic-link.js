@@ -1,6 +1,7 @@
 import { hashToken, newToken } from './auth.js';
 import { displayNameFromEmail, freeNamespace, namespaceFromEmail } from './accounts.js';
-import { forbidden, unauthorized } from './errors.js';
+import { checkPrivacyAcceptance, privacyVersionNumber } from './consent.js';
+import { fieldErrors, forbidden, unauthorized } from './errors.js';
 import { withLocks } from './locks.js';
 import {
   actionButton,
@@ -74,7 +75,12 @@ export function magicLinkMessage(config, email, token, returnTo) {
 
 // Hands out a link. `mail` is the host's failover chain, so the driver that
 // delivers this message is whichever one accepts it.
-export async function beginMagicLink({ db, config, mail, rateLimiter, ip }, email, returnTo) {
+export async function beginMagicLink(
+  { db, config, mail, rateLimiter, ip },
+  email,
+  returnTo,
+  privacyAcceptedVersion = null,
+) {
   const target = returnTo ? resolveReturnToUrl(returnTo, config) : null;
   // Both buckets are plain count-and-reject windows: one per address, so a
   // single inbox cannot be flooded, and one per caller, so one client cannot
@@ -88,6 +94,7 @@ export async function beginMagicLink({ db, config, mail, rateLimiter, ip }, emai
       Driver: 'magic-link',
       Subject: email,
       SecretHash: hashToken(token),
+      PrivacyAcceptedVersion: privacyVersionNumber(privacyAcceptedVersion),
       ExpiresAt: new Date(Date.now() + MAGIC_LINK_TTL_MS),
     },
   });
@@ -117,7 +124,13 @@ export async function consumeMagicLink(db, token) {
 // open. A link or a code is a verified address, so the identity is created
 // verified. `driver` keeps the two email methods as separate identities, which
 // is what lets both be enabled without one shadowing the other.
-export async function accountForMagicLink(db, config, email, driver = 'magic-link') {
+export async function accountForMagicLink(
+  db,
+  config,
+  email,
+  driver = 'magic-link',
+  privacyAcceptedVersion = null,
+) {
   const existing = await db.AuthIdentities.findUnique({
     where: { Driver_Issuer_Subject: { Driver: driver, Issuer: '', Subject: email } },
     include: { Users: true },
@@ -127,18 +140,26 @@ export async function accountForMagicLink(db, config, email, driver = 'magic-lin
   if (config.auth.policy.registration === 'closed') {
     throw forbidden('Registration is closed on this instance.');
   }
+  const root = normalizeApiRoot(config.apiRoot);
+  const privacyPath = `${root ? `/${root}` : ''}/privacy`;
   return withLocks(db, ['signup-bootstrap'], async (tx) => {
     const raced = await tx.AuthIdentities.findUnique({
       where: { Driver_Issuer_Subject: { Driver: driver, Issuer: '', Subject: email } },
       include: { Users: true },
     });
     if (raced?.Users) return { user: raced.Users, created: false };
+    const privacy = await checkPrivacyAcceptance(tx, privacyAcceptedVersion, {
+      path: privacyPath,
+    });
+    if (privacy.errors.length > 0) throw fieldErrors(privacy.errors);
     const count = await tx.Users.count();
     const user = await tx.Users.create({
       data: {
         Namespace: await freeNamespace(tx, namespaceFromEmail(email)),
         DisplayName: displayNameFromEmail(email),
         Role: count === 0 ? 'admin' : 'normal',
+        PrivacyAcceptedVersion: privacy.version,
+        PrivacyAcceptedAt: privacy.version === null ? null : new Date(),
       },
     });
     await tx.AuthIdentities.create({

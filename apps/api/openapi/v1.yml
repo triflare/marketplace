@@ -183,6 +183,15 @@ paths:
         freshly minted sign-in code to another origin.
       parameters:
         - $ref: '#/components/parameters/ReturnTo'
+        - name: privacyAcceptedVersion
+          in: query
+          schema: { type: ['integer', 'string'] }
+          description: >
+            The `version` from `GET /privacy` accepted by a new account. It is
+            carried through the provider flow and checked only when the
+            callback would create an account; sign-in for an existing account
+            does not need it. Required in practice when a privacy policy is
+            published and the identity is new.
       responses:
         '200':
           description: The authorization URL to send the browser to
@@ -932,6 +941,12 @@ paths:
               required: [email]
               properties:
                 email: { type: string, format: email }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` accepted by a new
+                    account. Required when a privacy policy is published and
+                    this code creates an account; ignored for an existing one.
       responses:
         '202':
           description: The code was handed to the mail chain
@@ -1015,6 +1030,12 @@ paths:
                     usually the web client. A path on this instance, or an
                     absolute URL naming an origin in `cors.allowedOrigins`;
                     anything else is refused with a `422`.
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` accepted by a new
+                    account. Required when a privacy policy is published and
+                    this link creates an account; ignored for an existing one.
       responses:
         '202':
           description: The link was handed to the mail chain
@@ -1628,13 +1649,15 @@ paths:
         An organization is not an account and is a `403` here; its profile is
         edited at `PATCH /orgs/{namespace}`.
 
-        `termsAcceptedVersion` records acceptance of the Terms of Service. It is
-        exempt from the gate that every other field is behind, so a caller who
-        has not accepted yet can still call this — but only on its own: send it
-        alone, or with `password`/`currentPassword`. Sending it next to a
-        profile or role edit is a `403`, so acceptance cannot be used to carry
-        an edit past the gate. A version other than the one `GET /terms`
-        reports is a `422`.
+        `termsAcceptedVersion` and `privacyAcceptedVersion` record acceptance
+        of the Terms of Service and privacy policy. Both are exempt from the
+        gate every other field is behind, so a caller who has not accepted yet
+        can still call this — but only for its own account: send either alone,
+        together, or with `password`/`currentPassword`. Sending either next to
+        a profile or role edit is a `403`, and an admin cannot record consent
+        on another account. A version other than the one `GET /terms` or
+        `GET /privacy` reports is a `422`. Omitting a field leaves that
+        acceptance record unchanged.
 
         The account is one document behind two addresses: the revision read
         from `GET /me` is the one this edit names, and `GET /users/{namespace}`
@@ -1689,6 +1712,12 @@ paths:
                     The `version` from `GET /terms` that the caller accepts.
                     The users row holds it as a string, so either spelling is
                     compared as text.
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the caller accepts.
+                    Only the account itself may set this, and the current
+                    version is required.
       responses:
         '200':
           description: Updated

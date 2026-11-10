@@ -321,6 +321,17 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     if (role !== undefined && role !== 'admin' && role !== 'normal') {
       errors.push({ field: 'role', message: 'Role must be "admin" or "normal".' });
     }
+    // Consent is a statement about the caller's own account. An admin may
+    // change another account's role or password, but cannot accept a legal
+    // document on that person's behalf.
+    const authority = accountAuthority(req.auth, target);
+    if (
+      (termsAcceptedVersion !== undefined || privacyAcceptedVersion !== undefined) &&
+      !authority.self
+    ) {
+      throw forbidden('You can only accept the terms or privacy policy for your own account.');
+    }
+
     let currentTermsVersion = null;
     if (termsAcceptedVersion !== undefined) {
       currentTermsVersion = await acceptedLegalVersion({
@@ -345,11 +356,6 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     }
     if (errors.length > 0) throw fieldErrors(errors);
 
-    // Authority is decided here, before any body-dependent branch: which
-    // fields the caller happened to send must not stand in for a permission
-    // check, and the answer is reused by the password path below.
-    const authority = accountAuthority(req.auth, target);
-
     if (role !== undefined && !authority.admin) {
       throw forbidden('Only an admin can change a role.');
     }
@@ -363,12 +369,16 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     Object.assign(patch, profileColumns);
     if (role !== undefined) patch.Role = role;
     if (termsAcceptedVersion !== undefined) {
-      patch.TermsAcceptedVersion = currentTermsVersion;
-      patch.TermsAcceptedAt = acceptedAt;
+      if (target.TermsAcceptedVersion !== currentTermsVersion || !target.TermsAcceptedAt) {
+        patch.TermsAcceptedVersion = currentTermsVersion;
+        patch.TermsAcceptedAt = acceptedAt;
+      }
     }
     if (privacyAcceptedVersion !== undefined) {
-      patch.PrivacyAcceptedVersion = currentPrivacyVersion;
-      patch.PrivacyAcceptedAt = acceptedAt;
+      if (target.PrivacyAcceptedVersion !== currentPrivacyVersion || !target.PrivacyAcceptedAt) {
+        patch.PrivacyAcceptedVersion = currentPrivacyVersion;
+        patch.PrivacyAcceptedAt = acceptedAt;
+      }
     }
     const passwordHash = await confirmPasswordChange({
       password,
@@ -469,14 +479,17 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       // outlives the identity row, and the outbox has no user foreign key.
       const addresses = [
         ...new Set(
-          (
-            await tx.AuthIdentities.findMany({
-              where: { UserId: target.Id },
-              select: { Email: true, Subject: true },
-            })
-          )
-            .flatMap((row) => [row.Email, row.Subject])
-            .filter(Boolean),
+          [
+            ...(target.PreviousEmails ?? []),
+            ...(
+              await tx.AuthIdentities.findMany({
+                where: { UserId: target.Id },
+                select: { Email: true, Subject: true },
+              })
+            )
+              .flatMap((row) => [row.Email, row.Subject])
+              .filter(Boolean),
+          ].filter(Boolean),
         ),
       ];
       if (addresses.length > 0) {

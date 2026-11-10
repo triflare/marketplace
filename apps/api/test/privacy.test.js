@@ -66,6 +66,26 @@ test('a data export needs a credential', async () => {
   await request(app).get(apiPath('/me/export')).expect(401);
 });
 
+test('the export includes rows beyond one database page', async () => {
+  const account = await signup(app, uniqNs());
+  const user = await db.Users.findUnique({ where: { Namespace: account.body.user.namespace } });
+  await db.Sessions.createMany({
+    data: Array.from({ length: 501 }, (_, index) => ({
+      UserId: user.Id,
+      TokenHash: `export-page-${index}`,
+      ExpiresAt: new Date(Date.now() + 86_400_000),
+    })),
+  });
+
+  const total = await db.Sessions.count({ where: { UserId: user.Id } });
+  const exported = await request(app)
+    .get(apiPath('/me/export'))
+    .set(bearer(account.body.token))
+    .expect(200);
+  assert.ok(total > 500);
+  assert.equal(exported.body.sessions.length, total);
+});
+
 test('the retention sweep removes rows past their window and keeps the rest', async () => {
   const account = await signupAndAccept(app, uniqNs());
   const user = await db.Users.findUnique({ where: { Namespace: account.user.namespace } });
@@ -78,9 +98,17 @@ test('the retention sweep removes rows past their window and keeps the rest', as
   await db.DownloadEvents.create({
     data: { Namespace: 'fresh', ExtensionId: 'ext', Version: '1.0.0', CreatedAt: fresh },
   });
-  await db.MailOutbox.create({ data: { To: 'old@example.com', Subject: 'Old', CreatedAt: old } });
   await db.MailOutbox.create({
-    data: { To: 'fresh@example.com', Subject: 'New', CreatedAt: fresh },
+    data: { To: 'sent@example.com', Subject: 'Old sent', Status: 'sent', CreatedAt: old },
+  });
+  await db.MailOutbox.create({
+    data: { To: 'failed@example.com', Subject: 'Old failed', Status: 'failed', CreatedAt: old },
+  });
+  await db.MailOutbox.create({
+    data: { To: 'pending@example.com', Subject: 'Old pending', Status: 'pending', CreatedAt: old },
+  });
+  await db.MailOutbox.create({
+    data: { To: 'fresh@example.com', Subject: 'New', Status: 'sent', CreatedAt: fresh },
   });
   await db.AuthChallenges.create({
     data: {
@@ -113,14 +141,15 @@ test('the retention sweep removes rows past their window and keeps the rest', as
 
   const purged = await purgeExpiredPersonalData(db);
   assert.equal(purged.downloadEvents, 1);
-  assert.equal(purged.mailOutbox, 1);
+  assert.equal(purged.mailOutbox, 2);
   assert.equal(purged.authChallenges, 1);
   assert.equal(purged.deviceCodes, 1);
   assert.equal(purged.mfaChallenges, 1);
   assert.equal(purged.idempotencyKeys, 1);
 
   assert.equal(await db.DownloadEvents.count(), 1);
-  assert.equal(await db.MailOutbox.count(), 1);
+  assert.equal(await db.MailOutbox.count(), 2);
+  assert.equal(await db.MailOutbox.count({ where: { Status: 'pending' } }), 1);
   assert.equal(await db.AuthChallenges.count(), 0);
   assert.equal(await db.DeviceCodes.count(), 0);
   assert.equal(await db.MfaChallenges.count(), 0);
@@ -183,6 +212,10 @@ test('deleting an account erases its address from mail and its handle from the a
   const account = await signupAndAccept(app, uniqNs());
   const ns = account.user.namespace;
   const user = await db.Users.findUnique({ where: { Namespace: ns } });
+  await db.Users.update({
+    where: { Id: user.Id },
+    data: { PreviousEmails: ['former@example.com'] },
+  });
 
   await db.AuthIdentities.create({
     data: {
@@ -196,6 +229,7 @@ test('deleting an account erases its address from mail and its handle from the a
   await db.MailOutbox.create({
     data: { To: 'gone@example.com', Subject: 'Sign in', Message: { text: 'a link' } },
   });
+  await db.MailOutbox.create({ data: { To: 'former@example.com', Subject: 'Former' } });
   await db.MailOutbox.create({ data: { To: 'other@example.com', Subject: 'Other' } });
   await db.AuditLog.create({
     data: {
@@ -212,6 +246,7 @@ test('deleting an account erases its address from mail and its handle from the a
     .expect(204);
 
   assert.equal(await db.MailOutbox.count({ where: { To: 'gone@example.com' } }), 0);
+  assert.equal(await db.MailOutbox.count({ where: { To: 'former@example.com' } }), 0);
   assert.equal(await db.MailOutbox.count({ where: { To: 'other@example.com' } }), 1);
 
   const [row] = await db.$queryRaw`
@@ -221,4 +256,42 @@ test('deleting an account erases its address from mail and its handle from the a
   assert.equal(row.ActorNamespace, 'deleted-account');
   assert.equal(row.TargetNamespace, null);
   assert.equal(row.ActorId, null);
+});
+
+test('only the account itself can record consent', async () => {
+  const admin = await signupAndAccept(app, uniqNs());
+  const target = await signupAndAccept(app, uniqNs());
+  const current = await request(app)
+    .get(apiPath(`/users/${target.user.namespace}`))
+    .set(bearer(admin.token))
+    .expect(200);
+
+  const refused = await request(app)
+    .patch(apiPath(`/users/${target.user.namespace}`))
+    .set(bearer(admin.token))
+    .set('If-Match', current.headers.etag)
+    .send({ privacyAcceptedVersion: 1 });
+  assert.equal(refused.status, 403);
+});
+
+test('repeating the same acceptance keeps its original timestamp', async () => {
+  const account = await signup(app, uniqNs());
+  const ns = account.body.user.namespace;
+  const original = new Date('2025-01-02T03:04:05.000Z');
+  await db.Users.update({
+    where: { Namespace: ns },
+    data: { PrivacyAcceptedAt: original },
+  });
+
+  const current = await request(app)
+    .get(apiPath(`/users/${ns}`))
+    .set(bearer(account.body.token))
+    .expect(200);
+  const accepted = await request(app)
+    .patch(apiPath(`/users/${ns}`))
+    .set(bearer(account.body.token))
+    .set('If-Match', current.headers.etag)
+    .send({ privacyAcceptedVersion: 1 })
+    .expect(200);
+  assert.equal(accepted.body.privacyAcceptedAt, original.toISOString());
 });

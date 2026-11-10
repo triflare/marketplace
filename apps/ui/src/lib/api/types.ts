@@ -831,7 +831,11 @@ export interface AuthResource {
   // Mails a single-use link. `returnTo` is where the browser lands once the
   // link proves the address, so the web client passes its own origin.
   requestMagicLink(
-    payload: { email: string; returnTo?: string },
+    payload: {
+      email: string
+      returnTo?: string
+      privacyAcceptedVersion?: number | string
+    },
     options?: RequestOptions
   ): Promise<{ sent: true }>
   exchangeMagicLink(
@@ -839,7 +843,7 @@ export interface AuthResource {
     options?: RequestOptions
   ): Promise<SessionResult>
   requestEmailCode(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options?: RequestOptions
   ): Promise<{ sent: true }>
   verifyEmailCode(

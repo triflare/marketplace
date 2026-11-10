@@ -167,10 +167,19 @@ export async function confirmEmailChange({ db }, user, requested, code) {
     throw conflict('This account has no email address to change.');
   }
   const previous = await accountEmail(db, user.Id);
+  const previousAddresses = [
+    ...new Set(identities.flatMap((row) => [row.Email, row.Subject]).filter(Boolean)),
+  ].filter((address) => address !== email);
   const drivers = [...new Set(identities.map((row) => row.Driver))];
 
   try {
     await db.$transaction(async (tx) => {
+      if (previousAddresses.length > 0) {
+        await tx.Users.update({
+          where: { Id: user.Id },
+          data: { PreviousEmails: { push: previousAddresses } },
+        });
+      }
       await tx.AuthIdentities.updateMany({
         where: { UserId: user.Id, Driver: { in: drivers } },
         data: { Subject: email, Email: email, VerifiedAt: new Date() },

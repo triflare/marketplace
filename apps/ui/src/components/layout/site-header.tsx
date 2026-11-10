@@ -112,20 +112,20 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
+        <Link to="/" className="flex min-w-0 items-center gap-2">
           <img
             src="/assets/icon-light.svg"
             alt=""
             aria-hidden="true"
-            className="h-7 w-auto dark:hidden"
+            className="h-7 w-auto shrink-0 dark:hidden"
           />
           <img
             src="/assets/icon-dark.svg"
             alt=""
             aria-hidden="true"
-            className="hidden h-7 w-auto dark:block"
+            className="hidden h-7 w-auto shrink-0 dark:block"
           />
-          <span className="text-sm font-semibold tracking-tight">
+          <span className="min-w-0 truncate text-sm font-semibold tracking-tight">
             {product.name}
           </span>
         </Link>

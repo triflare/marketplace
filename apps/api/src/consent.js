@@ -1,3 +1,12 @@
+// The stored column is an integer even when the request spelled the version as
+// a string. Anything else is passed through as null so the normal check turns
+// it into a field error.
+export function privacyVersionNumber(value) {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
 // What an account-creating request has to say about the privacy policy. A
 // registry that publishes none has nothing to accept, so registration stays
 // open there and no record is written.

@@ -1,9 +1,11 @@
 import { useState } from "react"
+import { Link } from "react-router"
 
 import type { AuthMethod, SessionResult } from "@/lib/api"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_ORIGIN, errorMessage, th } from "@/lib/registry"
@@ -17,11 +19,15 @@ export function EmailSignInForm({
   mode,
   next,
   onResult,
+  privacyVersion,
+  disabled = false,
 }: {
   methods: AuthMethod[]
   mode: "sign-in" | "sign-up"
   next: string
   onResult: (result: SessionResult) => void
+  privacyVersion?: number
+  disabled?: boolean
 }) {
   const link = methods.find((method) => method.driver === "magic-link")
   const code = methods.find((method) => method.driver === "email-otp")
@@ -33,13 +39,22 @@ export function EmailSignInForm({
     null
   )
   const [error, setError] = useState<string | null>(null)
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false)
 
   const address = email.trim()
   const signingUp = mode === "sign-up"
+  const privacyRequired = signingUp && privacyVersion !== undefined
 
   async function send(kind: "link" | "code") {
+    if (disabled) {
+      return
+    }
     if (address === "") {
       setError("Enter the email address to send it to.")
+      return
+    }
+    if (privacyRequired && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
       return
     }
 
@@ -56,9 +71,13 @@ export function EmailSignInForm({
         await th.auth.requestMagicLink({
           email: address,
           returnTo: origin === API_ORIGIN ? path : `${origin}${path}`,
+          privacyAcceptedVersion: privacyRequired ? privacyVersion : undefined,
         })
       } else {
-        await th.auth.requestEmailCode({ email: address })
+        await th.auth.requestEmailCode({
+          email: address,
+          privacyAcceptedVersion: privacyRequired ? privacyVersion : undefined,
+        })
       }
       setSent(kind)
     } catch (reason) {
@@ -128,7 +147,7 @@ export function EmailSignInForm({
                 className="text-center font-mono text-lg tracking-[0.3em]"
               />
             </div>
-            <Button type="submit" disabled={pending !== null}>
+            <Button type="submit" disabled={pending !== null || disabled}>
               {pending === "verify" ? "Checking…" : "Sign in"}
             </Button>
           </form>
@@ -139,7 +158,7 @@ export function EmailSignInForm({
             type="button"
             variant="outline"
             onClick={() => void send(sent)}
-            disabled={pending !== null}
+            disabled={pending !== null || disabled}
           >
             {pending === sent
               ? "Sending…"
@@ -171,6 +190,27 @@ export function EmailSignInForm({
         />
       </div>
 
+      {privacyRequired ? (
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="signup-email-privacy"
+            checked={acceptedPrivacy}
+            onCheckedChange={(checked) => setAcceptedPrivacy(checked === true)}
+            disabled={disabled}
+          />
+          <label
+            htmlFor="signup-email-privacy"
+            className="text-xs text-muted-foreground"
+          >
+            I have read and agree to the{" "}
+            <Link to="/privacy" className="text-foreground hover:underline">
+              privacy policy
+            </Link>
+            .
+          </label>
+        </div>
+      ) : null}
+
       {error ? (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -182,7 +222,11 @@ export function EmailSignInForm({
           <Button
             type="button"
             onClick={() => void send("link")}
-            disabled={pending !== null}
+            disabled={
+              pending !== null ||
+              disabled ||
+              (privacyRequired && !acceptedPrivacy)
+            }
           >
             {pending === "link" ? "Sending…" : "Email me a sign-in link"}
           </Button>
@@ -192,7 +236,11 @@ export function EmailSignInForm({
             type="button"
             variant={link ? "outline" : "default"}
             onClick={() => void send("code")}
-            disabled={pending !== null}
+            disabled={
+              pending !== null ||
+              disabled ||
+              (privacyRequired && !acceptedPrivacy)
+            }
           >
             {pending === "code" ? "Sending…" : "Email me a sign-in code"}
           </Button>

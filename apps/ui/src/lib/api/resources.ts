@@ -118,12 +118,20 @@ export class AuthResource {
   // The email methods answer the same way for a known and an unknown address,
   // so a page shows "check your email" rather than whether an account exists.
   requestMagicLink(
-    payload: { email: string; returnTo?: string },
+    payload: {
+      email: string
+      returnTo?: string
+      privacyAcceptedVersion?: number | string
+    },
     options: RequestOptions = {}
   ): Promise<{ sent: true }> {
     return this.client.request("/auth/magic-link", {
       method: "POST",
-      json: { email: payload.email, returnTo: payload.returnTo },
+      json: {
+        email: payload.email,
+        returnTo: payload.returnTo,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }
@@ -140,12 +148,15 @@ export class AuthResource {
   }
 
   requestEmailCode(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options: RequestOptions = {}
   ): Promise<{ sent: true }> {
     return this.client.request("/auth/email-otp", {
       method: "POST",
-      json: { email: payload.email },
+      json: {
+        email: payload.email,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }

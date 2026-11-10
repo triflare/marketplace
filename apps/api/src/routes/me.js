@@ -11,6 +11,46 @@ import {
 import { notFound } from '../errors.js';
 import { userEtag } from '../validators.js';
 
+const EXPORT_PAGE_SIZE = 500;
+
+// One page at a time, keyed on the primary key. A cursor keeps each query
+// bounded without putting a ceiling on the complete export.
+async function* pagedRows(db, model, { where, select }) {
+  let cursor = null;
+  for (;;) {
+    const query = {
+      where: cursor === null ? where : { AND: [where, { Id: { gt: cursor } }] },
+      orderBy: { Id: 'asc' },
+      take: EXPORT_PAGE_SIZE,
+    };
+    if (select) query.select = select;
+    const rows = await db[model].findMany(query);
+    if (rows.length === 0) return;
+    for (const row of rows) yield row;
+    if (rows.length < EXPORT_PAGE_SIZE) return;
+    cursor = rows[rows.length - 1].Id;
+  }
+}
+
+async function writeChunk(res, chunk) {
+  if (res.write(chunk)) return;
+  await new Promise((resolve, reject) => {
+    res.once('drain', resolve);
+    res.once('error', reject);
+  });
+}
+
+async function writeArray(res, rows, serialize) {
+  await writeChunk(res, '[');
+  let first = true;
+  for await (const row of rows) {
+    if (!first) await writeChunk(res, ',');
+    await writeChunk(res, JSON.stringify(serialize(row)));
+    first = false;
+  }
+  await writeChunk(res, ']');
+}
+
 // The account the presented token belongs to. It sits at the root of the API
 // because it is not addressed by namespace: there is exactly one, and the token
 // already names it.
@@ -29,46 +69,17 @@ export function makeMeRouter({ db, config }) {
     const user = await db.Users.findUnique({ where: { Id: req.auth.user.Id } });
     if (!user) throw notFound('No such account.');
 
-    const [
-      identities,
-      sessions,
-      tokens,
-      passkeys,
-      notifications,
-      reports,
-      memberships,
-      versions,
-      legal,
-    ] = await Promise.all([
+    const [identities, tokens, passkeys, memberships, legal] = await Promise.all([
       db.AuthIdentities.findMany({
         where: { UserId: user.Id },
         orderBy: { Id: 'asc' },
       }),
-      db.Sessions.findMany({ where: { UserId: user.Id }, orderBy: { Id: 'asc' } }),
       db.AutomationTokens.findMany({ where: { UserId: user.Id }, orderBy: { Id: 'asc' } }),
       db.Passkeys.findMany({ where: { UserId: user.Id }, orderBy: { Id: 'asc' } }),
-      db.Notifications.findMany({ where: { UserId: user.Id }, orderBy: { Id: 'asc' } }),
-      db.Reports.findMany({ where: { ReporterId: user.Id }, orderBy: { Id: 'asc' } }),
       db.OrganizationOwners.findMany({
         where: { UserId: user.Id },
         select: { OrgId: true, AddedAt: true },
         orderBy: { OrgId: 'asc' },
-      }),
-      db.Versions.findMany({
-        where: { OwnerId: user.Id },
-        orderBy: { Id: 'asc' },
-        select: {
-          Namespace: true,
-          ExtensionId: true,
-          Version: true,
-          Status: true,
-          Name: true,
-          License: true,
-          Description: true,
-          Author: true,
-          CreatedAt: true,
-          PublishedAt: true,
-        },
       }),
       db.LegalDocuments.findMany({
         select: { Kind: true, Version: true, UpdatedAt: true },
@@ -86,59 +97,113 @@ export function makeMeRouter({ db, config }) {
             orderBy: { Namespace: 'asc' },
           });
 
-    res.set('Content-Disposition', `attachment; filename="account-${user.Namespace}.json"`);
-    res.json({
-      formatVersion: 1,
-      generatedAt: new Date().toISOString(),
-      account: userToObject(user, config),
-      emailIdentities: identities.map((row) => ({
-        driver: row.Driver,
-        issuer: row.Issuer,
-        subject: row.Subject,
-        email: row.Email ?? null,
-        verifiedAt: row.VerifiedAt ? row.VerifiedAt.toISOString() : null,
-        createdAt: row.CreatedAt.toISOString(),
-      })),
-      sessions: sessions.map(sessionToObject),
-      automationTokens: tokens.map(automationTokenToObject),
-      passkeys: passkeys.map(passkeyToObject),
-      notifications: notifications.map(notificationToObject),
-      reports: reports.map(reportToOwnerObject),
-      organizations: organizations.map((row) => ({
-        namespace: row.Namespace,
-        displayName: row.DisplayName,
-        createdAt: row.CreatedAt.toISOString(),
-      })),
-      versions: versions.map((row) => ({
-        namespace: row.Namespace,
-        id: row.ExtensionId,
+    const emailIdentities = identities.map((row) => ({
+      driver: row.Driver,
+      issuer: row.Issuer,
+      subject: row.Subject,
+      email: row.Email ?? null,
+      verifiedAt: row.VerifiedAt ? row.VerifiedAt.toISOString() : null,
+      createdAt: row.CreatedAt.toISOString(),
+    }));
+    const legalDocument = {
+      documents: legal.map((row) => ({
+        kind: row.Kind,
         version: row.Version,
-        status: row.Status,
-        name: row.Name,
-        license: row.License,
-        description: row.Description,
-        author: row.Author ?? null,
-        createdAt: row.CreatedAt.toISOString(),
-        publishedAt: row.PublishedAt ? row.PublishedAt.toISOString() : null,
+        updatedAt: row.UpdatedAt.toISOString(),
       })),
-      legal: {
-        documents: legal.map((row) => ({
-          kind: row.Kind,
+      accepted: {
+        termsVersion: user.TermsAcceptedVersion ?? null,
+        termsAcceptedAt: user.TermsAcceptedAt ? user.TermsAcceptedAt.toISOString() : null,
+        privacyVersion: user.PrivacyAcceptedVersion ?? null,
+        privacyAcceptedAt: user.PrivacyAcceptedAt ? user.PrivacyAcceptedAt.toISOString() : null,
+      },
+    };
+    const retention = {
+      downloadEventsDays: config.privacy.downloadEventRetentionDays,
+      mailOutboxDays: config.privacy.mailOutboxRetentionDays,
+    };
+
+    res.set('Content-Disposition', `attachment; filename="account-${user.Namespace}.json"`);
+    res.type('application/json');
+
+    try {
+      await writeChunk(
+        res,
+        `{"formatVersion":1,"generatedAt":${JSON.stringify(new Date().toISOString())},"account":${JSON.stringify(userToObject(user, config))},"emailIdentities":${JSON.stringify(emailIdentities)},"sessions":`,
+      );
+      await writeArray(
+        res,
+        pagedRows(db, 'Sessions', { where: { UserId: user.Id } }),
+        sessionToObject,
+      );
+      await writeChunk(
+        res,
+        `,"automationTokens":${JSON.stringify(tokens.map(automationTokenToObject))},"passkeys":${JSON.stringify(passkeys.map(passkeyToObject))},"notifications":`,
+      );
+      await writeArray(
+        res,
+        pagedRows(db, 'Notifications', { where: { UserId: user.Id } }),
+        notificationToObject,
+      );
+      await writeChunk(res, ',"reports":');
+      await writeArray(
+        res,
+        pagedRows(db, 'Reports', { where: { ReporterId: user.Id } }),
+        reportToOwnerObject,
+      );
+      await writeChunk(
+        res,
+        `,"organizations":${JSON.stringify(
+          organizations.map((row) => ({
+            namespace: row.Namespace,
+            displayName: row.DisplayName,
+            createdAt: row.CreatedAt.toISOString(),
+          })),
+        )},"versions":`,
+      );
+      await writeArray(
+        res,
+        pagedRows(db, 'Versions', {
+          where: { OwnerId: user.Id },
+          select: {
+            Id: true,
+            Namespace: true,
+            ExtensionId: true,
+            Version: true,
+            Status: true,
+            Name: true,
+            License: true,
+            Description: true,
+            Author: true,
+            CreatedAt: true,
+            PublishedAt: true,
+          },
+        }),
+        (row) => ({
+          namespace: row.Namespace,
+          id: row.ExtensionId,
           version: row.Version,
-          updatedAt: row.UpdatedAt.toISOString(),
-        })),
-        accepted: {
-          termsVersion: user.TermsAcceptedVersion ?? null,
-          termsAcceptedAt: user.TermsAcceptedAt ? user.TermsAcceptedAt.toISOString() : null,
-          privacyVersion: user.PrivacyAcceptedVersion ?? null,
-          privacyAcceptedAt: user.PrivacyAcceptedAt ? user.PrivacyAcceptedAt.toISOString() : null,
-        },
-      },
-      retention: {
-        downloadEventsDays: config.privacy.downloadEventRetentionDays,
-        mailOutboxDays: config.privacy.mailOutboxRetentionDays,
-      },
-    });
+          status: row.Status,
+          name: row.Name,
+          license: row.License,
+          description: row.Description,
+          author: row.Author ?? null,
+          createdAt: row.CreatedAt.toISOString(),
+          publishedAt: row.PublishedAt ? row.PublishedAt.toISOString() : null,
+        }),
+      );
+      await writeChunk(
+        res,
+        `,"legal":${JSON.stringify(legalDocument)},"retention":${JSON.stringify(retention)}}`,
+      );
+      res.end();
+    } catch (error) {
+      if (res.headersSent) {
+        res.destroy(error);
+        return;
+      }
+      throw error;
+    }
   });
 
   return router;

@@ -44,7 +44,10 @@ function codeFrom(eml) {
 // Signs in by opening the link the message carries, which is also how an
 // account with a mail-backed identity is created.
 async function signInByEmail(email) {
-  await request(app).post(apiPath('/auth/magic-link')).send({ email }).expect(202);
+  await request(app)
+    .post(apiPath('/auth/magic-link'))
+    .send({ email, privacyAcceptedVersion: 1 })
+    .expect(202);
   const token = tokenFrom(newestMail());
   const signedIn = await request(app)
     .post(apiPath('/auth/magic-link/complete'))
@@ -118,6 +121,20 @@ test('a change is proven at the new address before any identity moves', async ()
   // new one, which is what re-keying the identity buys.
   const again = await signInByEmail('after@example.com');
   assert.equal(again.user.namespace, user.namespace);
+
+  const retained = await db.Users.findUnique({ where: { Namespace: user.namespace } });
+  assert.deepEqual(retained.PreviousEmails, ['before@example.com']);
+
+  // Pending mail to the address the account used to hold belongs to that
+  // account too, even though no identity row names it any more.
+  await db.MailOutbox.create({
+    data: { To: 'before@example.com', Subject: 'Old address' },
+  });
+  await request(app)
+    .delete(apiPath(`/users/${user.namespace}`))
+    .set(bearer(token))
+    .expect(204);
+  assert.equal(await db.MailOutbox.count({ where: { To: 'before@example.com' } }), 0);
 });
 
 test('a spent code cannot move the address a second time', async () => {

@@ -39,6 +39,7 @@ export function ProfileForm({
   const [stamp, setStamp] = useState(() => Date.now())
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   if (!profile) {
     return null
@@ -105,6 +106,10 @@ export function ProfileForm({
   }
 
   async function downloadData() {
+    if (exporting) {
+      return
+    }
+    setExporting(true)
     try {
       const data = await th.users.exportData()
       const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -114,10 +119,14 @@ export function ProfileForm({
       const link = document.createElement("a")
       link.href = url
       link.download = `account-${target.namespace}.json`
+      document.body.append(link)
       link.click()
-      URL.revokeObjectURL(url)
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     } catch (error) {
       toast.error(errorMessage(error))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -326,8 +335,10 @@ export function ProfileForm({
               variant="outline"
               className="self-start"
               onClick={() => void downloadData()}
+              disabled={exporting}
             >
-              <DownloadIcon /> Download your data
+              <DownloadIcon />{" "}
+              {exporting ? "Preparing download…" : "Download your data"}
             </Button>
           </section>
         </>
