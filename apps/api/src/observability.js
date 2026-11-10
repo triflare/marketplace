@@ -1,5 +1,16 @@
+import { createHmac, randomBytes } from 'node:crypto';
 import { getIntegrityErrors } from './maintenance.js';
 import { productSlug } from './product.js';
+
+// A request log has no retention of its own, so it does not carry a raw address.
+// The keyed digest still groups one client's requests for the life of the
+// process without making the log a copy of the connection table.
+const IP_LOG_KEY = randomBytes(32);
+
+function hashAddress(ip) {
+  if (typeof ip !== 'string' || ip.length === 0) return null;
+  return createHmac('sha256', IP_LOG_KEY).update(ip).digest('hex').slice(0, 16);
+}
 
 // Metric names carry the product, so one Prometheus can hold several registries.
 const METRIC_PREFIX = productSlug().replaceAll('-', '_');
@@ -41,7 +52,7 @@ export function makeRequestTelemetry({ logRequests = false } = {}) {
             route,
             status: res.statusCode,
             durationMs: Math.round(durationMs * 100) / 100,
-            ip: req.ip,
+            ipHash: hashAddress(req.ip),
           }),
         );
       }

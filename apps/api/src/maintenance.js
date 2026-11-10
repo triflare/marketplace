@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { BLOB_GC_LOCK_KEY, sha256Hex } from './blobs.js';
 import { withLocks } from './locks.js';
+import { purgeExpiredPersonalData } from './privacy.js';
 
 // Blob garbage collection: a file under blobs/ whose digest no row references is
 // deleted. Sources are handled by removeSourceIfUnused at the call sites that
@@ -138,6 +139,10 @@ export function makeMaintenanceJob({ db, config, blobs }) {
     try {
       const removed = await gcBlobs(db, blobs, config);
       if (removed > 0) console.log(`blob gc removed ${removed} orphaned file(s)`);
+
+      const purged = await purgeExpiredPersonalData(db);
+      const purgedRows = Object.values(purged).reduce((sum, count) => sum + count, 0);
+      if (purgedRows > 0) console.log(`retention sweep removed ${purgedRows} expired row(s)`);
 
       if (!gcOnly && Date.now() - lastScrub >= scrubIntervalMs) {
         lastScrub = Date.now();

@@ -1,4 +1,4 @@
-import { ImageIcon, Trash2Icon, UploadIcon } from "lucide-react"
+import { DownloadIcon, ImageIcon, Trash2Icon, UploadIcon } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
@@ -101,6 +101,23 @@ export function ProfileForm({
       toast.error(errorMessage(error))
     } finally {
       setUploading(null)
+    }
+  }
+
+  async function downloadData() {
+    try {
+      const data = await th.users.exportData()
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `account-${target.namespace}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      toast.error(errorMessage(error))
     }
   }
 
@@ -294,6 +311,27 @@ export function ProfileForm({
           </div>
         </form>
       </section>
+
+      {isSelf ? (
+        <>
+          <Separator />
+
+          <section className="flex flex-col gap-2 rounded-lg border p-4">
+            <h2 className="text-base font-medium">Your data</h2>
+            <p className="text-sm text-muted-foreground">
+              Download a JSON copy of your account, sign-in identities,
+              sessions, extensions, notifications, and consent records.
+            </p>
+            <Button
+              variant="outline"
+              className="self-start"
+              onClick={() => void downloadData()}
+            >
+              <DownloadIcon /> Download your data
+            </Button>
+          </section>
+        </>
+      ) : null}
 
       {canDelete && isSelf ? (
         <>

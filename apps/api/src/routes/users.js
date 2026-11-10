@@ -158,7 +158,14 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     }
     // An organization has no role and accepts no terms; whoever runs it is named
     // on its owner list.
-    const { role: _role, termsAcceptedVersion: _terms, ...rest } = userToObject(row, config);
+    const {
+      role: _role,
+      termsAcceptedVersion: _terms,
+      termsAcceptedAt: _termsAt,
+      privacyAcceptedVersion: _privacy,
+      privacyAcceptedAt: _privacyAt,
+      ...rest
+    } = userToObject(row, config);
     return rest;
   }
 
@@ -221,12 +228,42 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       password,
       currentPassword: _currentPassword,
       termsAcceptedVersion,
+      privacyAcceptedVersion,
       ...rest
     } = req.body ?? {};
     const onlyUngated =
-      (password !== undefined || termsAcceptedVersion !== undefined) &&
+      (password !== undefined ||
+        termsAcceptedVersion !== undefined ||
+        privacyAcceptedVersion !== undefined) &&
       Object.values(rest).every((value) => value === undefined);
     return onlyUngated ? next() : termsGate(req, res, next);
+  }
+
+  // The version a client sends is checked against the document the server holds
+  // now, so an acceptance cannot name text the account never saw.
+  async function acceptedLegalVersion({ kind, value, field, label, path, errors }) {
+    const wellFormed =
+      (typeof value === 'number' && Number.isInteger(value)) ||
+      (typeof value === 'string' && /^\d+$/.test(value));
+    const document = await db.LegalDocuments.findUnique({
+      where: { Kind: kind },
+      select: { Version: true },
+    });
+    if (!document) {
+      throw notFound(
+        kind === 'terms'
+          ? 'There are no terms to accept yet.'
+          : 'There is no privacy policy to accept yet.',
+      );
+    }
+    const version = Number(document.Version);
+    if (!wellFormed || String(value) !== String(version)) {
+      errors.push({
+        field,
+        message: `Must be the current ${label} version ${version}. Read GET ${path} to see it.`,
+      });
+    }
+    return version;
   }
 
   router.patch('/:namespace', manageAccount, skipTermsForAcceptance, async (req, res) => {
@@ -253,6 +290,7 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       avatarUrl,
       bannerUrl,
       termsAcceptedVersion,
+      privacyAcceptedVersion,
     } = req.body;
     if (
       displayName === undefined &&
@@ -263,7 +301,8 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       github === undefined &&
       avatarUrl === undefined &&
       bannerUrl === undefined &&
-      termsAcceptedVersion === undefined
+      termsAcceptedVersion === undefined &&
+      privacyAcceptedVersion === undefined
     ) {
       throw fieldErrors([{ field: 'body', message: 'Provide at least one field to update.' }]);
     }
@@ -275,32 +314,27 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     if (role !== undefined && role !== 'admin' && role !== 'normal') {
       errors.push({ field: 'role', message: 'Role must be "admin" or "normal".' });
     }
-    // The client sends back the version it actually read, so an acceptance
-    // cannot be recorded against text the account never saw. A stale one means
-    // the terms changed since: the client has to read them again. Only an
-    // integer or a digit-only string can name a version -- String() would
-    // otherwise coerce one into shape from, say, an array ["1"] -- and the row
-    // records the server's own current version rather than the spelling that
-    // arrived.
     let currentTermsVersion = null;
     if (termsAcceptedVersion !== undefined) {
-      const wellFormed =
-        (typeof termsAcceptedVersion === 'number' && Number.isInteger(termsAcceptedVersion)) ||
-        (typeof termsAcceptedVersion === 'string' && /^\d+$/.test(termsAcceptedVersion));
-      const terms = await db.LegalDocuments.findUnique({
-        where: { Kind: 'terms' },
-        select: { Version: true },
+      currentTermsVersion = await acceptedLegalVersion({
+        kind: 'terms',
+        value: termsAcceptedVersion,
+        field: 'termsAcceptedVersion',
+        label: 'terms',
+        path: mount('/terms'),
+        errors,
       });
-      if (!terms) {
-        throw notFound('There are no terms to accept yet.');
-      }
-      currentTermsVersion = Number(terms.Version);
-      if (!wellFormed || String(termsAcceptedVersion) !== String(currentTermsVersion)) {
-        errors.push({
-          field: 'termsAcceptedVersion',
-          message: `Must be the current terms version ${currentTermsVersion}. Read GET ${mount('/terms')} to see it.`,
-        });
-      }
+    }
+    let currentPrivacyVersion = null;
+    if (privacyAcceptedVersion !== undefined) {
+      currentPrivacyVersion = await acceptedLegalVersion({
+        kind: 'privacy',
+        value: privacyAcceptedVersion,
+        field: 'privacyAcceptedVersion',
+        label: 'privacy policy',
+        path: mount('/privacy'),
+        errors,
+      });
     }
     if (errors.length > 0) throw fieldErrors(errors);
 
@@ -316,11 +350,19 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       throw forbidden('You can only change your own account.');
     }
 
-    const patch = { UpdatedAt: new Date() };
+    const acceptedAt = new Date();
+    const patch = { UpdatedAt: acceptedAt };
     const { patch: profileColumns } = profilePatch(req.body);
     Object.assign(patch, profileColumns);
     if (role !== undefined) patch.Role = role;
-    if (termsAcceptedVersion !== undefined) patch.TermsAcceptedVersion = currentTermsVersion;
+    if (termsAcceptedVersion !== undefined) {
+      patch.TermsAcceptedVersion = currentTermsVersion;
+      patch.TermsAcceptedAt = acceptedAt;
+    }
+    if (privacyAcceptedVersion !== undefined) {
+      patch.PrivacyAcceptedVersion = currentPrivacyVersion;
+      patch.PrivacyAcceptedAt = acceptedAt;
+    }
     const passwordHash = await confirmPasswordChange({
       password,
       currentPassword: req.body.currentPassword,
@@ -416,6 +458,33 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
       // deleting the user row would leave its per-extension and account-wide
       // hooks orphaned; take them, and the deliveries they cascade to, with it.
       await tx.Webhooks.deleteMany({ where: { Namespace: target.Namespace } });
+      // Messages already sent to the account are the one place its address
+      // outlives the identity row, and the outbox has no user foreign key.
+      const addresses = [
+        ...new Set(
+          (
+            await tx.AuthIdentities.findMany({
+              where: { UserId: target.Id },
+              select: { Email: true, Subject: true },
+            })
+          )
+            .flatMap((row) => [row.Email, row.Subject])
+            .filter(Boolean),
+        ),
+      ];
+      if (addresses.length > 0) {
+        await tx.MailOutbox.deleteMany({ where: { To: { in: addresses } } });
+      }
+      // The audit trail keeps the action for accountability, not the handle of
+      // an account that no longer exists; the id still names the row that acted.
+      await tx.AuditLog.updateMany({
+        where: { ActorId: target.Id },
+        data: { ActorNamespace: 'deleted-account' },
+      });
+      await tx.AuditLog.updateMany({
+        where: { TargetNamespace: target.Namespace },
+        data: { TargetNamespace: null },
+      });
       await tx.Users.delete({ where: { Id: target.Id } });
       // After the owner cascade, keep identities that co-owners' versions
       // still use. The typed client has no relation between these tables.

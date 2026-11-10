@@ -130,6 +130,9 @@ export interface User {
   bannerUrl?: string | null
   createdAt: string
   termsAcceptedVersion?: number | null
+  termsAcceptedAt?: string | null
+  privacyAcceptedVersion?: number | null
+  privacyAcceptedAt?: string | null
 }
 
 export interface Organization {
@@ -677,6 +680,7 @@ export interface UpdateUserPayload {
   avatarUrl?: string | null
   bannerUrl?: string | null
   termsAcceptedVersion?: number | string
+  privacyAcceptedVersion?: number | string
 }
 
 export interface CreateOrganizationPayload {
@@ -1062,6 +1066,7 @@ export interface UsersResource {
   list(query?: PageQuery): Promise<Page<User>>
   get(namespace: string, options?: RequestOptions): Promise<User>
   me(options?: RequestOptions): Promise<User>
+  exportData(options?: RequestOptions): Promise<Record<string, unknown>>
   update(
     namespace: string,
     payload: UpdateUserPayload,

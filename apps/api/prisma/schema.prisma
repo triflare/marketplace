@@ -472,6 +472,9 @@ model Users {
   Role                                                       String                  @default("normal")
   HasPublished                                               Boolean                 @default(false)
   TermsAcceptedVersion                                       Int?
+  TermsAcceptedAt                                            DateTime?               @db.Timestamptz(6)
+  PrivacyAcceptedVersion                                     Int?
+  PrivacyAcceptedAt                                          DateTime?               @db.Timestamptz(6)
   CreatedAt                                                  DateTime                @default(now()) @db.Timestamptz(6)
   // Moves on every write, which is what makes an If-Match on a profile or
   // organization mean "the document I read", not "whatever is there now".

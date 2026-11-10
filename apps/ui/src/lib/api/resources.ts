@@ -868,6 +868,10 @@ export class UsersResource {
     return this.client.request("/me", requestOptions(options))
   }
 
+  exportData(options: RequestOptions = {}): Promise<Record<string, unknown>> {
+    return this.client.request("/me/export", requestOptions(options))
+  }
+
   update(
     namespace: string,
     payload: UpdateUserPayload,
@@ -886,6 +890,7 @@ export class UsersResource {
         avatarUrl: payload.avatarUrl,
         bannerUrl: payload.bannerUrl,
         termsAcceptedVersion: payload.termsAcceptedVersion,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
       },
       ...requestOptions(options),
     })

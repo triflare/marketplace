@@ -53,6 +53,9 @@ export function userToObject(row, config) {
     bannerUrl: profileImageUrl(row, 'banner', config),
     createdAt: row.CreatedAt.toISOString(),
     termsAcceptedVersion: row.TermsAcceptedVersion ?? null,
+    termsAcceptedAt: row.TermsAcceptedAt ? row.TermsAcceptedAt.toISOString() : null,
+    privacyAcceptedVersion: row.PrivacyAcceptedVersion ?? null,
+    privacyAcceptedAt: row.PrivacyAcceptedAt ? row.PrivacyAcceptedAt.toISOString() : null,
   };
 }
 
