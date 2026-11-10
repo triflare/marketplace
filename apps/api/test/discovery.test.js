@@ -232,9 +232,12 @@ test('accepting terms on the user records the version that was read', async () =
 });
 
 test('publish without accepting terms is forbidden', async () => {
-  const r = await request(app)
-    .post(apiPath('/users'))
-    .send({ namespace: uniqNs(), password: 'password123', displayName: 'd' });
+  const r = await request(app).post(apiPath('/users')).send({
+    namespace: uniqNs(),
+    password: 'password123',
+    displayName: 'd',
+    privacyAcceptedVersion: 1,
+  });
   const { token } = r.body;
   const pub = await publish(token, r.body.user.namespace, 'aaa', '1.0.0', {}, 403);
   assert.equal(pub.status, 403);
