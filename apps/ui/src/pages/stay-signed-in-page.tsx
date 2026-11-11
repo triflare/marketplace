@@ -44,22 +44,17 @@ export function StaySignedInPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-12">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center">
         <img
-          src="/assets/icon-light.svg"
-          alt=""
-          aria-hidden="true"
+          src="/assets/logo-light.svg"
+          alt={product.name}
           className="h-8 w-auto dark:hidden"
         />
         <img
-          src="/assets/icon-dark.svg"
-          alt=""
-          aria-hidden="true"
+          src="/assets/logo-dark.svg"
+          alt={product.name}
           className="hidden h-8 w-auto dark:block"
         />
-        <span className="text-sm font-semibold tracking-tight">
-          {product.name}
-        </span>
       </div>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">

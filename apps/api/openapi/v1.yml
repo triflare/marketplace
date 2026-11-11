@@ -149,6 +149,34 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /me/export:
+    get:
+      summary: Download a copy of the caller's account data
+      operationId: exportAuthenticatedUser
+      tags: [Userspace]
+      description: >
+        Everything the registry holds that names or describes the caller, as one
+        JSON document streamed in bounded pages. Requires the `manage:account`
+        scope. Credentials are left out: a session or token appears as its
+        metadata, never its secret, and no password hash is included. Sent as a
+        download and never cached.
+      responses:
+        '200':
+          description: The account export, named `account-<namespace>.json`
+          headers:
+            Content-Disposition:
+              description: An `attachment` disposition naming the downloaded file.
+              schema: { type: string }
+            Cache-Control:
+              description: Always `no-store`; the document is personal data.
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountExport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------------------ Authentication & sign-in
   /auth:
     get:
@@ -262,6 +290,7 @@ paths:
           description: A browser is redirected back to `returnTo`
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
   /auth/oidc/exchange:
@@ -4812,6 +4841,109 @@ components:
         (`completed`, to the namespace that made it, whether it was accepted or
         withdrawn), and `organization.owner.*` when an account is added to or
         removed from an organization's owner list.
+
+    AccountExport:
+      type: object
+      description: >
+        Everything the registry holds that names or describes an account, as one
+        document. A credential appears as its metadata, never its secret.
+      required:
+        - formatVersion
+        - generatedAt
+        - account
+        - emailIdentities
+        - sessions
+        - automationTokens
+        - passkeys
+        - notifications
+        - reports
+        - organizations
+        - versions
+        - legal
+        - retention
+      properties:
+        formatVersion: { type: integer, enum: [1] }
+        generatedAt: { type: string, format: date-time }
+        account: { $ref: '#/components/schemas/User' }
+        emailIdentities:
+          type: array
+          items:
+            type: object
+            required: [driver, issuer, subject, email, verifiedAt, createdAt]
+            properties:
+              driver: { type: string }
+              issuer: { type: string }
+              subject: { type: string }
+              email: { type: ['string', 'null'], format: email }
+              verifiedAt: { type: ['string', 'null'], format: date-time }
+              createdAt: { type: string, format: date-time }
+        sessions:
+          type: array
+          items: { $ref: '#/components/schemas/Session' }
+        automationTokens:
+          type: array
+          items: { $ref: '#/components/schemas/AutomationToken' }
+        passkeys:
+          type: array
+          items: { $ref: '#/components/schemas/Passkey' }
+        notifications:
+          type: array
+          items: { $ref: '#/components/schemas/Notification' }
+        reports:
+          type: array
+          items: { $ref: '#/components/schemas/ReportOwnerView' }
+        organizations:
+          type: array
+          items:
+            type: object
+            required: [namespace, displayName, createdAt]
+            properties:
+              namespace: { $ref: '#/components/schemas/Namespace' }
+              displayName: { type: string }
+              createdAt: { type: string, format: date-time }
+        versions:
+          type: array
+          items:
+            type: object
+            required: [namespace, id, version, status, name, license, description, author, createdAt, publishedAt]
+            properties:
+              namespace: { $ref: '#/components/schemas/Namespace' }
+              id: { $ref: '#/components/schemas/ExtensionId' }
+              version: { type: string }
+              status: { type: string }
+              name: { type: string }
+              license: { type: string }
+              description: { type: string }
+              author: { type: ['string', 'null'] }
+              createdAt: { type: string, format: date-time }
+              publishedAt: { type: ['string', 'null'], format: date-time }
+        legal:
+          type: object
+          required: [documents, accepted]
+          properties:
+            documents:
+              type: array
+              items:
+                type: object
+                required: [kind, version, updatedAt]
+                properties:
+                  kind: { type: string }
+                  version: { type: integer }
+                  updatedAt: { type: string, format: date-time }
+            accepted:
+              type: object
+              required: [termsVersion, termsAcceptedAt, privacyVersion, privacyAcceptedAt]
+              properties:
+                termsVersion: { type: ['integer', 'null'] }
+                termsAcceptedAt: { type: ['string', 'null'], format: date-time }
+                privacyVersion: { type: ['integer', 'null'] }
+                privacyAcceptedAt: { type: ['string', 'null'], format: date-time }
+        retention:
+          type: object
+          required: [downloadEventsDays, mailOutboxDays]
+          properties:
+            downloadEventsDays: { type: integer }
+            mailOutboxDays: { type: integer }
 
     Notification:
       type: object

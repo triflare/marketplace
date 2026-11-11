@@ -68,6 +68,32 @@ test('a data export needs a credential', async () => {
   await request(app).get(apiPath('/me/export')).expect(401);
 });
 
+test('a data export needs the manage:account scope', async () => {
+  const account = await signupAndAccept(app, uniqNs());
+
+  const limited = await request(app)
+    .post(apiPath('/tokens'))
+    .set(bearer(account.token))
+    .send({ name: 'publish only', scopes: ['publish'] })
+    .expect(201);
+  const refused = await request(app)
+    .get(apiPath('/me/export'))
+    .set(bearer(limited.body.token))
+    .expect(403);
+  assert.match(refused.body.detail, /manage:account/);
+
+  const allowed = await request(app)
+    .post(apiPath('/tokens'))
+    .set(bearer(account.token))
+    .send({ name: 'export reader', scopes: ['manage:account'] })
+    .expect(201);
+  const exported = await request(app)
+    .get(apiPath('/me/export'))
+    .set(bearer(allowed.body.token))
+    .expect(200);
+  assert.equal(exported.body.account.namespace, account.user.namespace);
+});
+
 test('the export includes rows beyond one database page', async () => {
   const account = await signup(app, uniqNs());
   const user = await db.Users.findUnique({ where: { Namespace: account.body.user.namespace } });
