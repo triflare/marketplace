@@ -33,10 +33,27 @@ async function* pagedRows(db, model, { where, select }) {
 }
 
 async function writeChunk(res, chunk) {
+  if (res.destroyed) throw new Error('Export response closed.');
   if (res.write(chunk)) return;
   await new Promise((resolve, reject) => {
-    res.once('drain', resolve);
-    res.once('error', reject);
+    const cleanup = () => {
+      res.off('drain', onDrain);
+      res.off('error', onError);
+      res.off('close', onClose);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onClose = () => onError(new Error('Export response closed.'));
+    res.once('drain', onDrain);
+    res.once('error', onError);
+    res.once('close', onClose);
+    if (res.destroyed) onClose();
   });
 }
 
@@ -124,6 +141,7 @@ export function makeMeRouter({ db, config }) {
     };
 
     res.set('Content-Disposition', `attachment; filename="account-${user.Namespace}.json"`);
+    res.set('Cache-Control', 'no-store');
     res.type('application/json');
 
     try {

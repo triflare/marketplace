@@ -185,7 +185,10 @@ paths:
         - $ref: '#/components/parameters/ReturnTo'
         - name: privacyAcceptedVersion
           in: query
-          schema: { type: ['integer', 'string'] }
+          schema:
+            oneOf:
+              - { type: integer, minimum: 1 }
+              - { type: string, pattern: '^[0-9]+$' }
           description: >
             The `version` from `GET /privacy` accepted by a new account. It is
             carried through the provider flow and checked only when the

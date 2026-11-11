@@ -60,9 +60,17 @@ first notification.
 
 ## Supervisory-authority decision
 
-The privacy lead makes and records the notification decision within **72 hours
-of becoming aware** of a personal-data breach, unless the breach is unlikely to
-result in a risk to people's rights and freedoms.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c64dba2897f4395b3663d3bb99bef9e91c2473f2f9daa23db65eb0c4b14d7745 -->
+
+The privacy lead notifies the supervisory authority without undue delay and,
+where feasible, within **72 hours of becoming aware** of a personal-data breach,
+unless the breach is unlikely to result in a risk to people's rights and
+freedoms. Record the notification decision and the reasons for any delay in
+notification.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 At the decision point, record:
 

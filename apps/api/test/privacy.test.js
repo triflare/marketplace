@@ -47,6 +47,8 @@ test('an account can download the data held about it', async () => {
   assert.ok(accepted.body.privacyAcceptedAt);
 
   const exported = await request(app).get(apiPath('/me/export')).set(bearer(token)).expect(200);
+  assert.equal(exported.headers['cache-control'], 'no-store');
+  assert.match(exported.headers['content-type'], /^application\/json/);
   assert.match(exported.headers['content-disposition'], /^attachment; filename="account-/);
 
   assert.equal(exported.body.account.namespace, ns);

@@ -24,7 +24,15 @@ the operator or legal team must complete; neither substitutes for the other.
       another account.
 - [ ] CI runs the API regression suite, and the suite covers consent, export,
       deletion, authorization, and retention paths changed by this release.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c34d3a291645746f3cfb5a96477e23949079d59e3445625edb73c0d43285dc56 -->
+
+- [ ] Repeatable UI regression coverage verifies consent and account-data flows
+      for release sign-off.
 - [ ] API and UI lint, formatting, typecheck, and build jobs pass.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Operator obligations
 
