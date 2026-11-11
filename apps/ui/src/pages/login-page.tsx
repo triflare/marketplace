@@ -78,6 +78,8 @@ export function LoginPage() {
   const privacy = useAsync((signal) => th.instance.privacy({ signal }), [])
   const privacyVersion =
     privacy.statusCode === 404 ? undefined : privacy.data?.version
+  const privacyLoadFailed =
+    privacy.status === "error" && privacy.statusCode !== 404
   // Nothing is rendered until the method set is known: a form that is about to
   // be replaced would otherwise take a half-typed handle with it.
   const methods = descriptor.data ? signInMethods(descriptor.data) : null
@@ -196,6 +198,21 @@ export function LoginPage() {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      ) : null}
+
+      {privacyLoadFailed ? (
+        <div className="flex flex-col gap-3">
+          <Alert variant="destructive">
+            <AlertTitle>Privacy policy couldn’t load</AlertTitle>
+            <AlertDescription>
+              {privacy.error ??
+                "We couldn’t confirm which privacy policy to show."}
+            </AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={privacy.reload}>
+            Try again
+          </Button>
+        </div>
       ) : null}
 
       {challenge ? (

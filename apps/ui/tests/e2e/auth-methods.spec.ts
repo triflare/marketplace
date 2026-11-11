@@ -177,6 +177,73 @@ test("an emailed code signs in without a password", async ({ page }) => {
   ).toBeVisible()
 })
 
+test("login can retry a failed privacy request while email sign-in remains available", async ({
+  page,
+}) => {
+  await advertise(page, ["email-otp"])
+  let privacyRequests = 0
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as { path?: string[] } | null
+    if (body?.path?.[0] !== "instance" || body.path[1] !== "privacy") {
+      return route.fallback()
+    }
+    privacyRequests += 1
+    if (privacyRequests > 1) return route.fallback()
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { message: "Policy unavailable", status: 500 },
+      }),
+    })
+  })
+
+  await visit(page, "/login")
+  const alert = page
+    .getByRole("alert")
+    .filter({ hasText: "Privacy policy couldn’t load" })
+  await expect(alert).toContainText(
+    "Something went wrong on our end. Try again in a moment."
+  )
+  await page.getByLabel("Email").fill("code-reader@example.test")
+  await page.getByRole("button", { name: "Email me a sign-in code" }).click()
+  await expect(page.getByText("Check your email")).toBeVisible()
+  await page.getByRole("button", { name: "Use a different address" }).click()
+
+  await page.getByRole("button", { name: "Try again" }).click()
+  await expect(alert).toHaveCount(0)
+  await expect(
+    page.getByRole("checkbox", { name: /privacy policy/ })
+  ).toBeVisible()
+  expect(privacyRequests).toBe(2)
+})
+
+test("login treats a missing privacy policy as optional", async ({ page }) => {
+  await advertise(page, ["email-otp"])
+  let privacyRequests = 0
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as { path?: string[] } | null
+    if (body?.path?.[0] !== "instance" || body.path[1] !== "privacy") {
+      return route.fallback()
+    }
+    privacyRequests += 1
+    return route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { message: "Not found", status: 404 } }),
+    })
+  })
+
+  await visit(page, "/login")
+  await expect.poll(() => privacyRequests).toBe(1)
+  await expect(page.getByLabel("Email")).toBeVisible()
+  await expect(page.getByText("Privacy policy couldn’t load")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
+  await expect(
+    page.getByRole("checkbox", { name: /privacy policy/ })
+  ).toHaveCount(0)
+})
+
 test("a sign-in link comes back to the page and finishes there", async ({
   page,
 }) => {
