@@ -298,6 +298,7 @@ export function LoginPage() {
               next={next}
               onResult={finish}
               privacyVersion={privacyVersion}
+              disabled={privacy.status === "loading"}
             />
           ) : (
             <Alert>
