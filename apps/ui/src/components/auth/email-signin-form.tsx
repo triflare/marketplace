@@ -43,7 +43,10 @@ export function EmailSignInForm({
 
   const address = email.trim()
   const signingUp = mode === "sign-up"
-  const privacyRequired = signingUp && privacyVersion !== undefined
+  const privacyOffered = privacyVersion !== undefined
+  // Signing in is open to accounts that predate the policy, so the box is only
+  // required when this request may create one.
+  const privacyRequired = signingUp && privacyOffered
 
   async function send(kind: "link" | "code") {
     if (disabled) {
@@ -71,12 +74,12 @@ export function EmailSignInForm({
         await th.auth.requestMagicLink({
           email: address,
           returnTo: origin === API_ORIGIN ? path : `${origin}${path}`,
-          privacyAcceptedVersion: privacyRequired ? privacyVersion : undefined,
+          privacyAcceptedVersion: acceptedPrivacy ? privacyVersion : undefined,
         })
       } else {
         await th.auth.requestEmailCode({
           email: address,
-          privacyAcceptedVersion: privacyRequired ? privacyVersion : undefined,
+          privacyAcceptedVersion: acceptedPrivacy ? privacyVersion : undefined,
         })
       }
       setSent(kind)
@@ -190,7 +193,7 @@ export function EmailSignInForm({
         />
       </div>
 
-      {privacyRequired ? (
+      {privacyOffered ? (
         <div className="flex items-start gap-2">
           <Checkbox
             id="signup-email-privacy"
@@ -207,6 +210,11 @@ export function EmailSignInForm({
               privacy policy
             </Link>
             .
+            {!signingUp ? (
+              <span className="block">
+                Only needed when creating an account.
+              </span>
+            ) : null}
           </label>
         </div>
       ) : null}

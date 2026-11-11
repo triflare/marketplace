@@ -73,6 +73,11 @@ export function LoginPage() {
   const [chosen, setChosen] = useState<Pane | null>(null)
 
   const descriptor = useAsync((signal) => th.auth.describe({ signal }), [])
+  // Email sign-in offers the published policy as an optional acceptance: a new
+  // address creates an account, while an existing one signs in without it.
+  const privacy = useAsync((signal) => th.instance.privacy({ signal }), [])
+  const privacyVersion =
+    privacy.statusCode === 404 ? undefined : privacy.data?.version
   // Nothing is rendered until the method set is known: a form that is about to
   // be replaced would otherwise take a half-typed handle with it.
   const methods = descriptor.data ? signInMethods(descriptor.data) : null
@@ -272,6 +277,7 @@ export function LoginPage() {
               mode="sign-in"
               next={next}
               onResult={finish}
+              privacyVersion={privacyVersion}
             />
           ) : (
             <Alert>

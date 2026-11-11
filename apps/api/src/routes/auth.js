@@ -407,6 +407,18 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
         path: mount('/privacy'),
       });
       if (privacy.errors.length > 0) {
+        // A browser retries on the sign-up page, which asks for the policy and
+        // offers the provider button again. The callback page can only show an
+        // error, so a first-time visitor would otherwise be stuck there.
+        // Existing identities never reach this branch.
+        if (wantsHtml(req) && flow.ReturnTo) {
+          const target = redirectTarget(flow.ReturnTo, config);
+          target.pathname = '/signup';
+          target.search = '';
+          target.hash = '';
+          target.searchParams.set('privacy_required', '1');
+          return res.redirect(target.toString());
+        }
         return failFlow(req, res, flow, 422, 'privacy_required', privacy.errors[0].message);
       }
       user = await createAccountFromClaims(db, rateLimiter, req, {

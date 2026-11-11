@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, Navigate, useNavigate } from "react-router"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router"
 
 import type { AuthMethod, MfaRequired, SessionResult } from "@/lib/api"
 
@@ -47,6 +47,10 @@ function paneLabel(pane: Pane, methods: AuthMethod[]): string {
 
 export function SignupPage() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  // The provider callback sends a first-time visitor here when the policy was
+  // not accepted; signing in again from the button below records it.
+  const consentRequired = params.get("privacy_required") === "1"
   const { user, loading, signUp, acceptSession } = useAuth()
   const next = "/dashboard"
   const [namespace, setNamespace] = useState("")
@@ -244,6 +248,17 @@ export function SignupPage() {
       {error ? (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {consentRequired ? (
+        <Alert>
+          <AlertTitle>Accept the privacy policy to continue</AlertTitle>
+          <AlertDescription>
+            The identity provider didn’t create an account because the privacy
+            policy wasn’t accepted. Tick its box below and continue with single
+            sign-on.
+          </AlertDescription>
         </Alert>
       ) : null}
 

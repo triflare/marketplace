@@ -268,6 +268,69 @@ test("signing up can generate a password that is shown once", async ({
   ).toBeVisible()
 })
 
+test("generated signup refuses without consent and sends its version", async ({
+  page,
+}) => {
+  let registered: { privacyAcceptedVersion?: unknown } | null = null
+
+  await advertise(page, ["magic-password"])
+  // Registered after the method set, so it sees the call first and falls back
+  // to that route for everything else.
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as {
+      path?: string[]
+      args?: Array<{ type: string; value?: unknown }>
+    } | null
+    if (
+      body?.path?.[0] !== "auth" ||
+      body.path[1] !== "registerWithGeneratedPassword"
+    ) {
+      return route.fallback()
+    }
+    registered = (body.args?.[0]?.value ?? null) as {
+      privacyAcceptedVersion?: unknown
+    } | null
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          type: "json",
+          value: {
+            token: "test-token-generatedconsent",
+            password: "generated-password-for-test",
+            passwordShownOnce: true,
+            user: {
+              namespace: "generatedconsent",
+              displayName: "Generated Consent",
+              kind: "user",
+              role: "normal",
+              hasPublished: false,
+              bio: "",
+              avatarUrl: null,
+              bannerUrl: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          },
+        },
+      }),
+    })
+  })
+
+  await visit(page, "/signup")
+  await page.getByLabel("Email").fill("generated-consent@example.test")
+
+  await page.getByRole("button", { name: "Create account" }).click()
+  await expect(
+    page.getByText("Accept the privacy policy to create an account.")
+  ).toBeVisible()
+  expect(registered).toBeNull()
+
+  await acceptPrivacy(page)
+  await page.getByRole("button", { name: "Create account" }).click()
+  await expect.poll(() => registered?.privacyAcceptedVersion).toBe(1)
+})
+
 test("a registry with registration closed offers no form", async ({ page }) => {
   await advertise(page, ["password", "magic-link"], { registration: "closed" })
   await visit(page, "/signup")
