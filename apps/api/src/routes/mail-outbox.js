@@ -127,7 +127,6 @@ export function makeMailOutboxRouter({ db, config, drivers }) {
       {},
       {
         outboxId: String(id),
-        to: row.To,
         purpose: row.Purpose,
       },
     );

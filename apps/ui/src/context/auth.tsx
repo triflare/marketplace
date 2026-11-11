@@ -48,6 +48,7 @@ interface AuthContextValue {
     namespace: string
     password: string
     displayName?: string
+    privacyAcceptedVersion?: number | string
   }) => Promise<AuthSession>
   acceptSession: (session: AuthSession) => void
   /** Make another account this browser holds the one every request runs as. */

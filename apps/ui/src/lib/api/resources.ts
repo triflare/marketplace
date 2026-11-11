@@ -118,12 +118,20 @@ export class AuthResource {
   // The email methods answer the same way for a known and an unknown address,
   // so a page shows "check your email" rather than whether an account exists.
   requestMagicLink(
-    payload: { email: string; returnTo?: string },
+    payload: {
+      email: string
+      returnTo?: string
+      privacyAcceptedVersion?: number | string
+    },
     options: RequestOptions = {}
   ): Promise<{ sent: true }> {
     return this.client.request("/auth/magic-link", {
       method: "POST",
-      json: { email: payload.email, returnTo: payload.returnTo },
+      json: {
+        email: payload.email,
+        returnTo: payload.returnTo,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }
@@ -140,12 +148,15 @@ export class AuthResource {
   }
 
   requestEmailCode(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options: RequestOptions = {}
   ): Promise<{ sent: true }> {
     return this.client.request("/auth/email-otp", {
       method: "POST",
-      json: { email: payload.email },
+      json: {
+        email: payload.email,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }
@@ -188,12 +199,15 @@ export class AuthResource {
   // Registration that hands back the only copy of the password: the account is
   // created and signed in, and the page has to show the secret before leaving.
   registerWithGeneratedPassword(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options: RequestOptions = {}
   ): Promise<GeneratedPasswordSession> {
     return this.client.request("/auth/magic-password/register", {
       method: "POST",
-      json: { email: payload.email },
+      json: {
+        email: payload.email,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
+      },
       ...requestOptions(options),
     })
   }
@@ -846,6 +860,7 @@ export class UsersResource {
         namespace: payload.namespace,
         password: payload.password,
         displayName: payload.displayName,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
       },
       ...requestOptions(options),
     })
@@ -868,6 +883,10 @@ export class UsersResource {
     return this.client.request("/me", requestOptions(options))
   }
 
+  exportData(options: RequestOptions = {}): Promise<Record<string, unknown>> {
+    return this.client.request("/me/export", requestOptions(options))
+  }
+
   update(
     namespace: string,
     payload: UpdateUserPayload,
@@ -886,6 +905,7 @@ export class UsersResource {
         avatarUrl: payload.avatarUrl,
         bannerUrl: payload.bannerUrl,
         termsAcceptedVersion: payload.termsAcceptedVersion,
+        privacyAcceptedVersion: payload.privacyAcceptedVersion,
       },
       ...requestOptions(options),
     })

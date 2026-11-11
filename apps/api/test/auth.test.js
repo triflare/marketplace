@@ -25,7 +25,10 @@ after(async () => {
 test('signing in creates a session, with its location and its own id', async () => {
   const ns = uniqNs();
   const password = 'password123';
-  await request(app).post(apiPath('/users')).send({ namespace: ns, password }).expect(201);
+  await request(app)
+    .post(apiPath('/users'))
+    .send({ namespace: ns, password, privacyAcceptedVersion: 1 })
+    .expect(201);
 
   const login = await request(app)
     .post(apiPath('/sessions'))
@@ -58,7 +61,7 @@ test('login rate limit: failed attempts produce 429', async () => {
   const ns = uniqNs();
   await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: ns, password: 'password123' })
+    .send({ namespace: ns, password: 'password123', privacyAcceptedVersion: 1 })
     .expect(201);
 
   for (let i = 0; i < 5; i += 1) {
@@ -78,7 +81,12 @@ test('creating an account opens a session for it', async () => {
   const ns = uniqNs();
   const created = await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: ns, password: FIXTURE_PASSWORD, displayName: 'First' })
+    .send({
+      namespace: ns,
+      password: FIXTURE_PASSWORD,
+      displayName: 'First',
+      privacyAcceptedVersion: 1,
+    })
     .expect(201);
   assert.equal(created.body.user.namespace, ns);
   assert.equal(created.body.user.displayName, 'First');
@@ -106,7 +114,7 @@ test('the old /auth surface is gone', async () => {
   const ns = uniqNs();
   const created = await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: ns, password: FIXTURE_PASSWORD })
+    .send({ namespace: ns, password: FIXTURE_PASSWORD, privacyAcceptedVersion: 1 })
     .expect(201);
   for (const path of [
     apiPath('/auth/login'),
@@ -137,7 +145,7 @@ test('DELETE /sessions/current revokes the session that called it', async () => 
 test('ending a session works without accepting terms', async () => {
   const r = await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: uniqNs(), password: 'password123' });
+    .send({ namespace: uniqNs(), password: 'password123', privacyAcceptedVersion: 1 });
   assert.equal(r.status, 201);
   await request(app).delete(apiPath('/sessions/current')).set(bearer(r.body.token)).expect(204);
 });
@@ -145,12 +153,17 @@ test('ending a session works without accepting terms', async () => {
 test('first user is admin', async () => {
   const u = await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: uniqNs(), password: 'password123', displayName: 'First' })
+    .send({
+      namespace: uniqNs(),
+      password: 'password123',
+      displayName: 'First',
+      privacyAcceptedVersion: 1,
+    })
     .expect(201);
   assert.equal(u.body.user.role, 'admin');
   const second = await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: uniqNs(), password: 'password123' })
+    .send({ namespace: uniqNs(), password: 'password123', privacyAcceptedVersion: 1 })
     .expect(201);
   assert.equal(second.body.user.role, 'normal');
 });
@@ -159,11 +172,11 @@ test('duplicate namespace -> 409', async () => {
   const who = uniqNs();
   await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: who, password: 'password123' })
+    .send({ namespace: who, password: 'password123', privacyAcceptedVersion: 1 })
     .expect(201);
   await request(app)
     .post(apiPath('/users'))
-    .send({ namespace: who, password: 'password123' })
+    .send({ namespace: who, password: 'password123', privacyAcceptedVersion: 1 })
     .expect(409);
 });
 

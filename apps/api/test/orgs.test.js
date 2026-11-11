@@ -104,9 +104,11 @@ describe('creating an organization', () => {
     assert.equal(clash.status, 409);
 
     // ...and an account cannot be signed up over one either.
-    const account = await request(app)
-      .post(apiPath('/users'))
-      .send({ namespace: ns, password: 'correct-horse-battery-staple' });
+    const account = await request(app).post(apiPath('/users')).send({
+      namespace: ns,
+      password: 'correct-horse-battery-staple',
+      privacyAcceptedVersion: 1,
+    });
     assert.equal(account.status, 409);
     assert.equal(taken.body.namespace, ns);
   });
@@ -143,7 +145,11 @@ describe('creating an organization', () => {
     const owner = await signupAndAccept(app, uniqNs());
     const latecomer = await request(app)
       .post(apiPath('/users'))
-      .send({ namespace: uniqNs(), password: 'correct-horse-battery-staple' })
+      .send({
+        namespace: uniqNs(),
+        password: 'correct-horse-battery-staple',
+        privacyAcceptedVersion: 1,
+      })
       .expect(201);
     // The terms gate is the same one that guards a publish: an organization
     // that nobody has agreed to the terms for should not go out.

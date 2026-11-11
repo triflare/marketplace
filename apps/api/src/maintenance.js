@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { BLOB_GC_LOCK_KEY, sha256Hex } from './blobs.js';
 import { withLocks } from './locks.js';
+import { purgeExpiredPersonalData } from './privacy.js';
 
 // Blob garbage collection: a file under blobs/ whose digest no row references is
 // deleted. Sources are handled by removeSourceIfUnused at the call sites that
@@ -136,6 +137,15 @@ export function makeMaintenanceJob({ db, config, blobs }) {
     if (running) return;
     running = true;
     try {
+      // Retention runs first so a storage failure cannot hold personal data
+      // past its window. The two sweeps keep separate caps and settings.
+      const purged = await purgeExpiredPersonalData(db, {
+        downloadEventRetentionDays: config.privacy.downloadEventRetentionDays,
+        mailOutboxRetentionDays: config.privacy.mailOutboxRetentionDays,
+      });
+      const purgedRows = Object.values(purged).reduce((sum, count) => sum + count, 0);
+      if (purgedRows > 0) console.log(`retention sweep removed ${purgedRows} expired row(s)`);
+
       const removed = await gcBlobs(db, blobs, config);
       if (removed > 0) console.log(`blob gc removed ${removed} orphaned file(s)`);
 

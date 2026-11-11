@@ -370,7 +370,11 @@ export function bearer(token) {
 export const FIXTURE_PASSWORD = 'correct-horse-battery-staple';
 
 export async function signup(app, namespace, password = FIXTURE_PASSWORD, displayName = namespace) {
-  return request(app).post(apiPath('/users')).send({ namespace, password, displayName });
+  // resetDb publishes privacy version 1, and registration records acceptance
+  // at creation, so every fixture agrees to that version.
+  return request(app)
+    .post(apiPath('/users'))
+    .send({ namespace, password, displayName, privacyAcceptedVersion: 1 });
 }
 
 export async function acceptTerms(app, namespace, token) {

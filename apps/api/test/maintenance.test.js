@@ -39,6 +39,29 @@ async function publishAndApprove(adminToken, owner, id, code = `// ${id}`) {
     .expect(200);
 }
 
+test('a failed blob sweep does not hold retention rows', async () => {
+  await db.DownloadEvents.create({
+    data: {
+      Namespace: 'expired',
+      ExtensionId: 'ext',
+      Version: '1.0.0',
+      CreatedAt: new Date(Date.now() - 40 * 86_400_000),
+    },
+  });
+  const job = makeMaintenanceJob({
+    db,
+    config,
+    blobs: {
+      canSweep() {
+        throw new Error('storage unavailable');
+      },
+    },
+  });
+
+  await job.runOnce();
+  assert.equal(await db.DownloadEvents.count(), 0);
+});
+
 test('gc removes blobs no version references and keeps live ones', async () => {
   const admin = await signupAndAccept(app, uniqNs());
   const owner = await signupAndAccept(app, uniqNs());

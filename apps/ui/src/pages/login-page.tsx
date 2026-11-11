@@ -73,6 +73,13 @@ export function LoginPage() {
   const [chosen, setChosen] = useState<Pane | null>(null)
 
   const descriptor = useAsync((signal) => th.auth.describe({ signal }), [])
+  // Email sign-in offers the published policy as an optional acceptance: a new
+  // address creates an account, while an existing one signs in without it.
+  const privacy = useAsync((signal) => th.instance.privacy({ signal }), [])
+  const privacyVersion =
+    privacy.statusCode === 404 ? undefined : privacy.data?.version
+  const privacyLoadFailed =
+    privacy.status === "error" && privacy.statusCode !== 404
   // Nothing is rendered until the method set is known: a form that is about to
   // be replaced would otherwise take a half-typed handle with it.
   const methods = descriptor.data ? signInMethods(descriptor.data) : null
@@ -172,7 +179,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8">
+    <div
+      className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8"
+      aria-busy={privacy.status === "loading"}
+    >
       <div>
         <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
           {product.name}
@@ -191,6 +201,21 @@ export function LoginPage() {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      ) : null}
+
+      {privacyLoadFailed ? (
+        <div className="flex flex-col gap-3">
+          <Alert variant="destructive">
+            <AlertTitle>Privacy policy couldn’t load</AlertTitle>
+            <AlertDescription>
+              {privacy.error ??
+                "We couldn’t confirm which privacy policy to show."}
+            </AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={privacy.reload}>
+            Try again
+          </Button>
+        </div>
       ) : null}
 
       {challenge ? (
@@ -272,6 +297,8 @@ export function LoginPage() {
               mode="sign-in"
               next={next}
               onResult={finish}
+              privacyVersion={privacyVersion}
+              disabled={privacy.status === "loading"}
             />
           ) : (
             <Alert>

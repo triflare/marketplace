@@ -130,6 +130,9 @@ export interface User {
   bannerUrl?: string | null
   createdAt: string
   termsAcceptedVersion?: number | null
+  termsAcceptedAt?: string | null
+  privacyAcceptedVersion?: number | null
+  privacyAcceptedAt?: string | null
 }
 
 export interface Organization {
@@ -664,6 +667,7 @@ export interface CreateUserPayload {
   namespace: string
   password: string
   displayName?: string
+  privacyAcceptedVersion?: number | string
 }
 
 export interface UpdateUserPayload {
@@ -677,6 +681,7 @@ export interface UpdateUserPayload {
   avatarUrl?: string | null
   bannerUrl?: string | null
   termsAcceptedVersion?: number | string
+  privacyAcceptedVersion?: number | string
 }
 
 export interface CreateOrganizationPayload {
@@ -826,7 +831,11 @@ export interface AuthResource {
   // Mails a single-use link. `returnTo` is where the browser lands once the
   // link proves the address, so the web client passes its own origin.
   requestMagicLink(
-    payload: { email: string; returnTo?: string },
+    payload: {
+      email: string
+      returnTo?: string
+      privacyAcceptedVersion?: number | string
+    },
     options?: RequestOptions
   ): Promise<{ sent: true }>
   exchangeMagicLink(
@@ -834,7 +843,7 @@ export interface AuthResource {
     options?: RequestOptions
   ): Promise<SessionResult>
   requestEmailCode(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options?: RequestOptions
   ): Promise<{ sent: true }>
   verifyEmailCode(
@@ -850,7 +859,7 @@ export interface AuthResource {
     options?: RequestOptions
   ): Promise<SessionResult>
   registerWithGeneratedPassword(
-    payload: { email: string },
+    payload: { email: string; privacyAcceptedVersion?: number | string },
     options?: RequestOptions
   ): Promise<GeneratedPasswordSession>
   rotateGeneratedPassword(options?: RequestOptions): Promise<RotatedPassword>
@@ -1062,6 +1071,7 @@ export interface UsersResource {
   list(query?: PageQuery): Promise<Page<User>>
   get(namespace: string, options?: RequestOptions): Promise<User>
   me(options?: RequestOptions): Promise<User>
+  exportData(options?: RequestOptions): Promise<Record<string, unknown>>
   update(
     namespace: string,
     payload: UpdateUserPayload,

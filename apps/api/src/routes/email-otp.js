@@ -26,7 +26,11 @@ export function makeEmailOtpRouter({ db, config, rateLimiter, drivers }) {
       throw fieldErrors([{ field: 'email', message: 'A valid email address is required.' }]);
     }
     const ctx = drivers.context({ request: req });
-    await beginEmailOtp({ db, config, mail: ctx.mail, rateLimiter, ip: req.ip }, email);
+    await beginEmailOtp(
+      { db, config, mail: ctx.mail, rateLimiter, ip: req.ip },
+      email,
+      req.body.privacyAcceptedVersion,
+    );
     // The answer is the same for a known and an unknown address: whether an
     // account exists is not something this endpoint tells a caller.
     res.status(202).json({ sent: true });
@@ -45,13 +49,14 @@ export function makeEmailOtpRouter({ db, config, rateLimiter, drivers }) {
       rateLimiter.loginCheck(`email-otp:verify:${req.ip}`),
       rateLimiter.loginCheck(`email-otp:verify:${email}`),
     ]);
+    let challenge;
     try {
-      await consumeEmailOtp(db, email, code);
+      challenge = await consumeEmailOtp(db, email, code);
     } catch (error) {
       await Promise.all(recordFailures.map((record) => record()));
       throw error;
     }
-    const { user } = await accountForEmailOtp(db, config, email);
+    const { user } = await accountForEmailOtp(db, config, email, challenge.PrivacyAcceptedVersion);
 
     if (await hasPasskeys(db, user.Id)) {
       return res.status(202).json(await beginSigninMfa(db, user.Id));

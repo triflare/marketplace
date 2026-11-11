@@ -47,7 +47,10 @@ test('password sign-in is refused', async () => {
 test('the provider is still a way in', async () => {
   idp.setClaims({ sub: 'sub-required', preferred_username: 'required-user' });
   const agent = request.agent(app);
-  const authorize = await agent.get(apiPath('/auth/oidc/authorize')).expect(200);
+  const authorize = await agent
+    .get(apiPath('/auth/oidc/authorize'))
+    .query({ privacyAcceptedVersion: 1 })
+    .expect(200);
   const { code, state } = await roundTripProvider(authorize.body.authorizationUrl);
   const callback = await agent.get(apiPath('/auth/oidc/callback')).query({ code, state });
   assert.equal(callback.status, 201);

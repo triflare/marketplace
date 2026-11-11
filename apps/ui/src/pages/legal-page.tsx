@@ -25,24 +25,30 @@ export function LegalPage({ kind }: { kind: "terms" | "privacy" }) {
     legalKey(kind)
   )
 
+  const acceptedVersion =
+    kind === "terms" ? user?.termsAcceptedVersion : user?.privacyAcceptedVersion
   const needsAcceptance =
-    kind === "terms" &&
     user &&
     document.data &&
-    String(user.termsAcceptedVersion ?? "") !== String(document.data.version)
+    String(acceptedVersion ?? "") !== String(document.data.version)
 
-  async function acceptTerms() {
+  async function acceptDocument() {
     if (!user || !document.data) {
       return
     }
 
     setAccepting(true)
     try {
-      await th.users.update(user.namespace, {
-        termsAcceptedVersion: document.data.version,
-      })
+      await th.users.update(
+        user.namespace,
+        kind === "terms"
+          ? { termsAcceptedVersion: document.data.version }
+          : { privacyAcceptedVersion: document.data.version }
+      )
       await refresh()
-      toast.success("Terms accepted.")
+      toast.success(
+        kind === "terms" ? "Terms accepted." : "Privacy policy accepted."
+      )
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
@@ -91,11 +97,19 @@ export function LegalPage({ kind }: { kind: "terms" | "privacy" }) {
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
               <p className="text-sm">
                 This account has not accepted version {document.data.version}{" "}
-                yet. Publishing and organization changes are gated until it
-                does.
+                {kind === "terms"
+                  ? "yet. Publishing and organization changes are gated until it does."
+                  : "of the privacy policy yet."}
               </p>
-              <Button onClick={() => void acceptTerms()} disabled={accepting}>
-                {accepting ? "Saving…" : "Accept terms"}
+              <Button
+                onClick={() => void acceptDocument()}
+                disabled={accepting}
+              >
+                {accepting
+                  ? "Saving…"
+                  : kind === "terms"
+                    ? "Accept terms"
+                    : "Accept privacy policy"}
               </Button>
             </div>
           ) : null}

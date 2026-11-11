@@ -7,6 +7,8 @@ import { hashPassword } from '../password.js';
 import { normalizeEmail } from '../magic-link.js';
 import { withLocks } from '../locks.js';
 import { sessionToObject, userToObject } from '../serialize.js';
+import { normalizeApiRoot } from '../util.js';
+import { checkPrivacyAcceptance } from '../consent.js';
 import { createSession, requireObjectBody, sessionPath } from './shared.js';
 
 const DRIVER = 'magic-password';
@@ -23,6 +25,8 @@ export function makeMagicPasswordRouter({ db, config, rateLimiter }) {
   const requireRecentAuth = makeRequireRecentAuth(config);
   const sessionTtlMs = config.auth.sessionTtlDays * 86_400_000;
   const scrypt = config.auth.scrypt;
+  const root = normalizeApiRoot(config.apiRoot);
+  const privacyPath = `${root ? `/${root}` : ''}/privacy`;
 
   router.use((req, res, next) => {
     if (!enabled) throw notFound();
@@ -35,6 +39,11 @@ export function makeMagicPasswordRouter({ db, config, rateLimiter }) {
     if (!email) {
       throw fieldErrors([{ field: 'email', message: 'A valid email address is required.' }]);
     }
+    const privacy = await checkPrivacyAcceptance(db, req.body.privacyAcceptedVersion, {
+      path: privacyPath,
+    });
+    if (privacy.errors.length > 0) throw fieldErrors(privacy.errors);
+
     await rateLimiter.signupCheck(`signup:${req.ip}`, res);
     const password = generatePassword();
     const passwordHash = await hashPassword(password, scrypt);
@@ -51,6 +60,8 @@ export function makeMagicPasswordRouter({ db, config, rateLimiter }) {
           DisplayName: displayNameFromEmail(email),
           PasswordHash: passwordHash,
           Role: count === 0 ? 'admin' : 'normal',
+          PrivacyAcceptedVersion: privacy.version,
+          PrivacyAcceptedAt: privacy.version === null ? null : new Date(),
         },
       });
       await tx.AuthIdentities.create({

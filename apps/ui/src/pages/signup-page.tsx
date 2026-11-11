@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, Navigate, useNavigate } from "react-router"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router"
 
 import type { AuthMethod, MfaRequired, SessionResult } from "@/lib/api"
 
@@ -10,6 +10,7 @@ import { ButtonLink } from "@/components/common/button-link"
 import { CopyButton } from "@/components/common/copy-button"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -46,6 +47,10 @@ function paneLabel(pane: Pane, methods: AuthMethod[]): string {
 
 export function SignupPage() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  // The provider callback sends a first-time visitor here when the policy was
+  // not accepted; signing in again from the button below records it.
+  const consentRequired = params.get("privacy_required") === "1"
   const { user, loading, signUp, acceptSession } = useAuth()
   const next = "/dashboard"
   const [namespace, setNamespace] = useState("")
@@ -63,8 +68,14 @@ export function SignupPage() {
   } | null>(null)
   const [email, setEmail] = useState("")
   const [enrolling, setEnrolling] = useState(false)
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false)
 
   const descriptor = useAsync((signal) => th.auth.describe({ signal }), [])
+  const privacy = useAsync((signal) => th.instance.privacy({ signal }), [])
+  const privacyVersion =
+    privacy.statusCode === 404 ? null : (privacy.data?.version ?? null)
+  const privacyLoadFailed =
+    privacy.status === "error" && privacy.statusCode !== 404
   // Password registration is refused when the method set leaves the password
   // driver out, and each other pane is offered only while its driver is
   // advertised. Nothing renders until the set is known.
@@ -128,8 +139,18 @@ export function SignupPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (privacyLoadFailed) {
+      setError(
+        "The privacy policy couldn’t load. Try again before creating an account."
+      )
+      return
+    }
     if (password !== confirm) {
       setError("The passwords do not match.")
+      return
+    }
+    if (privacyVersion !== null && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
       return
     }
 
@@ -141,6 +162,7 @@ export function SignupPage() {
         namespace: namespace.trim(),
         password,
         displayName: displayName.trim() || undefined,
+        privacyAcceptedVersion: privacyVersion ?? undefined,
       })
       navigate("/stay-signed-in?next=%2Fdashboard")
     } catch (reason) {
@@ -152,9 +174,19 @@ export function SignupPage() {
 
   async function handleGenerated(event: React.FormEvent) {
     event.preventDefault()
+    if (privacyLoadFailed) {
+      setError(
+        "The privacy policy couldn’t load. Try again before creating an account."
+      )
+      return
+    }
     const address = email.trim()
     if (address === "") {
       setError("Enter the email address to register with.")
+      return
+    }
+    if (privacyVersion !== null && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
       return
     }
 
@@ -164,6 +196,7 @@ export function SignupPage() {
     try {
       const result = await th.auth.registerWithGeneratedPassword({
         email: address,
+        privacyAcceptedVersion: privacyVersion ?? undefined,
       })
       acceptSession(result)
       setGenerated({
@@ -179,9 +212,22 @@ export function SignupPage() {
   }
 
   function startOidc() {
+    if (privacyLoadFailed) {
+      setError(
+        "The privacy policy couldn’t load. Try again before creating an account."
+      )
+      return
+    }
+    if (privacyVersion !== null && !acceptedPrivacy) {
+      setError("Accept the privacy policy to create an account.")
+      return
+    }
     setError(null)
     const returnTo = `${window.location.origin}/oidc/callback`
-    const query = new URLSearchParams({ returnTo }).toString()
+    const query = new URLSearchParams({ returnTo })
+    if (privacyVersion !== null) {
+      query.set("privacyAcceptedVersion", String(privacyVersion))
+    }
     window.location.assign(`${API_BASE_URL}/auth/oidc/authorize?${query}`)
   }
 
@@ -203,6 +249,32 @@ export function SignupPage() {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      ) : null}
+
+      {consentRequired ? (
+        <Alert>
+          <AlertTitle>Accept the privacy policy to continue</AlertTitle>
+          <AlertDescription>
+            The identity provider didn’t create an account because the privacy
+            policy wasn’t accepted. Tick its box below and continue with single
+            sign-on.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {privacyLoadFailed ? (
+        <div className="flex flex-col gap-3">
+          <Alert variant="destructive">
+            <AlertTitle>Privacy policy couldn’t load</AlertTitle>
+            <AlertDescription>
+              {privacy.error ??
+                "We couldn’t confirm which privacy policy to show."}
+            </AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={privacy.reload}>
+            Try again
+          </Button>
+        </div>
       ) : null}
 
       {challenge ? (
@@ -325,17 +397,42 @@ export function SignupPage() {
                   required
                 />
               </div>
-              <Button type="submit" disabled={pending}>
+              {privacyVersion !== null ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) =>
+                      setAcceptedPrivacy(checked === true)
+                    }
+                  />
+                  <label
+                    htmlFor="signup-privacy"
+                    className="text-xs text-muted-foreground"
+                  >
+                    I have read and agree to the{" "}
+                    <Link
+                      to="/privacy"
+                      className="text-foreground hover:underline"
+                    >
+                      privacy policy
+                    </Link>
+                    .
+                  </label>
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                disabled={
+                  pending || privacy.status === "loading" || privacyLoadFailed
+                }
+              >
                 {pending ? "Creating account…" : "Create account"}
               </Button>
               <p className="text-xs text-muted-foreground">
                 By creating an account you agree to the{" "}
                 <Link to="/terms" className="text-foreground hover:underline">
                   terms
-                </Link>{" "}
-                and{" "}
-                <Link to="/privacy" className="text-foreground hover:underline">
-                  privacy policy
                 </Link>
                 .
               </p>
@@ -355,7 +452,36 @@ export function SignupPage() {
                   placeholder="you@example.com"
                 />
               </div>
-              <Button type="submit" disabled={pending}>
+              {privacyVersion !== null ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-generated-privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) =>
+                      setAcceptedPrivacy(checked === true)
+                    }
+                  />
+                  <label
+                    htmlFor="signup-generated-privacy"
+                    className="text-xs text-muted-foreground"
+                  >
+                    I have read and agree to the{" "}
+                    <Link
+                      to="/privacy"
+                      className="text-foreground hover:underline"
+                    >
+                      privacy policy
+                    </Link>
+                    .
+                  </label>
+                </div>
+              ) : null}
+              <Button
+                type="submit"
+                disabled={
+                  pending || privacy.status === "loading" || privacyLoadFailed
+                }
+              >
                 {pending ? "Creating account…" : "Create account"}
               </Button>
               <p className="text-xs text-muted-foreground">
@@ -369,6 +495,8 @@ export function SignupPage() {
               mode="sign-up"
               next={next}
               onResult={finish}
+              privacyVersion={privacyVersion ?? undefined}
+              disabled={privacyLoadFailed || privacy.status === "loading"}
             />
           ) : (
             <Alert>
@@ -416,9 +544,39 @@ export function SignupPage() {
           ) : null}
 
           {sso ? (
-            <Button variant="outline" onClick={startOidc}>
-              Continue with single sign-on
-            </Button>
+            <div className="flex flex-col gap-3">
+              {privacyVersion !== null ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="signup-sso-privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) =>
+                      setAcceptedPrivacy(checked === true)
+                    }
+                  />
+                  <label
+                    htmlFor="signup-sso-privacy"
+                    className="text-xs text-muted-foreground"
+                  >
+                    I have read and agree to the{" "}
+                    <Link
+                      to="/privacy"
+                      className="text-foreground hover:underline"
+                    >
+                      privacy policy
+                    </Link>
+                    .
+                  </label>
+                </div>
+              ) : null}
+              <Button
+                variant="outline"
+                onClick={startOidc}
+                disabled={privacyLoadFailed || privacy.status === "loading"}
+              >
+                Continue with single sign-on
+              </Button>
+            </div>
           ) : null}
         </>
       )}

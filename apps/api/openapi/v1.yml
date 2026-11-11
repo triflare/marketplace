@@ -149,6 +149,34 @@ paths:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /me/export:
+    get:
+      summary: Download a copy of the caller's account data
+      operationId: exportAuthenticatedUser
+      tags: [Userspace]
+      description: >
+        Everything the registry holds that names or describes the caller, as one
+        JSON document streamed in bounded pages. Requires the `manage:account`
+        scope. Credentials are left out: a session or token appears as its
+        metadata, never its secret, and no password hash is included. Sent as a
+        download and never cached.
+      responses:
+        '200':
+          description: The account export, named `account-<namespace>.json`
+          headers:
+            Content-Disposition:
+              description: An `attachment` disposition naming the downloaded file.
+              schema: { type: string }
+            Cache-Control:
+              description: Always `no-store`; the document is personal data.
+              schema: { type: string, enum: ['no-store'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountExport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ------------------------------------------ Authentication & sign-in
   /auth:
     get:
@@ -183,6 +211,18 @@ paths:
         freshly minted sign-in code to another origin.
       parameters:
         - $ref: '#/components/parameters/ReturnTo'
+        - name: privacyAcceptedVersion
+          in: query
+          schema:
+            oneOf:
+              - { type: integer, minimum: 1 }
+              - { type: string, pattern: '^[0-9]+$' }
+          description: >
+            The `version` from `GET /privacy` accepted by a new account. It is
+            carried through the provider flow and checked only when the
+            callback would create an account; sign-in for an existing account
+            does not need it. Required in practice when a privacy policy is
+            published and the identity is new.
       responses:
         '200':
           description: The authorization URL to send the browser to
@@ -250,6 +290,7 @@ paths:
           description: A browser is redirected back to `returnTo`
         '400': { $ref: '#/components/responses/BadRequest' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '502': { $ref: '#/components/responses/BadGateway' }
 
   /auth/oidc/exchange:
@@ -932,6 +973,12 @@ paths:
               required: [email]
               properties:
                 email: { type: string, format: email }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` accepted by a new
+                    account. Required when a privacy policy is published and
+                    this code creates an account; ignored for an existing one.
       responses:
         '202':
           description: The code was handed to the mail chain
@@ -1015,6 +1062,12 @@ paths:
                     usually the web client. A path on this instance, or an
                     absolute URL naming an origin in `cors.allowedOrigins`;
                     anything else is refused with a `422`.
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` accepted by a new
+                    account. Required when a privacy policy is published and
+                    this link creates an account; ignored for an existing one.
       responses:
         '202':
           description: The link was handed to the mail chain
@@ -1215,6 +1268,8 @@ paths:
         Creates the account, generates its password, and returns it once in the
         response. The address is the identifier the account signs in with, and
         the email in `passwordShownOnce` is the only place the password appears.
+        When the instance publishes a privacy policy, `privacyAcceptedVersion`
+        must name the current `version` from `GET /privacy`.
       requestBody:
         required: true
         content:
@@ -1224,6 +1279,11 @@ paths:
               required: [email]
               properties:
                 email: { type: string, format: email }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the new account
+                    accepts. Required when a privacy policy is published.
       responses:
         '201':
           description: The account, its session, and the password to keep
@@ -1526,6 +1586,11 @@ paths:
         an admin. When the instance is in identity-provider-only mode
         (`auth.oidc.required`), registration here is refused with a `403` and
         accounts are made by signing in through the provider instead.
+
+        When the instance publishes a privacy policy, the request must carry
+        the `version` from `GET /privacy` as `privacyAcceptedVersion`; the
+        account records that acceptance and its timestamp. A registry with no
+        privacy document has nothing to accept and omits the field.
       requestBody:
         required: true
         content:
@@ -1537,6 +1602,11 @@ paths:
                 namespace: { $ref: '#/components/schemas/Namespace' }
                 displayName: { type: string, maxLength: 80 }
                 password: { type: string, minLength: 8, writeOnly: true }
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the new account
+                    accepts. Required when a privacy policy is published.
       responses:
         '201':
           description: Account created, with a session already open for it
@@ -1611,13 +1681,15 @@ paths:
         An organization is not an account and is a `403` here; its profile is
         edited at `PATCH /orgs/{namespace}`.
 
-        `termsAcceptedVersion` records acceptance of the Terms of Service. It is
-        exempt from the gate that every other field is behind, so a caller who
-        has not accepted yet can still call this — but only on its own: send it
-        alone, or with `password`/`currentPassword`. Sending it next to a
-        profile or role edit is a `403`, so acceptance cannot be used to carry
-        an edit past the gate. A version other than the one `GET /terms`
-        reports is a `422`.
+        `termsAcceptedVersion` and `privacyAcceptedVersion` record acceptance
+        of the Terms of Service and privacy policy. Both are exempt from the
+        gate every other field is behind, so a caller who has not accepted yet
+        can still call this — but only for its own account: send either alone,
+        together, or with `password`/`currentPassword`. Sending either next to
+        a profile or role edit is a `403`, and an admin cannot record consent
+        on another account. A version other than the one `GET /terms` or
+        `GET /privacy` reports is a `422`. Omitting a field leaves that
+        acceptance record unchanged.
 
         The account is one document behind two addresses: the revision read
         from `GET /me` is the one this edit names, and `GET /users/{namespace}`
@@ -1672,6 +1744,12 @@ paths:
                     The `version` from `GET /terms` that the caller accepts.
                     The users row holds it as a string, so either spelling is
                     compared as text.
+                privacyAcceptedVersion:
+                  type: ['integer', 'string']
+                  description: >
+                    The `version` from `GET /privacy` that the caller accepts.
+                    Only the account itself may set this, and the current
+                    version is required.
       responses:
         '200':
           description: Updated
@@ -4764,6 +4842,121 @@ components:
         withdrawn), and `organization.owner.*` when an account is added to or
         removed from an organization's owner list.
 
+    AccountExport:
+      type: object
+      description: >
+        Everything the registry holds that names or describes an account, as one
+        document. A credential appears as its metadata, never its secret.
+      required:
+        - formatVersion
+        - generatedAt
+        - account
+        - emailIdentities
+        - sessions
+        - automationTokens
+        - passkeys
+        - notifications
+        - reports
+        - organizations
+        - versions
+        - legal
+        - retention
+      properties:
+        formatVersion: { type: integer, enum: [1] }
+        generatedAt: { type: string, format: date-time }
+        account: { $ref: '#/components/schemas/User' }
+        emailIdentities:
+          type: array
+          items:
+            type: object
+            required: [driver, issuer, subject, email, verifiedAt, createdAt]
+            properties:
+              driver: { type: string }
+              issuer: { type: string }
+              subject: { type: string }
+              email: { type: ['string', 'null'], format: email }
+              verifiedAt: { type: ['string', 'null'], format: date-time }
+              createdAt: { type: string, format: date-time }
+        sessions:
+          type: array
+          items: { $ref: '#/components/schemas/Session' }
+        automationTokens:
+          type: array
+          items: { $ref: '#/components/schemas/AutomationToken' }
+        passkeys:
+          type: array
+          items: { $ref: '#/components/schemas/Passkey' }
+        notifications:
+          type: array
+          items: { $ref: '#/components/schemas/Notification' }
+        reports:
+          type: array
+          items: { $ref: '#/components/schemas/ReportOwnerView' }
+        organizations:
+          type: array
+          items:
+            type: object
+            required: [namespace, displayName, createdAt]
+            properties:
+              namespace: { $ref: '#/components/schemas/Namespace' }
+              displayName: { type: string }
+              createdAt: { type: string, format: date-time }
+        versions:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                namespace,
+                id,
+                version,
+                status,
+                name,
+                license,
+                description,
+                author,
+                createdAt,
+                publishedAt,
+              ]
+            properties:
+              namespace: { $ref: '#/components/schemas/Namespace' }
+              id: { $ref: '#/components/schemas/ExtensionId' }
+              version: { type: string }
+              status: { type: string }
+              name: { type: string }
+              license: { type: string }
+              description: { type: string }
+              author: { type: ['string', 'null'] }
+              createdAt: { type: string, format: date-time }
+              publishedAt: { type: ['string', 'null'], format: date-time }
+        legal:
+          type: object
+          required: [documents, accepted]
+          properties:
+            documents:
+              type: array
+              items:
+                type: object
+                required: [kind, version, updatedAt]
+                properties:
+                  kind: { type: string }
+                  version: { type: integer }
+                  updatedAt: { type: string, format: date-time }
+            accepted:
+              type: object
+              required: [termsVersion, termsAcceptedAt, privacyVersion, privacyAcceptedAt]
+              properties:
+                termsVersion: { type: ['integer', 'null'] }
+                termsAcceptedAt: { type: ['string', 'null'], format: date-time }
+                privacyVersion: { type: ['integer', 'null'] }
+                privacyAcceptedAt: { type: ['string', 'null'], format: date-time }
+        retention:
+          type: object
+          required: [downloadEventsDays, mailOutboxDays]
+          properties:
+            downloadEventsDays: { type: integer }
+            mailOutboxDays: { type: integer }
+
     Notification:
       type: object
       required: [id, kind, message, payload, read, createdAt]
@@ -5126,10 +5319,21 @@ components:
         termsAcceptedVersion:
           type: ['integer', 'null']
           description: Terms of Service `version` this account last accepted, or `null` if never accepted. Present only for self or admin viewers.
+        termsAcceptedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When `termsAcceptedVersion` was recorded. Present only for self or admin viewers.
+        privacyAcceptedVersion:
+          type: ['integer', 'null']
+          description: Privacy Policy `version` this account last accepted, or `null` if never accepted. Present only for self or admin viewers.
+        privacyAcceptedAt:
+          type: ['string', 'null']
+          format: date-time
+          description: When `privacyAcceptedVersion` was recorded. Present only for self or admin viewers.
       description: >
         An account. `GET /users/{namespace}` also answers for an organization,
-        with `kind` set to `organization` and without `role` or
-        `termsAcceptedVersion`, since an organization has neither. The
+        with `kind` set to `organization` and without `role` or consent fields,
+        since an organization has neither. The
         organization view of itself is `GET /orgs/{namespace}`.
 
     Organization:

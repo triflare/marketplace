@@ -193,18 +193,19 @@ model Notifications {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model OidcFlows {
-  Id               BigInt   @id @default(autoincrement())
-  Kind             String
-  StateHash        String   @unique
-  FlowSecretHash   String
-  CodeVerifier     String
-  Nonce            String
-  UserId           BigInt?
-  ReturnTo         String?
-  ExchangeCodeHash String?  @unique
-  CreatedAt        DateTime @default(now()) @db.Timestamptz(6)
-  ExpiresAt        DateTime @db.Timestamptz(6)
-  Users            Users?   @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+  Id                     BigInt   @id @default(autoincrement())
+  Kind                   String
+  StateHash              String   @unique
+  FlowSecretHash         String
+  CodeVerifier           String
+  Nonce                  String
+  UserId                 BigInt?
+  ReturnTo               String?
+  PrivacyAcceptedVersion Int?
+  ExchangeCodeHash       String?  @unique
+  CreatedAt              DateTime @default(now()) @db.Timestamptz(6)
+  ExpiresAt              DateTime @db.Timestamptz(6)
+  Users                  Users?   @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([ExpiresAt])
 }
@@ -426,18 +427,19 @@ model AuthIdentities {
 /// an email code, or the exchange code a browser trades for a session. Both
 /// secrets are stored hashed, like a session token.
 model AuthChallenges {
-  Id               BigInt    @id @default(autoincrement())
-  Driver           String
-  Subject          String
-  SecretHash       String    @unique
-  Challenge        String?
-  UserId           BigInt?
-  ExchangeCodeHash String?   @unique
-  ExpiresAt        DateTime  @db.Timestamptz(6)
-  ConsumedAt       DateTime? @db.Timestamptz(6)
-  Attempts         Int       @default(0)
-  CreatedAt        DateTime  @default(now()) @db.Timestamptz(6)
-  Users            Users?    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
+  Id                     BigInt    @id @default(autoincrement())
+  Driver                 String
+  Subject                String
+  SecretHash             String    @unique
+  Challenge              String?
+  UserId                 BigInt?
+  PrivacyAcceptedVersion Int?
+  ExchangeCodeHash       String?   @unique
+  ExpiresAt              DateTime  @db.Timestamptz(6)
+  ConsumedAt             DateTime? @db.Timestamptz(6)
+  Attempts               Int       @default(0)
+  CreatedAt              DateTime  @default(now()) @db.Timestamptz(6)
+  Users                  Users?    @relation(fields: [UserId], references: [Id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([ExpiresAt])
   @@index([Driver, Subject])
@@ -472,6 +474,10 @@ model Users {
   Role                                                       String                  @default("normal")
   HasPublished                                               Boolean                 @default(false)
   TermsAcceptedVersion                                       Int?
+  TermsAcceptedAt                                            DateTime?               @db.Timestamptz(6)
+  PrivacyAcceptedVersion                                     Int?
+  PrivacyAcceptedAt                                          DateTime?               @db.Timestamptz(6)
+  PreviousEmails                                             String[]                @default([])
   CreatedAt                                                  DateTime                @default(now()) @db.Timestamptz(6)
   // Moves on every write, which is what makes an If-Match on a profile or
   // organization mean "the document I read", not "whatever is there now".

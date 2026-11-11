@@ -5,6 +5,15 @@ import { visit } from "./helpers"
 const RPC_PATH = "**/__api"
 const MOCK_API = `http://127.0.0.1:${process.env.MOCK_API_PORT ?? 3200}`
 
+// Every pane that creates an account asks for the privacy consent first; these
+// journeys only exercise the rest of the flow.
+async function acceptPrivacy(page: Page) {
+  await page
+    .locator("form")
+    .getByRole("checkbox", { name: /privacy policy/ })
+    .check()
+}
+
 const DRIVERS: Record<string, Record<string, unknown>> = {
   password: {
     label: "Password",
@@ -168,6 +177,86 @@ test("an emailed code signs in without a password", async ({ page }) => {
   ).toBeVisible()
 })
 
+test("login can retry a failed privacy request while email sign-in remains available", async ({
+  page,
+}) => {
+  await advertise(page, ["email-otp"])
+  let privacyRequests = 0
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as { path?: string[] } | null
+    if (body?.path?.[0] !== "instance" || body.path[1] !== "privacy") {
+      return route.fallback()
+    }
+    privacyRequests += 1
+    if (privacyRequests > 1) return route.fallback()
+    return route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { message: "Policy unavailable", status: 500 },
+      }),
+    })
+  })
+
+  await visit(page, "/login")
+  const alert = page
+    .getByRole("alert")
+    .filter({ hasText: "Privacy policy couldn’t load" })
+  await expect(alert).toContainText(
+    "Something went wrong on our end. Try again in a moment."
+  )
+  await page.getByLabel("Email").fill("code-reader@example.test")
+  await page.getByRole("button", { name: "Email me a sign-in code" }).click()
+  await expect(page.getByText("Check your email")).toBeVisible()
+  await page.getByRole("button", { name: "Use a different address" }).click()
+
+  await page.getByRole("button", { name: "Try again" }).click()
+  await expect(alert).toHaveCount(0)
+  await expect(
+    page.getByRole("checkbox", { name: /privacy policy/ })
+  ).toBeVisible()
+  expect(privacyRequests).toBe(2)
+})
+
+test("login treats a missing privacy policy as optional", async ({ page }) => {
+  await advertise(page, ["email-otp"])
+  let privacyRequests = 0
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as { path?: string[] } | null
+    if (body?.path?.[0] !== "instance" || body.path[1] !== "privacy") {
+      return route.fallback()
+    }
+    privacyRequests += 1
+    return route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { message: "Not found", status: 404 } }),
+    })
+  })
+
+  const privacyResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/__api") || response.status() !== 404) {
+      return false
+    }
+    const body = response.request().postDataJSON() as { path?: string[] } | null
+    return body?.path?.[0] === "instance" && body.path[1] === "privacy"
+  })
+  await visit(page, "/login")
+  await privacyResponse
+  await expect(
+    page
+      .locator('[aria-busy="false"]')
+      .filter({ has: page.getByLabel("Email") })
+  ).toBeVisible()
+  expect(privacyRequests).toBe(1)
+  await expect(page.getByLabel("Email")).toBeVisible()
+  await expect(page.getByText("Privacy policy couldn’t load")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)
+  await expect(
+    page.getByRole("checkbox", { name: /privacy policy/ })
+  ).toHaveCount(0)
+})
+
 test("a sign-in link comes back to the page and finishes there", async ({
   page,
 }) => {
@@ -243,6 +332,7 @@ test("signing up can generate a password that is shown once", async ({
 }) => {
   await advertise(page, ["magic-password"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("generated@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
@@ -256,6 +346,69 @@ test("signing up can generate a password that is shown once", async ({
   await expect(
     page.getByRole("heading", { name: "Stay signed in?" })
   ).toBeVisible()
+})
+
+test("generated signup refuses without consent and sends its version", async ({
+  page,
+}) => {
+  let registered: { privacyAcceptedVersion?: unknown } | null = null
+
+  await advertise(page, ["magic-password"])
+  // Registered after the method set, so it sees the call first and falls back
+  // to that route for everything else.
+  await page.route(RPC_PATH, async (route) => {
+    const body = route.request().postDataJSON() as {
+      path?: string[]
+      args?: Array<{ type: string; value?: unknown }>
+    } | null
+    if (
+      body?.path?.[0] !== "auth" ||
+      body.path[1] !== "registerWithGeneratedPassword"
+    ) {
+      return route.fallback()
+    }
+    registered = (body.args?.[0]?.value ?? null) as {
+      privacyAcceptedVersion?: unknown
+    } | null
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        result: {
+          type: "json",
+          value: {
+            token: "test-token-generatedconsent",
+            password: "generated-password-for-test",
+            passwordShownOnce: true,
+            user: {
+              namespace: "generatedconsent",
+              displayName: "Generated Consent",
+              kind: "user",
+              role: "normal",
+              hasPublished: false,
+              bio: "",
+              avatarUrl: null,
+              bannerUrl: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          },
+        },
+      }),
+    })
+  })
+
+  await visit(page, "/signup")
+  await page.getByLabel("Email").fill("generated-consent@example.test")
+
+  await page.getByRole("button", { name: "Create account" }).click()
+  await expect(
+    page.getByText("Accept the privacy policy to create an account.")
+  ).toBeVisible()
+  expect(registered).toBeNull()
+
+  await acceptPrivacy(page)
+  await page.getByRole("button", { name: "Create account" }).click()
+  await expect.poll(() => registered?.privacyAcceptedVersion).toBe(1)
 })
 
 test("a registry with registration closed offers no form", async ({ page }) => {
@@ -308,6 +461,7 @@ test("a passwordless sign-up can add a passkey on the spot", async ({
 
   await advertise(page, ["magic-password", "passkey"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("enrolling@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
@@ -338,6 +492,7 @@ test("skipping the passkey offer goes straight to the session choice", async ({
 }) => {
   await advertise(page, ["magic-password", "passkey"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("skipping@example.test")
   await page.getByRole("button", { name: "Create account" }).click()

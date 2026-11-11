@@ -8,6 +8,7 @@ import { apiPath, boot, resetDb } from './helpers.mjs';
 let app;
 let config;
 let db;
+const CONSENT = { privacyAcceptedVersion: 1 };
 
 before(async () => {
   const booted = await boot({
@@ -46,7 +47,7 @@ test('the code signs in the address it was sent to, once', async () => {
   await resetDb();
   const sent = await request(app)
     .post(apiPath('/auth/email-otp'))
-    .send({ email: 'Code@Example.com' })
+    .send({ email: 'Code@Example.com', ...CONSENT })
     .expect(202);
   assert.deepEqual(sent.body, { sent: true });
 
@@ -61,6 +62,8 @@ test('the code signs in the address it was sent to, once', async () => {
     .send({ email: 'code@example.com', code })
     .expect(201);
   assert.equal(signedIn.body.user.namespace, 'code');
+  assert.equal(signedIn.body.user.privacyAcceptedVersion, 1);
+  assert.ok(signedIn.body.user.privacyAcceptedAt);
   assert.match(signedIn.body.token, /^[0-9a-f]{64}$/);
   assert.equal(signedIn.headers.location, apiPath(`/sessions/${signedIn.body.session.id}`));
 
@@ -71,11 +74,26 @@ test('the code signs in the address it was sent to, once', async () => {
     .expect(401);
 });
 
+test('a code cannot create an account without the privacy version', async () => {
+  await resetDb();
+  await request(app)
+    .post(apiPath('/auth/email-otp'))
+    .send({ email: 'no-consent-code@example.com' })
+    .expect(202);
+  const code = codeFrom(newestMail());
+  const refused = await request(app)
+    .post(apiPath('/auth/email-otp/verify'))
+    .send({ email: 'no-consent-code@example.com', code })
+    .expect(422);
+  assert.equal(refused.body.errors[0].field, 'privacyAcceptedVersion');
+  assert.equal(await db.Users.count(), 0);
+});
+
 test('the message carries a styled HTML part beside the plain one', async () => {
   await resetDb();
   await request(app)
     .post(apiPath('/auth/email-otp'))
-    .send({ email: 'styled-code@example.com' })
+    .send({ email: 'styled-code@example.com', ...CONSENT })
     .expect(202);
 
   const eml = newestMail();
@@ -91,7 +109,7 @@ test('a wrong code and an unknown spelling of the address are refused', async ()
   await resetDb();
   await request(app)
     .post(apiPath('/auth/email-otp'))
-    .send({ email: 'right@example.com' })
+    .send({ email: 'right@example.com', ...CONSENT })
     .expect(202);
   const code = codeFrom(newestMail());
   const wrong = code === '000000' ? '111111' : '000000';
@@ -112,13 +130,13 @@ test('asking for a new code retires the previous one', async () => {
   await resetDb();
   await request(app)
     .post(apiPath('/auth/email-otp'))
-    .send({ email: 'again@example.com' })
+    .send({ email: 'again@example.com', ...CONSENT })
     .expect(202);
   const first = codeFrom(newestMail());
 
   await request(app)
     .post(apiPath('/auth/email-otp'))
-    .send({ email: 'again@example.com' })
+    .send({ email: 'again@example.com', ...CONSENT })
     .expect(202);
   const second = codeFrom(newestMail());
 

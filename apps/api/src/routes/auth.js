@@ -14,6 +14,7 @@ import { audit } from '../audit.js';
 import { withLocks } from '../locks.js';
 import { freeNamespace } from '../accounts.js';
 import { returnToPath } from '../return-to.js';
+import { checkPrivacyAcceptance, privacyVersionNumber } from '../consent.js';
 
 // How long a sign-in may sit between the authorize redirect and the callback,
 // and how long the browser then has to redeem its one-time code for the
@@ -137,6 +138,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
         CodeVerifier: verifier,
         Nonce: nonce,
         ReturnTo: returnTo,
+        PrivacyAcceptedVersion: privacyVersionNumber(req.query.privacyAcceptedVersion),
         ExpiresAt: new Date(Date.now() + FLOW_TTL_MS),
       },
     });
@@ -401,10 +403,29 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
           'Registration is closed on this instance.',
         );
       }
+      const privacy = await checkPrivacyAcceptance(db, flow.PrivacyAcceptedVersion, {
+        path: mount('/privacy'),
+      });
+      if (privacy.errors.length > 0) {
+        // A browser retries on the sign-up page, which asks for the policy and
+        // offers the provider button again. The callback page can only show an
+        // error, so a first-time visitor would otherwise be stuck there.
+        // Existing identities never reach this branch.
+        if (wantsHtml(req) && flow.ReturnTo) {
+          const target = redirectTarget(flow.ReturnTo, config);
+          target.pathname = '/signup';
+          target.search = '';
+          target.hash = '';
+          target.searchParams.set('privacy_required', '1');
+          return res.redirect(target.toString());
+        }
+        return failFlow(req, res, flow, 422, 'privacy_required', privacy.errors[0].message);
+      }
       user = await createAccountFromClaims(db, rateLimiter, req, {
         issuer,
         subject,
         claims,
+        privacy,
       });
     }
     if (!user) {
@@ -459,7 +480,7 @@ export function makeAuthRouter({ db, config, rateLimiter }) {
 // it is for password sign-up -- and the namespace comes from the provider's
 // preferred name when it can, with a digest-based fallback that cannot collide
 // with anybody.
-async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, claims }) {
+async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, claims, privacy }) {
   await rateLimiter.signupCheck(`signup:${req.ip}`);
   const base = namespaceFromClaims(claims, issuer, subject);
   const displayName = displayNameFromClaims(claims, base);
@@ -477,7 +498,13 @@ async function createAccountFromClaims(db, rateLimiter, req, { issuer, subject, 
     const role = count === 0 ? 'admin' : 'normal';
     const namespace = await freeNamespace(tx, base);
     const user = await tx.Users.create({
-      data: { Namespace: namespace, DisplayName: displayName, Role: role },
+      data: {
+        Namespace: namespace,
+        DisplayName: displayName,
+        Role: role,
+        PrivacyAcceptedVersion: privacy.version,
+        PrivacyAcceptedAt: privacy.version === null ? null : new Date(),
+      },
     });
     await tx.AuthIdentities.create({
       data: {

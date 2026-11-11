@@ -8,6 +8,7 @@ import { apiPath, boot, resetDb } from './helpers.mjs';
 let app;
 let config;
 let db;
+const CONSENT = { privacyAcceptedVersion: 1 };
 
 before(async () => {
   const booted = await boot({
@@ -54,7 +55,7 @@ test('a link signs in the address it was sent to, once', async () => {
   await resetDb();
   const sent = await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'Person@Example.com' })
+    .send({ email: 'Person@Example.com', ...CONSENT })
     .expect(202);
   assert.deepEqual(sent.body, { sent: true });
 
@@ -71,6 +72,8 @@ test('a link signs in the address it was sent to, once', async () => {
     .get(apiPath(`/auth/magic-link/verify?token=${token}`))
     .expect(201);
   assert.equal(signedIn.body.user.namespace, 'person');
+  assert.equal(signedIn.body.user.privacyAcceptedVersion, 1);
+  assert.ok(signedIn.body.user.privacyAcceptedAt);
   assert.match(signedIn.body.token, /^[0-9a-f]{64}$/);
 
   // The same link again finds nothing: it was consumed by the first request.
@@ -79,11 +82,25 @@ test('a link signs in the address it was sent to, once', async () => {
     .expect(401);
 });
 
+test('a link cannot create an account without the privacy version', async () => {
+  await resetDb();
+  await request(app)
+    .post(apiPath('/auth/magic-link'))
+    .send({ email: 'no-consent@example.com' })
+    .expect(202);
+  const token = tokenFrom(newestMail());
+  const refused = await request(app)
+    .get(apiPath(`/auth/magic-link/verify?token=${token}`))
+    .expect(422);
+  assert.equal(refused.body.errors[0].field, 'privacyAcceptedVersion');
+  assert.equal(await db.Users.count(), 0);
+});
+
 test('an unknown address gets the same answer and the same mail', async () => {
   await resetDb();
   const known = await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'nobody@example.com' })
+    .send({ email: 'nobody@example.com', ...CONSENT })
     .expect(202);
   assert.deepEqual(known.body, { sent: true });
   const eml = newestMail();
@@ -94,19 +111,22 @@ test('an unknown address gets the same answer and the same mail', async () => {
 test('a malformed address is refused before any mail is sent', async () => {
   const r = await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'not-an-address' })
+    .send({ email: 'not-an-address', ...CONSENT })
     .expect(422);
   assert.equal(r.body.errors[0].field, 'email');
 });
 
 test('the second sign-in for an address reuses the account', async () => {
   await resetDb();
-  await request(app).post(apiPath('/auth/magic-link')).send({ email: 'twice@example.com' });
+  await request(app)
+    .post(apiPath('/auth/magic-link'))
+    .send({ email: 'twice@example.com', ...CONSENT });
   const first = tokenFrom(newestMail());
   const one = await request(app)
     .get(apiPath(`/auth/magic-link/verify?token=${first}`))
     .expect(201);
 
+  // The account already exists, so this sign-in does not have to accept again.
   await request(app).post(apiPath('/auth/magic-link')).send({ email: 'twice@example.com' });
   const second = tokenFrom(newestMail());
   const two = await request(app)
@@ -120,7 +140,7 @@ test('the message carries a styled HTML part beside the plain one', async () => 
   await resetDb();
   await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'styled@example.com' })
+    .send({ email: 'styled@example.com', ...CONSENT })
     .expect(202);
 
   const eml = newestMail();
@@ -136,7 +156,11 @@ test('the link sends the browser back to the page that asked for it', async () =
   await resetDb();
   await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'returning@example.com', returnTo: '/login?next=%2Fdashboard' })
+    .send({
+      email: 'returning@example.com',
+      returnTo: '/login?next=%2Fdashboard',
+      ...CONSENT,
+    })
     .expect(202);
 
   const link = linkFrom(newestMail());
@@ -161,7 +185,11 @@ test('a link cannot be asked to return to another site', async () => {
   await resetDb();
   const refused = await request(app)
     .post(apiPath('/auth/magic-link'))
-    .send({ email: 'careful@example.com', returnTo: 'https://evil.example/steal' })
+    .send({
+      email: 'careful@example.com',
+      returnTo: 'https://evil.example/steal',
+      ...CONSENT,
+    })
     .expect(422);
   assert.equal(refused.body.errors[0].field, 'returnTo');
   // The refusal happens before the mail chain is touched: a link that carries
@@ -171,7 +199,9 @@ test('a link cannot be asked to return to another site', async () => {
 
 test('the browser flow trades a one-time code for the session', async () => {
   await resetDb();
-  await request(app).post(apiPath('/auth/magic-link')).send({ email: 'browser@example.com' });
+  await request(app)
+    .post(apiPath('/auth/magic-link'))
+    .send({ email: 'browser@example.com', ...CONSENT });
   const token = tokenFrom(newestMail());
   const redirect = await request(app)
     .get(apiPath(`/auth/magic-link/verify?token=${token}`))

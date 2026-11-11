@@ -39,7 +39,12 @@ export function makeMagicLinkRouter({ db, config, rateLimiter, drivers }) {
     // would hand its one-time code to whoever the caller named.
     const returnTo = req.body.returnTo ?? null;
     const ctx = drivers.context({ request: req });
-    await beginMagicLink({ db, config, mail: ctx.mail, rateLimiter, ip: req.ip }, email, returnTo);
+    await beginMagicLink(
+      { db, config, mail: ctx.mail, rateLimiter, ip: req.ip },
+      email,
+      returnTo,
+      req.body.privacyAcceptedVersion,
+    );
     // The answer is the same for a known and an unknown address: whether an
     // account exists is not something this endpoint tells a caller.
     res.status(202).json({ sent: true });
@@ -47,7 +52,13 @@ export function makeMagicLinkRouter({ db, config, rateLimiter, drivers }) {
 
   router.get('/verify', async (req, res) => {
     const row = await consumeMagicLink(db, req.query.token);
-    const { user } = await accountForMagicLink(db, config, row.Subject);
+    const { user } = await accountForMagicLink(
+      db,
+      config,
+      row.Subject,
+      'magic-link',
+      row.PrivacyAcceptedVersion,
+    );
     if (!wantsHtml(req)) return send(res, await sessionBody(user));
     const code = await issueExchangeCode(db, row.Id, user.Id);
     const target = redirectTarget(safeReturnToUrl(req.query.returnTo, config), config);
@@ -58,7 +69,13 @@ export function makeMagicLinkRouter({ db, config, rateLimiter, drivers }) {
   router.post('/complete', async (req, res) => {
     requireObjectBody(req);
     const row = await consumeMagicLink(db, req.body.token);
-    const { user } = await accountForMagicLink(db, config, row.Subject);
+    const { user } = await accountForMagicLink(
+      db,
+      config,
+      row.Subject,
+      'magic-link',
+      row.PrivacyAcceptedVersion,
+    );
     send(res, await sessionBody(user));
   });
 
