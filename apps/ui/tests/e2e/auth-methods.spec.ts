@@ -234,8 +234,21 @@ test("login treats a missing privacy policy as optional", async ({ page }) => {
     })
   })
 
+  const privacyResponse = page.waitForResponse((response) => {
+    if (!response.url().endsWith("/__api") || response.status() !== 404) {
+      return false
+    }
+    const body = response.request().postDataJSON() as { path?: string[] } | null
+    return body?.path?.[0] === "instance" && body.path[1] === "privacy"
+  })
   await visit(page, "/login")
-  await expect.poll(() => privacyRequests).toBe(1)
+  await privacyResponse
+  await expect(
+    page
+      .locator('[aria-busy="false"]')
+      .filter({ has: page.getByLabel("Email") })
+  ).toBeVisible()
+  expect(privacyRequests).toBe(1)
   await expect(page.getByLabel("Email")).toBeVisible()
   await expect(page.getByText("Privacy policy couldn’t load")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(0)

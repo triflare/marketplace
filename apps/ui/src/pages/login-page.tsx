@@ -179,7 +179,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8">
+    <div
+      className="mx-auto flex w-full max-w-sm flex-col gap-6 py-8"
+      aria-busy={privacy.status === "loading"}
+    >
       <div>
         <p className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
           {product.name}
