@@ -5,6 +5,15 @@ import { visit } from "./helpers"
 const RPC_PATH = "**/__api"
 const MOCK_API = `http://127.0.0.1:${process.env.MOCK_API_PORT ?? 3200}`
 
+// Every pane that creates an account asks for the privacy consent first; these
+// journeys only exercise the rest of the flow.
+async function acceptPrivacy(page: Page) {
+  await page
+    .locator("form")
+    .getByRole("checkbox", { name: /privacy policy/ })
+    .check()
+}
+
 const DRIVERS: Record<string, Record<string, unknown>> = {
   password: {
     label: "Password",
@@ -243,6 +252,7 @@ test("signing up can generate a password that is shown once", async ({
 }) => {
   await advertise(page, ["magic-password"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("generated@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
@@ -308,6 +318,7 @@ test("a passwordless sign-up can add a passkey on the spot", async ({
 
   await advertise(page, ["magic-password", "passkey"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("enrolling@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
@@ -338,6 +349,7 @@ test("skipping the passkey offer goes straight to the session choice", async ({
 }) => {
   await advertise(page, ["magic-password", "passkey"])
   await visit(page, "/signup")
+  await acceptPrivacy(page)
 
   await page.getByLabel("Email").fill("skipping@example.test")
   await page.getByRole("button", { name: "Create account" }).click()
