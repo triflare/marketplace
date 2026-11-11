@@ -54,7 +54,7 @@
     "globals": "^17.14.0",
     "pg": "^8.23.1",
     "prettier": "^3.9.10",
-    "supertest": "^7.3.1"
+    "supertest": "^7.3.2"
   },
   "overrides": {
     "minimatch": "^11.0.1"
