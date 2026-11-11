@@ -150,7 +150,7 @@ export function EmailSignInForm({
                 className="text-center font-mono text-lg tracking-[0.3em]"
               />
             </div>
-            <Button type="submit" disabled={pending !== null || disabled}>
+            <Button type="submit" disabled={pending !== null}>
               {pending === "verify" ? "Checking…" : "Sign in"}
             </Button>
           </form>
