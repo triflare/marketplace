@@ -4905,7 +4905,19 @@ components:
           type: array
           items:
             type: object
-            required: [namespace, id, version, status, name, license, description, author, createdAt, publishedAt]
+            required:
+              [
+                namespace,
+                id,
+                version,
+                status,
+                name,
+                license,
+                description,
+                author,
+                createdAt,
+                publishedAt,
+              ]
             properties:
               namespace: { $ref: '#/components/schemas/Namespace' }
               id: { $ref: '#/components/schemas/ExtensionId' }
