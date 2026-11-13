@@ -192,27 +192,34 @@ export function DashboardPage() {
             Across every extension under @{user.namespace}.
           </p>
         </div>
-        <div className="grid grid-cols-3 divide-x overflow-hidden rounded-lg border">
-          {[
-            { label: "Views", value: reach.data?.totals.views ?? 0 },
-            {
-              label: "Impressions",
-              value: reach.data?.totals.impressions ?? 0,
-            },
-            { label: "Downloads", value: reach.data?.totals.downloads ?? 0 },
-          ].map((stat) => (
-            <div key={stat.label} className="px-4 py-3">
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-              <div className="mt-0.5 font-mono text-xl tabular-nums">
-                {reach.status === "loading" ? (
-                  <Skeleton className="h-5 w-10" />
-                ) : (
-                  formatNumber(stat.value)
-                )}
+        {reach.status === "error" ? (
+          <ErrorState
+            message="Analytics are unavailable."
+            onRetry={reach.reload}
+          />
+        ) : (
+          <div className="grid grid-cols-3 divide-x overflow-hidden rounded-lg border">
+            {[
+              { label: "Views", value: reach.data?.totals.views ?? 0 },
+              {
+                label: "Impressions",
+                value: reach.data?.totals.impressions ?? 0,
+              },
+              { label: "Downloads", value: reach.data?.totals.downloads ?? 0 },
+            ].map((stat) => (
+              <div key={stat.label} className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">{stat.label}</p>
+                <div className="mt-0.5 font-mono text-xl tabular-nums">
+                  {reach.status === "loading" ? (
+                    <Skeleton className="h-5 w-10" />
+                  ) : (
+                    formatNumber(stat.value)
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="grid grid-cols-2 divide-x overflow-hidden rounded-lg border sm:grid-cols-4">

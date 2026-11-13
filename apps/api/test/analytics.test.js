@@ -314,3 +314,60 @@ test('deleting an extension clears its analytics', async () => {
     0,
   );
 });
+
+test('invalid detail includes do not consume the client view window', async () => {
+  const { ownerNs } = await makePublished();
+  await request(app)
+    .get(apiPath(`/@${ownerNs}/hello?include=invalid`))
+    .expect(422);
+  await request(app)
+    .get(apiPath(`/@${ownerNs}/hello?include=owner,latestVersion`))
+    .expect(200);
+  await waitFor(() => viewCount(ownerNs, 'hello'), 1);
+  assert.equal(await viewCount(ownerNs, 'hello'), 1);
+});
+
+test('rollups preserve unversioned events, surfaces, distinct counts and reruns', async () => {
+  const { ownerNs } = await makePublished();
+  const day = new Date('2026-01-02T12:00:00Z');
+  for (const Version of [null, '1.0.0', '1.0.0']) {
+    await db.ViewEvents.create({
+      data: {
+        Namespace: ownerNs,
+        ExtensionId: 'hello',
+        Version,
+        CreatedAt: day,
+        IpHash: 'same',
+      },
+    });
+    for (const Surface of ['explore', 'search']) {
+      await db.ImpressionEvents.create({
+        data: {
+          Namespace: ownerNs,
+          ExtensionId: 'hello',
+          Version,
+          Surface,
+          CreatedAt: day,
+          IpHash: 'same',
+        },
+      });
+    }
+  }
+  await aggregateDay(day);
+  await aggregateDay(day);
+  const where = { Namespace: ownerNs, ExtensionId: 'hello' };
+  const [views] = await db.ExtensionDailyViews.findMany({ where });
+  assert.equal(Number(views.TotalViews), 3);
+  assert.equal(Number(views.DistinctViews), 1);
+  const [versionViews] = await db.ExtensionVersionDailyViews.findMany({ where });
+  assert.equal(Number(versionViews.TotalViews), 2);
+  const surfaces = await db.ExtensionDailyImpressions.findMany({ where });
+  assert.equal(surfaces.length, 2);
+  for (const surface of surfaces) {
+    assert.equal(Number(surface.TotalImpressions), 3);
+    assert.equal(Number(surface.DistinctImpressions), 1);
+  }
+  const [versionImpressions] = await db.ExtensionVersionDailyImpressions.findMany({ where });
+  assert.equal(Number(versionImpressions.TotalImpressions), 4);
+  assert.equal(Number(versionImpressions.DistinctImpressions), 1);
+});

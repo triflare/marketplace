@@ -26,6 +26,12 @@ const MOVED_TABLES = [
   '"DownloadEvents"',
   '"ExtensionDailyDownloads"',
   '"ExtensionVersionDailyDownloads"',
+  '"ViewEvents"',
+  '"ImpressionEvents"',
+  '"ExtensionDailyViews"',
+  '"ExtensionDailyImpressions"',
+  '"ExtensionVersionDailyViews"',
+  '"ExtensionVersionDailyImpressions"',
 ];
 
 // The subset whose key includes the address and would therefore collide if the

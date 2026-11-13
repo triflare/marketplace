@@ -400,6 +400,7 @@ function normalizeServerSettings(config) {
     config.privacy?.analyticsEventRetentionDays,
     'privacy.analyticsEventRetentionDays',
     {
+      min: 2,
       max: 3650,
     },
   );

@@ -20,6 +20,7 @@ function dayLabel(day: string): string {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   }).format(new Date(`${day}T00:00:00Z`))
 }
 

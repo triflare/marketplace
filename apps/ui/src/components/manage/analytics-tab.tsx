@@ -56,8 +56,8 @@ export function AnalyticsTab({ extension }: { extension: ExtensionDetail }) {
     [extension.namespace, extension.id, days]
   )
 
-  const data = analytics.data
-  const enabled = override ?? data?.enabled ?? true
+  const data = analytics.status === "success" ? analytics.data : null
+  const enabled = override ?? analytics.data?.enabled ?? true
   const empty = data
     ? data.daily.every(
         (point) =>
@@ -161,7 +161,7 @@ export function AnalyticsTab({ extension }: { extension: ExtensionDetail }) {
           <div key={stat.label} className="px-4 py-3">
             <p className="text-xs text-muted-foreground">{stat.label}</p>
             <div className="mt-0.5 font-mono text-xl tabular-nums">
-              {formatNumber(stat.value)}
+              {data ? formatNumber(stat.value) : "—"}
             </div>
           </div>
         ))}

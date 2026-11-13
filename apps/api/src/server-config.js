@@ -160,7 +160,7 @@ export const EDITABLE_SETTINGS = [
   {
     key: 'privacy.analyticsEventRetentionDays',
     type: 'number',
-    min: 1,
+    min: 2,
     max: 3650,
     restartRequired: false,
     label: 'Analytics event retention (days)',

@@ -1581,10 +1581,6 @@ export function makePackagesRouter({
       versions.map((row) => versionToObject(row, config, totals.get(row.Version) ?? 0n)),
     );
     summary.downloads = await totalDownloads(db, namespace, id);
-    // A public page read is what the publisher's view count means. The call is
-    // fire-and-forget: a metrics failure costs the event, not the page.
-    recordView(db, config, req, { namespace, id, version: top.Version });
-
     // The two relations an extension page would otherwise fetch with a second
     // request. The owner is reduced to what a header shows: the public account
     // view is the account's own business, not every reader's.
@@ -1602,6 +1598,9 @@ export function makePackagesRouter({
       summary.latestVersion = versionToObject(top, config, totals.get(top.Version) ?? 0n);
     }
 
+    // A public page read is what the publisher's view count means. The call is
+    // fire-and-forget: a metrics failure costs the event, not the page.
+    recordView(db, config, req, { namespace, id, version: top.Version });
     res.json(summary);
   });
 
