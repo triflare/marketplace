@@ -1,7 +1,9 @@
 version: 2
 updates:
-  # Each app resolves its own dependencies, so each gets its own entry. A
-  # single `/` entry would look for a root package.json that does not exist.
+  # The root package holds the release tooling; each app resolves its own
+  # dependencies, so all three get an entry.
+  - package-ecosystem: 'npm'
+    directory: '/'
   - package-ecosystem: 'npm'
     directory: '/apps/api'
     schedule:

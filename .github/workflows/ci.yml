@@ -4,16 +4,24 @@ name: CI
 # root.
 on:
   push:
-    branches: [develop]
+    branches: [latest, beta, alpha]
     paths:
       - 'apps/api/**'
       - 'apps/ui/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
+      - '.releaserc.json'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [develop]
+    branches: [latest, beta, alpha]
     paths:
       - 'apps/api/**'
       - 'apps/ui/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
+      - '.releaserc.json'
       - '.github/workflows/ci.yml'
 
 permissions:

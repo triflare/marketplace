@@ -24,6 +24,16 @@ docker compose up -d
 
 This starts the API and the web UI. To run the API alone, remove the `ui` service from `docker-compose.yml`.
 
+## Releases
+
+Development happens on `alpha`, and pull requests target it. Pushes to `alpha`, `beta`, and `latest` run [semantic-release](https://github.com/semantic-release/semantic-release), which picks the next version from the conventional commit messages and updates `CHANGELOG.md`, both apps' `package.json` files, and both `product.yml` files. Do not bump versions or push tags by hand.
+
+| Branch   | Publishes                            | Docker tags               |
+| -------- | ------------------------------------ | ------------------------- |
+| `latest` | Stable releases                      | `1.2.3`, `1.2`, `latest`  |
+| `beta`   | Pre-releases such as `1.3.0-beta.1`  | `1.3.0-beta.1`            |
+| `alpha`  | Pre-releases such as `1.3.0-alpha.1` | `1.3.0-alpha.1`           |
+
 ## Feedback and Contributing
 
 Open an [issue](https://github.com/triflare/marketplace/issues) for a bug or feature request, or send a [pull request](https://github.com/triflare/marketplace/pulls) with your change.

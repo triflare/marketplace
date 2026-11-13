@@ -1,0 +1,24 @@
+{
+  "name": "@triflare/marketplace",
+  "version": "1.2.1",
+  "private": true,
+  "type": "module",
+  "description": "A registry of TurboWarp extensions built with Triflare Extend",
+  "license": "Apache-2.0",
+  "author": "Triflare",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/triflare/marketplace.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "prettier": "^3.9.10",
+    "semantic-release": "^25.0.9"
+  }
+}
