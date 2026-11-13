@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
+import { BLOB_GC_LOCK_KEY } from './blobs.js';
 import { normalizeValue } from './db.js';
 import { downloadAddressKey } from './download-address.js';
+import { withLocks } from './locks.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,7 +23,10 @@ export function aggregateDayLoader(db) {
     // referenced twice, so Postgres materializes it once; the data-modifying
     // `"extension"` CTE runs alongside the primary version insert. Kept as a
     // single raw statement: both upserts share one snapshot.
-    await db.$executeRaw`
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
       WITH events AS (
         SELECT
           "Namespace",
@@ -61,10 +66,14 @@ export function aggregateDayLoader(db) {
       DO UPDATE SET
         "TotalDownloads" = EXCLUDED."TotalDownloads",
         "DistinctDownloads" = EXCLUDED."DistinctDownloads"
-    `;
+    `,
+    );
     // Each pair shares an event snapshot, including unversioned events only in
     // extension totals. Impression surfaces remain separate at extension level.
-    await db.$executeRaw`
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
       WITH events AS (
         SELECT
           "Namespace",
@@ -100,8 +109,12 @@ export function aggregateDayLoader(db) {
       DO UPDATE SET
         "TotalViews" = EXCLUDED."TotalViews",
         "DistinctViews" = EXCLUDED."DistinctViews"
-    `;
-    await db.$executeRaw`
+    `,
+    );
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
       WITH events AS (
         SELECT
           "Namespace",
@@ -138,7 +151,8 @@ export function aggregateDayLoader(db) {
       DO UPDATE SET
         "TotalImpressions" = EXCLUDED."TotalImpressions",
         "DistinctImpressions" = EXCLUDED."DistinctImpressions"
-    `;
+    `,
+    );
   };
 }
 

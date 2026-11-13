@@ -12,6 +12,7 @@ import {
   uniqNs,
 } from './helpers.mjs';
 import { aggregateDayLoader } from '../src/metrics.js';
+import { BLOB_GC_LOCK_KEY } from '../src/blobs.js';
 
 let app;
 let db;
@@ -370,4 +371,39 @@ test('rollups preserve unversioned events, surfaces, distinct counts and reruns'
   const [versionImpressions] = await db.ExtensionVersionDailyImpressions.findMany({ where });
   assert.equal(Number(versionImpressions.TotalImpressions), 4);
   assert.equal(Number(versionImpressions.DistinctImpressions), 1);
+});
+
+test('every daily rollup holds the shared deletion lock while writing', async () => {
+  const writes = [];
+  const checkedDb = {
+    $transaction: (run, options) =>
+      db.$transaction(
+        (tx) =>
+          run({
+            $queryRaw: tx.$queryRaw.bind(tx),
+            $executeRaw: async (strings, ...values) => {
+              const [locks] = await db.$transaction(
+                (probe) => probe.$queryRaw`
+                SELECT pg_try_advisory_xact_lock(hashtextextended(${BLOB_GC_LOCK_KEY}, 0)) AS exclusive,
+                       pg_try_advisory_xact_lock_shared(hashtextextended(${BLOB_GC_LOCK_KEY}, 0)) AS shared
+              `,
+              );
+              assert.equal(locks.exclusive, false);
+              assert.equal(locks.shared, true);
+              writes.push(strings.join('?'));
+              return tx.$executeRaw(strings, ...values);
+            },
+          }),
+        options,
+      ),
+    $executeRaw: () => {
+      throw new Error('rollup write bypassed the transaction');
+    },
+  };
+
+  await aggregateDayLoader(checkedDb)(new Date('2026-01-02T12:00:00Z'));
+  assert.equal(writes.length, 3);
+  for (const table of ['DownloadEvents', 'ViewEvents', 'ImpressionEvents']) {
+    assert.equal(writes.filter((sql) => sql.includes(`FROM "${table}"`)).length, 1);
+  }
 });
