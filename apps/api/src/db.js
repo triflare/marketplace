@@ -258,18 +258,25 @@ export async function reconcileOnBoot(db, config) {
       where: { Status: 'staging', CreatedAt: { lt: stagingCutoff } },
     });
     for (const row of staging) {
-      const blobAbs = path.join(dataDir, row.BlobPath);
+      // A held release has no blob yet: its build waits for review, so only the
+      // source has to be in place.
+      const blobAbs = row.BlobPath ? path.join(dataDir, row.BlobPath) : null;
       const sourceAbs = row.SourcePath ? path.join(dataDir, row.SourcePath) : null;
-      const complete = existsSync(blobAbs) && (!sourceAbs || existsSync(sourceAbs));
+      const complete =
+        Boolean(blobAbs || row.SourcePath) &&
+        (!blobAbs || existsSync(blobAbs)) &&
+        (!sourceAbs || existsSync(sourceAbs));
       if (complete) {
         // The namespace account decides the status, same as the live publish
         // path: a delegated publisher's own history says nothing about whether
-        // this namespace still goes through review.
+        // this namespace still goes through review. Warnings send a release to
+        // review even for an account that has published before.
         const account = await tx.Users.findUnique({
           where: { Namespace: row.Namespace },
           select: { HasPublished: true },
         });
-        const status = account?.HasPublished ? 'published' : 'pending';
+        const held = !blobAbs || (Array.isArray(row.Warnings) && row.Warnings.length > 0);
+        const status = !held && account?.HasPublished ? 'published' : 'pending';
         await tx.Versions.update({
           where: { Id: row.Id },
           data: {

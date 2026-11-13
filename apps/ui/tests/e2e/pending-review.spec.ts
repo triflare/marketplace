@@ -86,6 +86,13 @@ test("the dashboard names the releases waiting for review", async ({
   const row = page.getByRole("listitem").filter({ hasText: "Second Project" })
   await expect(row.getByText("1 in review")).toBeVisible()
 
+  // A first release has no published row, so the queue is where it appears.
+  await expect(
+    page.getByRole("heading", { name: "Waiting for review" })
+  ).toBeVisible()
+  const waiting = page.getByRole("listitem").filter({ hasText: "New Project" })
+  await expect(waiting.getByText("In review")).toBeVisible()
+
   // An extension with nothing waiting stays unmarked.
   const published = page.getByRole("listitem").filter({ hasText: "Hello" })
   await expect(published.getByText("in review")).toHaveCount(0)

@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Router } from 'express';
 import { hashPassword, verifyPassword } from '../password.js';
-import { isAdmin, requireScope } from '../auth.js';
+import { isAdmin, requireAuth, requireScope } from '../auth.js';
 import { uniqueViolation } from '../db.js';
 import { withLocks } from '../locks.js';
 import { removeProfileImageBlob } from '../profile-images.js';
@@ -11,7 +11,7 @@ import { decodeCursor, keysetPage, pageToken, parseDir, parseLimit } from '../pa
 import { conflict, fieldErrors, forbidden, notFound } from '../errors.js';
 import { profileFieldErrors, profilePatch } from '../profile.js';
 import { isValidNamespace, normalizeApiRoot } from '../util.js';
-import { sessionToObject, userToObject } from '../serialize.js';
+import { pendingVersionToObject, sessionToObject, userToObject } from '../serialize.js';
 import { notifyUser, roleChangedMessage, tokensRevokedMessage } from '../notify.js';
 import { requireIfMatch, userEtag } from '../validators.js';
 import { createSession, requireObjectBody } from './shared.js';
@@ -206,6 +206,25 @@ export function makeUsersRouter({ db, config, termsGate, rateLimiter, resolveTar
     // its owner than for a passer-by, and both are editing it through the same
     // If-Match.
     res.set('ETag', userEtag(user)).json(serializePublicUser(user, req));
+  });
+
+  // A first release has no published address to list it under, so its publisher
+  // finds it by account. Self or admin; an organization namespace is read
+  // through its own surface.
+  router.get('/:namespace/versions', requireAuth, async (req, res) => {
+    const target = await loadUserOr404(db, req.params.namespace);
+    if (target.Namespace !== req.auth.user.Namespace && !isAdmin(req.auth)) {
+      throw forbidden('Only the account or an admin can list its releases.');
+    }
+    const status = req.query.status ?? 'pending';
+    if (status !== 'pending' && status !== 'rejected') {
+      throw fieldErrors([{ field: 'status', message: 'Must be "pending" or "rejected".' }]);
+    }
+    const rows = await db.Versions.findMany({
+      where: { Namespace: target.Namespace, Status: status },
+      orderBy: [{ CreatedAt: 'desc' }, { Id: 'desc' }],
+    });
+    res.json({ data: rows.map((row) => pendingVersionToObject(row, config)) });
   });
 
   // Avatars and banners are the same three-state problem for an account and for

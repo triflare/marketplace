@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   apiPath,
+  approveVersion,
   bearer,
   boot,
   listTarballFiles,
@@ -94,6 +95,58 @@ test('risky source patterns are reported as warnings on the pending version', as
     .set(bearer(admin.token));
   assert.equal(queue.body.data.length, 1);
   assert.deepEqual(queue.body.data[0].warnings, pub.body.warnings);
+});
+
+test('a build hook holds an already-published account for review and defers the build', async () => {
+  const admin = await signupAndAccept(app, uniqNs());
+  const owner = await signupAndAccept(app, uniqNs());
+  const ns = owner.user.namespace;
+
+  await publishProject(app, ns, 'hooked', owner.token, { code: 'return 1;' });
+  await approveVersion(app, admin.token, ns, 'hooked', '1.0.0');
+
+  const pub = await publishProject(app, ns, 'hooked', owner.token, {
+    version: '2.0.0',
+    code: 'return 2;',
+    buildHooks: { before: ['node --version'], after: ['node --version'] },
+  });
+  assert.equal(pub.status, 201);
+  assert.equal(pub.body.status, 'pending');
+  assert.deepEqual(
+    pub.body.warnings.map((warning) => warning.code),
+    ['build-hook', 'build-hook'],
+  );
+  assert.equal(pub.body.dist, undefined, 'a held release has no compiled artifact yet');
+
+  // The build waits for review: the source is stored and no blob exists.
+  const [row] = await db.$queryRaw`
+    SELECT "BlobPath", "BlobDigest", "SourcePath" FROM "Versions"
+    WHERE "Namespace" = ${ns} AND "ExtensionId" = 'hooked' AND "Version" = '2.0.0'
+  `;
+  assert.equal(row.BlobPath, null);
+  assert.equal(row.BlobDigest, null);
+  assert.ok(row.SourcePath);
+
+  // The previous release keeps serving while the new one is held.
+  const previous = await request(app)
+    .get(apiPath(`/@${ns}/hooked/versions/1.0.0/download`))
+    .redirects(1)
+    .expect(200);
+  assert.match(previous.text ?? previous.body.toString('utf8'), /return 1/);
+
+  const approved = await approveVersion(app, admin.token, ns, 'hooked', '2.0.0');
+  assert.equal(approved.body.status, 'published');
+  const [built] = await db.$queryRaw`
+    SELECT "BlobDigest", "BuildLog" FROM "Versions"
+    WHERE "Namespace" = ${ns} AND "ExtensionId" = 'hooked' AND "Version" = '2.0.0'
+  `;
+  assert.ok(built.BlobDigest, 'approval stores the compiled artifact');
+  assert.ok(built.BuildLog, 'the deferred build records its log on approval');
+  const current = await request(app)
+    .get(apiPath(`/@${ns}/hooked/versions/2.0.0/download`))
+    .redirects(1)
+    .expect(200);
+  assert.match(current.text ?? current.body.toString('utf8'), /return 2/);
 });
 
 test('a clean source carries no warnings', async () => {

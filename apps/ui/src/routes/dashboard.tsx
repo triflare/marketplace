@@ -32,9 +32,16 @@ export async function loader({ request }: { request: Request }) {
     }
 
     const notifications = await api.notifications.list({ limit: 5 })
+    const pending = await api.users.listVersions(user.namespace, {
+      status: "pending",
+    })
     return {
       preload: {
-        [dashboardKey(user.namespace)]: { extensions, notifications },
+        [dashboardKey(user.namespace)]: {
+          extensions,
+          notifications,
+          pending: pending.data,
+        },
       },
     }
   } catch {

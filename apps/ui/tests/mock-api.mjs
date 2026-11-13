@@ -632,7 +632,8 @@ function refuseStaleWrite(req, res, namespace) {
     json(res, 428, {
       type: "/problems/precondition-required",
       title: "Precondition Required",
-      detail: "Send If-Match with the ETag of the document this change is based on.",
+      detail:
+        "Send If-Match with the ETag of the document this change is based on.",
       status: 428,
     })
     return true
@@ -721,7 +722,10 @@ function handle(req, res) {
       if (Array.isArray(payload.drivers)) {
         authDrivers = payload.drivers.filter((driver) => AUTH_DRIVERS[driver])
       }
-      if (payload.registration === "open" || payload.registration === "closed") {
+      if (
+        payload.registration === "open" ||
+        payload.registration === "closed"
+      ) {
         registration = payload.registration
       }
       return json(res, 200, authDescription())
@@ -1022,7 +1026,11 @@ function handle(req, res) {
       options: {
         challenge: "cmVnaXN0ZXItY2hhbGxlbmdl",
         rp: { id: "127.0.0.1", name: "Triflare Marketplace" },
-        user: { id: "dXNlci0x", name: "kamixfox", displayName: "Testing Account" },
+        user: {
+          id: "dXNlci0x",
+          name: "kamixfox",
+          displayName: "Testing Account",
+        },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }],
         timeout: 60_000,
         attestation: "none",
@@ -1126,6 +1134,24 @@ function handle(req, res) {
     return res.end(
       '<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"><title>Triflare Marketplace</title></feed>'
     )
+  }
+
+  // The dashboard reads its own queue by account, because a first release has
+  // no published address to list it under.
+  if (path === "/users/kamixfox/versions" && req.method === "GET") {
+    const status = url.searchParams.get("status") ?? "pending"
+    const data =
+      status === "pending"
+        ? [submittedVersion, secondPending]
+        : status === "rejected"
+          ? [rejectedVersion]
+          : []
+    return json(res, 200, { data })
+  }
+
+  // Switching accounts re-reads the dashboard queue for the account in use.
+  if (path === "/users/otheruser/versions" && req.method === "GET") {
+    return json(res, 200, { data: [] })
   }
 
   if (path === "/users" && req.method === "GET") {

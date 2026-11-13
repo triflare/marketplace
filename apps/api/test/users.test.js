@@ -583,3 +583,45 @@ test('an account hook exposes its delivery log and redelivers', async () => {
     .set(bearer(outsider.token))
     .expect(403);
 });
+
+test('an account can list every pending release, including a first one', async () => {
+  const admin = await signupAndAccept(app, uniqNs());
+  const owner = await signupAndAccept(app, uniqNs());
+  const ns = owner.user.namespace;
+
+  const published = await publishProject(app, ns, 'brandnew', owner.token, {
+    code: 'return 1;',
+  });
+  assert.equal(published.body.status, 'pending');
+
+  const listed = await request(app)
+    .get(apiPath(`/users/${ns}/versions?status=pending`))
+    .set(bearer(owner.token))
+    .expect(200);
+  assert.equal(listed.body.data.length, 1);
+  assert.equal(listed.body.data[0].id, 'brandnew');
+  assert.equal(listed.body.data[0].status, 'pending');
+  assert.ok(listed.body.data[0].sourceUrl);
+
+  // The queue is for the account and an admin, not for anyone who knows the
+  // namespace.
+  const outsider = await signupAndAccept(app, uniqNs());
+  await request(app)
+    .get(apiPath(`/users/${ns}/versions`))
+    .set(bearer(outsider.token))
+    .expect(403);
+  await request(app)
+    .get(apiPath(`/users/${ns}/versions`))
+    .expect(401);
+  await request(app)
+    .get(apiPath(`/users/${ns}/versions`))
+    .set(bearer(admin.token))
+    .expect(200);
+
+  await approveVersion(app, admin.token, ns, 'brandnew', '1.0.0');
+  const after = await request(app)
+    .get(apiPath(`/users/${ns}/versions?status=pending`))
+    .set(bearer(owner.token))
+    .expect(200);
+  assert.equal(after.body.data.length, 0);
+});

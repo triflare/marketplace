@@ -543,7 +543,7 @@ model Versions {
   Color1             String?
   Color2             String?
   Color3             String?
-  BlobPath           String
+  BlobPath           String?
   SearchText         String    @default("")
   CreatedAt          DateTime  @default(now()) @db.Timestamptz(6)
   PublishedAt        DateTime? @db.Timestamptz(6)

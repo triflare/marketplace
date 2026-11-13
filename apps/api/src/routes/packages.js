@@ -401,50 +401,59 @@ export function makePackagesRouter({
         if (derived.errors.length > 0) throw fieldErrors(derived.errors);
         manifest = derived.manifest;
 
+        // A release with a risky pattern waits for review, so it is stored as
+        // source only. The build is what runs a build hook, and that waits
+        // until a moderator has accepted the source.
+        const heldForReview = warnings.length > 0;
+
         // Resolved per publish, so a compiler swapped in from the admin surface
         // applies to the next upload.
-        const build = await compileProject(config, projectDir, {
-          cli: drivers.get('compiler')?.command(),
-        });
-        buildLog = build.log;
-        if (!build.ok) {
-          throw new HttpError(422, {
-            title: 'Build Failed',
-            detail: build.error,
-            extra: { buildLog, buildError: build.error },
+        if (!heldForReview) {
+          const build = await compileProject(config, projectDir, {
+            cli: drivers.get('compiler')?.command(),
           });
+          buildLog = build.log;
+          if (!build.ok) {
+            throw new HttpError(422, {
+              title: 'Build Failed',
+              detail: build.error,
+              extra: { buildLog, buildError: build.error },
+            });
+          }
+          compiled = build.code;
+          // The compiler resolves to a Buffer in every branch (see
+          // compileProject); the guard also gives the length computations below
+          // a type-narrowed value.
+          if (!(compiled instanceof Buffer)) {
+            throw new HttpError(500, { detail: 'Compiler returned no compiled output.' });
+          }
+          const maxBlob = config.limits?.maxBlobBytes ?? 2 * 1024 * 1024;
+          // A trusted account skips review, so its build is minified here; a
+          // version that has to be reviewed is minified when an admin approves
+          // it. The storage check below runs on the bytes that will actually be
+          // kept, so a build that minifies under the limit passes even when the
+          // raw compiler output is larger. The minifier's own input cap is
+          // separate: it only bounds the parse, not what is allowed to be stored.
+          const shrunk =
+            owner.HasPublished && config.compiler?.minify !== false
+              ? await minifyCode(compiled, { maxBytes: MINIFY_INPUT_MAX_BYTES })
+              : null;
+          if (shrunk?.ok) compiled = shrunk.code;
+          if (compiled.length > maxBlob) {
+            throw new HttpError(413, {
+              title: 'Payload Too Large',
+              detail: `Compiled output is ${compiled.length} bytes; the limit is ${maxBlob}.`,
+            });
+          }
         }
-        compiled = build.code;
 
         // Size caps: per-blob, then the account's cumulative quota (their own
         // override when set, otherwise the configured default). Both the served
         // blob and the retained source count toward the quota. The quota is
         // checked again under a row lock where the charge commits; this one
-        // spares the caller a build it cannot afford.
-        // The compiler resolves to a Buffer in every branch (see compileProject);
-        // the guard also gives the length computations below a type-narrowed value.
-        if (!(compiled instanceof Buffer)) {
-          throw new HttpError(500, { detail: 'Compiler returned no compiled output.' });
-        }
-        const maxBlob = config.limits?.maxBlobBytes ?? 2 * 1024 * 1024;
-        // A trusted account skips review, so its build is minified here; a
-        // version that has to be reviewed is minified when an admin approves
-        // it. The storage check below runs on the bytes that will actually be
-        // kept, so a build that minifies under the limit passes even when the
-        // raw compiler output is larger. The minifier's own input cap is
-        // separate: it only bounds the parse, not what is allowed to be stored.
-        const shrunk =
-          owner.HasPublished && config.compiler?.minify !== false
-            ? await minifyCode(compiled, { maxBytes: MINIFY_INPUT_MAX_BYTES })
-            : null;
-        if (shrunk?.ok) compiled = shrunk.code;
-        const codeBytes = compiled.length;
-        if (codeBytes > maxBlob) {
-          throw new HttpError(413, {
-            title: 'Payload Too Large',
-            detail: `Compiled output is ${codeBytes} bytes; the limit is ${maxBlob}.`,
-          });
-        }
+        // spares the caller a build it cannot afford. A held release has no
+        // compiled bytes to charge yet.
+        const codeBytes = compiled?.length ?? 0;
         const quota = owner.MaxBlobBytes ?? config.limits?.maxAccountBlobBytes ?? 64 * 1024 * 1024;
         const charge = codeBytes + tarball.length;
         if (Number(owner.BlobBytes ?? 0) + charge > quota) {
@@ -719,6 +728,38 @@ export function makePackagesRouter({
     return { code: shrunk.code };
   }
 
+  // A release held for review was stored as source only, so its build runs here,
+  // after a moderator has accepted the source. The project is unpacked and
+  // compiled the same way a publish compiles it.
+  async function buildHeldVersion(row) {
+    const jobDir = await mkdtemp(path.join(config.dataDir, 'tmp', 'review-'));
+    try {
+      if (!row.SourceDigest) return { ok: false, error: 'The stored source is missing.' };
+      const tarball = await readFile(sourcePathFor(config.dataDir, row.SourceDigest));
+      const projectDir = path.join(jobDir, 'project');
+      await mkdir(projectDir, { recursive: true });
+      await extractTarballBuffer(tarball, projectDir, {
+        maxTotalBytes: (config.limits?.maxSourceBytes ?? 1024 * 1024) * 16,
+      });
+      // Build hooks spawn shell commands, which the compiler sandbox only
+      // permits once a moderator has approved the source (this path).
+      const allowBuildHooks = (Array.isArray(row.Warnings) ? row.Warnings : []).some(
+        (warning) => warning?.code === 'build-hook',
+      );
+      const build = await compileProject(config, projectDir, {
+        cli: drivers.get('compiler')?.command(),
+        allowBuildHooks,
+      });
+      return build.ok
+        ? { ok: true, code: build.code, log: build.log }
+        : { ok: false, error: build.error, log: build.log };
+    } catch (error) {
+      return { ok: false, error: error.message, log: null };
+    } finally {
+      await rm(jobDir, { recursive: true, force: true });
+    }
+  }
+
   // A review is a moderation decision, so it needs the admin role on the
   // account and the `admin` scope on the credential. An automation token held by
   // an admin can review once it is granted that scope; a non-admin cannot get
@@ -786,14 +827,76 @@ export function makePackagesRouter({
       );
     }
 
+    // A held release has no compiled artifact: build it now that the source
+    // has been accepted. A failure stays on the row so the queue shows why.
+    const deferred = !row.BlobDigest && !row.BlobPath;
+    const built = deferred ? await buildHeldVersion(row) : null;
+    if (built && !built.ok) {
+      await db.Versions.update({
+        where: { Id: row.Id },
+        data: { BuildLog: built.log, BuildError: built.error },
+      });
+      throw new HttpError(422, {
+        title: 'Build Failed',
+        detail: built.error,
+        extra: { buildLog: built.log, buildError: built.error },
+      });
+    }
+
+    const maxBlob = config.limits?.maxBlobBytes ?? 2 * 1024 * 1024;
+    let builtCode = built?.code ?? null;
+    // A deferred build is the raw compiler output, so it takes the same minify
+    // pass a trusted publish does before the storage limit is applied: the bytes
+    // that are kept are the ones that have to fit, and the minifier's own input
+    // cap only bounds its parse. A failed pass leaves the original bytes.
+    if (builtCode && config.compiler?.minify !== false) {
+      const minified = await minifyCode(builtCode, { maxBytes: MINIFY_INPUT_MAX_BYTES });
+      if (minified.ok) builtCode = minified.code;
+    }
+    if (builtCode && builtCode.length > maxBlob) {
+      throw new HttpError(413, {
+        title: 'Payload Too Large',
+        detail: `Compiled output is ${builtCode.length} bytes; the limit is ${maxBlob}.`,
+      });
+    }
+
     // Minify before the transaction so the CPU-bound pass does not hold the row
     // lock. The output is content-addressed, so a concurrent approval that loses
     // the status race writes the same bytes and is harmless.
-    const shrunk = await minifyPendingBlob(row);
+    const shrunk = deferred ? null : await minifyPendingBlob(row);
 
     const promote = async (tx) => {
+      // A version waiting for a decision can still be transferred, so the
+      // namespace read when the review started may no longer own it. The row is
+      // re-read under the per-extension lock acceptTransfer takes before any
+      // bytes are charged to an account.
+      const [holder] = await tx.$queryRaw`
+        SELECT "Namespace" AS namespace FROM "Versions" WHERE "Id" = ${row.Id}
+      `;
+      const currentNamespace = holder?.namespace ?? row.Namespace;
       let stored = null;
-      if (shrunk) {
+      if (builtCode) {
+        // GC holds the exclusive lock; the promotion shares it until the new
+        // digest commits, so a sweep cannot unlink the bytes being promoted.
+        stored = await blobs.put(builtCode);
+        // The publish path charged the source only, so the bytes this build
+        // produced are charged now, under the same row lock a publish uses.
+        const [account] = await tx.$queryRaw`
+          SELECT "BlobBytes", "MaxBlobBytes" AS max_blob_bytes FROM "Users" WHERE "Namespace" = ${currentNamespace} FOR UPDATE
+        `;
+        const quota =
+          account?.max_blob_bytes ?? config.limits?.maxAccountBlobBytes ?? 64 * 1024 * 1024;
+        if (Number(account?.BlobBytes ?? 0) + stored.size > quota) {
+          throw new HttpError(413, {
+            title: 'Payload Too Large',
+            detail: `Publishing ${stored.size} bytes would exceed the ${quota}-byte storage quota for @${currentNamespace}.`,
+          });
+        }
+        await tx.$executeRaw`
+          UPDATE "Users" SET "BlobBytes" = "BlobBytes" + ${stored.size}
+          WHERE "Namespace" = ${currentNamespace}
+        `;
+      } else if (shrunk) {
         // GC holds the exclusive lock; the promotion shares it until the new
         // digest commits, so a sweep cannot unlink the bytes being promoted.
         stored = await blobs.put(shrunk.code);
@@ -804,7 +907,8 @@ export function makePackagesRouter({
             SET "Status" = 'published', "PublishedAt" = now(),
                 "BlobPath" = ${path.join('blobs', stored.digest.slice(0, 2), stored.digest.slice(2))},
                 "BlobDigest" = ${stored.digest}, "BlobSize" = ${stored.size},
-                "BlobSha512" = ${stored.sha512}
+                "BlobSha512" = ${stored.sha512},
+                "BuildLog" = ${built?.log ?? row.BuildLog}, "BuildError" = NULL
             WHERE "Id" = ${row.Id} AND "Status" = 'pending'
             RETURNING *
           `
@@ -813,6 +917,10 @@ export function makePackagesRouter({
             WHERE "Id" = ${row.Id} AND "Status" = 'pending'
             RETURNING *
           `;
+      // A sibling moderator that already moved the row makes this update a
+      // no-op. Throwing here, inside the transaction, rolls the BlobBytes charge
+      // back with it instead of leaving unearned bytes on the account.
+      if (!rows[0]) throw conflict('That version is no longer pending review.');
       if (rows[0]) {
         // The gate that decides whether a version needs review reads
         // has_published from the namespace account (finalStatus, and the boot
@@ -829,7 +937,7 @@ export function makePackagesRouter({
           const refund = Number(row.BlobSize) - stored.size;
           await tx.$executeRaw`
             UPDATE "Users" SET "BlobBytes" = GREATEST("BlobBytes" - ${refund}, 0)
-            WHERE "Namespace" = ${row.Namespace}
+            WHERE "Namespace" = ${currentNamespace}
           `;
         }
         await notifyUser(
@@ -844,11 +952,12 @@ export function makePackagesRouter({
       return rows[0];
     };
 
-    // The shared blob-gc lock is only needed when a new digest is written; the
-    // no-minify path takes a plain transaction.
-    const updated = shrunk
-      ? await withLocks(db, [{ key: BLOB_GC_LOCK_KEY, shared: true }], promote)
-      : await db.$transaction(promote);
+    // The promotion always takes the per-extension lock, so a transfer cannot
+    // move the address between the re-read above and the commit. The shared
+    // blob-gc lock is only needed when a new digest is written.
+    const locks = [{ key: `${row.Namespace}/${row.ExtensionId}` }];
+    if (builtCode || shrunk) locks.push({ key: BLOB_GC_LOCK_KEY, shared: true });
+    const updated = await withLocks(db, locks, promote);
     if (!updated) {
       throw conflict('That version is no longer pending review.');
     }
@@ -950,6 +1059,8 @@ export function makePackagesRouter({
       }
     }
 
+    // A release held for review has no compiled artifact until it is approved.
+    if (!row.BlobPath) throw notFound('Compiled output is missing.');
     const abs = path.join(config.dataDir, row.BlobPath);
     // A local backend streams the file; a remote one has to hand over the
     // bytes it read, because there is no path to send. A legacy BlobPath row
@@ -1569,11 +1680,12 @@ async function publishVersion(
 ) {
   const version = normalizeSemver(manifest.version);
   const name = typeof manifest.name === 'string' && manifest.name.length > 0 ? manifest.name : id;
-  const codeBuffer = code;
-  const charge = codeBuffer.length + sourceBuffer.length;
-  const digest = sha256Hex(codeBuffer);
-  const sha512 = sha512Base64(codeBuffer);
-  const blobRelative = path.join('blobs', digest.slice(0, 2), digest.slice(2));
+  // A held release is source only: there is no artifact to store or charge yet.
+  const codeBuffer = code ?? null;
+  const charge = (codeBuffer?.length ?? 0) + sourceBuffer.length;
+  const digest = codeBuffer ? sha256Hex(codeBuffer) : null;
+  const sha512 = codeBuffer ? sha512Base64(codeBuffer) : null;
+  const blobRelative = digest ? path.join('blobs', digest.slice(0, 2), digest.slice(2)) : null;
   const tmpDir = path.join(config.dataDir, 'tmp');
   await mkdir(tmpDir, { recursive: true });
   const tmpPath = path.join(tmpDir, `upload-${randomBytes(8).toString('hex')}.tmp`);
@@ -1587,10 +1699,13 @@ async function publishVersion(
     description: manifest.description,
   });
 
-  const finalStatus = owner.HasPublished ? 'published' : 'pending';
+  // A risky pattern sends the release to review even when the account has
+  // published before, and a release without an artifact cannot go live.
+  const finalStatus =
+    codeBuffer && owner.HasPublished && warnings.length === 0 ? 'published' : 'pending';
 
   try {
-    await writeFile(tmpPath, codeBuffer);
+    if (codeBuffer) await writeFile(tmpPath, codeBuffer);
 
     // The source tarball is only stored once the uniqueness checks commit, so
     // a lower/duplicate publish never leaves an orphaned source file.
@@ -1638,7 +1753,7 @@ async function publishVersion(
           IsUnsandboxed: manifest.isUnsandboxed ?? null,
           BlobPath: blobRelative,
           BlobDigest: digest,
-          BlobSize: codeBuffer.length,
+          BlobSize: codeBuffer?.length ?? null,
           BlobSha512: sha512,
           SearchText: searchText,
           SourceSize: sourceBuffer.length,
@@ -1713,7 +1828,7 @@ async function publishVersion(
     });
     const row = await withLocks(db, [{ key: BLOB_GC_LOCK_KEY, shared: true }], async (tx) => {
       // GC holds the exclusive lock; publishers share it through promotion.
-      await blobs.putStaged(tmpPath, codeBuffer);
+      if (codeBuffer) await blobs.putStaged(tmpPath, codeBuffer);
       const promoted = await tx.Versions.update({
         where: { Id: staged.Id },
         data: {
@@ -1730,7 +1845,7 @@ async function publishVersion(
         { namespace: owner.Namespace, id, version: staged.Version },
         {
           status: finalStatus,
-          bytes: codeBuffer.length,
+          bytes: codeBuffer?.length ?? 0,
           sourceBytes: sourceBuffer.length,
         },
       );

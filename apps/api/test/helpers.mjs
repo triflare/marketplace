@@ -449,9 +449,10 @@ function scalar(value) {
 // Builds a minimal but valid extension project and returns its gzipped tarball.
 // opts maps to extend.yml fields: id, name, version, description, author,
 // license, color1/color2/color3, isUnsandboxed, blockType, blockText,
-// entryPoint. isUnsandboxed is omitted unless the caller passes it, so tests
-// can tell "undeclared" from an explicit false. The `code` option is embedded
-// verbatim as the body of the project's single handler.
+// entryPoint, buildHooks ({ before, after } command lists). isUnsandboxed is
+// omitted unless the caller passes it, so tests can tell "undeclared" from an
+// explicit false. The `code` option is embedded verbatim as the body of the
+// project's single handler.
 export async function projectTarball(opts = {}) {
   const id = opts.id ?? 'hello';
   const version = opts.version ?? '1.0.0';
@@ -474,6 +475,11 @@ export async function projectTarball(opts = {}) {
       `description: ${scalar(description)}`,
       `author: ${scalar(author)}`,
       `license: ${scalar(license)}`,
+      ...(opts.buildHooks ? ['build:'] : []),
+      ...(opts.buildHooks?.before ? ['  before:'] : []),
+      ...(opts.buildHooks?.before ?? []).map((command) => `    - ${JSON.stringify(command)}`),
+      ...(opts.buildHooks?.after ? ['  after:'] : []),
+      ...(opts.buildHooks?.after ?? []).map((command) => `    - ${JSON.stringify(command)}`),
       `extension:`,
       `  id: ${scalar(id)}`,
       `  name: ${scalar(opts.extensionName ?? opts.name ?? id)}`,

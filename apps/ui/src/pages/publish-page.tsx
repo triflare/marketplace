@@ -83,7 +83,7 @@ export function PublishPage() {
       setResult(version)
       setNextStepsOpen(true)
       if (version.status === "pending") {
-        toast.success("Uploaded. The first release waits for review.")
+        toast.success("Uploaded. This release waits for review.")
       } else {
         toast.success(`Published v${version.version}.`)
       }
@@ -103,7 +103,7 @@ export function PublishPage() {
       <PageHeader
         eyebrow="Publishing"
         title="Publish an extension"
-        description={`Use the ${extend.name} CLI to build and publish, or upload a project archive if you already have one. A first submission is reviewed before it appears.`}
+        description={`Use the ${extend.name} CLI to build and publish, or upload a project archive if you already have one. A first submission, and any release with risky patterns, is reviewed before it appears.`}
       />
 
       {needsTerms ? (
@@ -271,8 +271,8 @@ export function PublishPage() {
               </li>
               <li>The registry builds it in a clean environment.</li>
               <li>
-                A first release waits for a moderator. Later releases usually go
-                live right away.
+                A first release, and any release with risky patterns, waits for
+                a moderator. Other releases go live right away.
               </li>
               <li>You get a notification when a moderator makes a decision.</li>
             </ol>

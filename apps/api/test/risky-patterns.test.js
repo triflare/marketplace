@@ -73,6 +73,34 @@ test('leaves the sanctioned wrapper and unrelated identifiers alone', async () =
   }
 });
 
+test('reports build hooks in the project config as risky patterns', async () => {
+  const dir = await writeProject({
+    'extend.yml': [
+      'name: hooked',
+      'build:',
+      '  before:',
+      '    - npm run generate',
+      '  after:',
+      '    - node scripts/patch-output.js',
+      '',
+    ].join('\n'),
+  });
+  try {
+    const warnings = await scanSourceWarnings(dir, ['extend.yml']);
+    assert.deepEqual(
+      warnings.map((warning) => [warning.code, warning.file, warning.line]),
+      [
+        ['build-hook', 'extend.yml', 4],
+        ['build-hook', 'extend.yml', 6],
+      ],
+    );
+    assert.match(warnings[0].message, /npm run generate/);
+    assert.match(warnings[1].message, /patch-output\.js/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('ignores files that are not JavaScript source', async () => {
   const dir = await writeProject({
     'extend.yml': 'description: fetch("http://example.com")\n',

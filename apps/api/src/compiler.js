@@ -121,10 +121,14 @@ function capLog(text, dropped) {
 // with filesystem, address-space, and wall-time limits; returns the compiled bytes and
 // the build log. `outFile` is forced so an extend.yml with outputPath cannot move
 // the build outside the sandbox directory.
+// `allowBuildHooks` is set only when a moderator has approved a project that
+// declares build.before/build.after: those hooks spawn shell commands, which
+// the permission model refuses without --allow-child-process. Every other build
+// keeps the default, so a hook cannot run before review.
 export function compileProject(
   config,
   projectDir,
-  { outFile = null, limitShell = '/bin/sh', cli: resolvedCli = null } = {},
+  { outFile = null, limitShell = '/bin/sh', cli: resolvedCli = null, allowBuildHooks = false } = {},
 ) {
   return new Promise((resolve) => {
     let cli;
@@ -169,6 +173,7 @@ export function compileProject(
       `--allow-fs-read=${path.dirname(cli)}`,
       `--allow-fs-read=${cli}`,
       `--allow-fs-write=${projectDir}`,
+      ...(allowBuildHooks ? ['--allow-child-process'] : []),
       cli,
       'build',
       '-o',

@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
+import { extendConfigFilename } from './product.js';
 
 const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts']);
 
@@ -38,6 +40,66 @@ const PATTERNS = [
   },
 ];
 
+// Build hooks are shell commands in extend.yml that run wherever the project is
+// built, including this server, so they are reported next to the source
+// patterns even though they live in YAML rather than JavaScript.
+const BUILD_HOOK_PHASES = [
+  { key: 'before', message: 'Runs a shell command before the build:' },
+  { key: 'after', message: 'Runs a shell command after the build:' },
+];
+
+async function scanBuildHooks(projectDir, files, warnings) {
+  const configFile = extendConfigFilename();
+  if (!files.includes(configFile)) return;
+  let text;
+  try {
+    text = await readFile(path.join(projectDir, configFile), 'utf8');
+  } catch {
+    return;
+  }
+  let doc;
+  try {
+    doc = YAML.parseDocument(text);
+  } catch {
+    // Invalid YAML is refused by the publish path, which parses the same file
+    // for the manifest; there is nothing to report from it here.
+    return;
+  }
+  const build = doc.getIn(['build'], true);
+  if (!YAML.isMap(build)) return;
+  // Ranges are walked forward instead of rescanning the text from the start for
+  // every command, which would make this pass quadratic on a large config. A
+  // YAML map may list `after` before `before`, so a range that points backwards
+  // restarts the walk rather than mis-numbering the line.
+  let line = 1;
+  let scanned = 0;
+  for (const phase of BUILD_HOOK_PHASES) {
+    const commands = build.get(phase.key, true);
+    if (!YAML.isSeq(commands)) continue;
+    for (const command of commands.items) {
+      if (!YAML.isScalar(command) || typeof command.value !== 'string') continue;
+      const offset = command.range?.[0] ?? 0;
+      if (offset < scanned) {
+        line = 1;
+        scanned = 0;
+      }
+      while (scanned < offset && scanned < text.length) {
+        if (text.charCodeAt(scanned) === 10) line += 1;
+        scanned += 1;
+      }
+      warnings.push({
+        code: 'build-hook',
+        file: configFile,
+        line,
+        message: `${phase.message} ${JSON.stringify(command.value)}`,
+      });
+      // The report is capped, so a config with hundreds of hooks stops being
+      // read here instead of growing past the limit.
+      if (warnings.length >= MAX_WARNINGS) return;
+    }
+  }
+}
+
 // Scan the extracted project for patterns an author should know about before
 // the version reaches a reviewer. `files` is the extracted entry list, which
 // the tarball reader has already checked stays inside projectDir.
@@ -46,7 +108,10 @@ export async function scanSourceWarnings(projectDir, files) {
   // The tarball reader reports every accepted entry, so a tarball with
   // duplicate names lists a path twice. Dedupe before scanning or the second
   // pass repeats each warning and eats into the cap.
-  for (const file of [...new Set(files)].sort()) {
+  const accepted = [...new Set(files)].sort();
+  await scanBuildHooks(projectDir, accepted, warnings);
+  if (warnings.length >= MAX_WARNINGS) return warnings.slice(0, MAX_WARNINGS);
+  for (const file of accepted) {
     if (!SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase())) continue;
     let text;
     try {
