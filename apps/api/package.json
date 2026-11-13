@@ -1,6 +1,6 @@
 {
   "name": "@triflare/marketplace-api",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "A registry of TurboWarp extensions built with Triflare Extend",
   "homepage": "https://github.com/triflare/marketplace#readme",
