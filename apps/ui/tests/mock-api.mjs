@@ -1149,6 +1149,11 @@ function handle(req, res) {
     return json(res, 200, { data })
   }
 
+  // Switching accounts re-reads the dashboard queue for the account in use.
+  if (path === "/users/otheruser/versions" && req.method === "GET") {
+    return json(res, 200, { data: [] })
+  }
+
   if (path === "/users" && req.method === "GET") {
     return json(res, 200, {
       data: users,

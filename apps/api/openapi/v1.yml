@@ -5534,7 +5534,7 @@ components:
             properties:
               code:
                 type: string
-                enum: [fetch, eval, new-function, xmlhttprequest, insecure-http]
+                enum: [fetch, eval, new-function, xmlhttprequest, insecure-http, build-hook]
               file: { type: string, description: Path within the uploaded tarball. }
               line: { type: integer }
               message: { type: string }

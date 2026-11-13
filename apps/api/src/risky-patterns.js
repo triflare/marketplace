@@ -48,14 +48,6 @@ const BUILD_HOOK_PHASES = [
   { key: 'after', message: 'Runs a shell command after the build:' },
 ];
 
-function lineAt(text, offset) {
-  let line = 1;
-  for (let index = 0; index < offset && index < text.length; index++) {
-    if (text.charCodeAt(index) === 10) line += 1;
-  }
-  return line;
-}
-
 async function scanBuildHooks(projectDir, files, warnings) {
   const configFile = extendConfigFilename();
   if (!files.includes(configFile)) return;
@@ -75,17 +67,35 @@ async function scanBuildHooks(projectDir, files, warnings) {
   }
   const build = doc.getIn(['build'], true);
   if (!YAML.isMap(build)) return;
+  // Ranges are walked forward instead of rescanning the text from the start for
+  // every command, which would make this pass quadratic on a large config. A
+  // YAML map may list `after` before `before`, so a range that points backwards
+  // restarts the walk rather than mis-numbering the line.
+  let line = 1;
+  let scanned = 0;
   for (const phase of BUILD_HOOK_PHASES) {
     const commands = build.get(phase.key, true);
     if (!YAML.isSeq(commands)) continue;
     for (const command of commands.items) {
       if (!YAML.isScalar(command) || typeof command.value !== 'string') continue;
+      const offset = command.range?.[0] ?? 0;
+      if (offset < scanned) {
+        line = 1;
+        scanned = 0;
+      }
+      while (scanned < offset && scanned < text.length) {
+        if (text.charCodeAt(scanned) === 10) line += 1;
+        scanned += 1;
+      }
       warnings.push({
         code: 'build-hook',
         file: configFile,
-        line: lineAt(text, command.range?.[0] ?? 0),
+        line,
         message: `${phase.message} ${JSON.stringify(command.value)}`,
       });
+      // The report is capped, so a config with hundreds of hooks stops being
+      // read here instead of growing past the limit.
+      if (warnings.length >= MAX_WARNINGS) return;
     }
   }
 }

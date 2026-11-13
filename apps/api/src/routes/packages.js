@@ -845,15 +845,19 @@ export function makePackagesRouter({
 
     const maxBlob = config.limits?.maxBlobBytes ?? 2 * 1024 * 1024;
     let builtCode = built?.code ?? null;
+    // A deferred build is the raw compiler output, so it takes the same minify
+    // pass a trusted publish does before the storage limit is applied: the bytes
+    // that are kept are the ones that have to fit, and the minifier's own input
+    // cap only bounds its parse. A failed pass leaves the original bytes.
+    if (builtCode && config.compiler?.minify !== false) {
+      const minified = await minifyCode(builtCode, { maxBytes: MINIFY_INPUT_MAX_BYTES });
+      if (minified.ok) builtCode = minified.code;
+    }
     if (builtCode && builtCode.length > maxBlob) {
       throw new HttpError(413, {
         title: 'Payload Too Large',
         detail: `Compiled output is ${builtCode.length} bytes; the limit is ${maxBlob}.`,
       });
-    }
-    if (builtCode && config.compiler?.minify !== false) {
-      const minified = await minifyCode(builtCode, { maxBytes: maxBlob });
-      if (minified.ok && minified.changed) builtCode = minified.code;
     }
 
     // Minify before the transaction so the CPU-bound pass does not hold the row
@@ -862,6 +866,14 @@ export function makePackagesRouter({
     const shrunk = deferred ? null : await minifyPendingBlob(row);
 
     const promote = async (tx) => {
+      // A version waiting for a decision can still be transferred, so the
+      // namespace read when the review started may no longer own it. The row is
+      // re-read under the per-extension lock acceptTransfer takes before any
+      // bytes are charged to an account.
+      const [holder] = await tx.$queryRaw`
+        SELECT "Namespace" AS namespace FROM "Versions" WHERE "Id" = ${row.Id}
+      `;
+      const currentNamespace = holder?.namespace ?? row.Namespace;
       let stored = null;
       if (builtCode) {
         // GC holds the exclusive lock; the promotion shares it until the new
@@ -870,19 +882,19 @@ export function makePackagesRouter({
         // The publish path charged the source only, so the bytes this build
         // produced are charged now, under the same row lock a publish uses.
         const [account] = await tx.$queryRaw`
-          SELECT "BlobBytes", "MaxBlobBytes" AS max_blob_bytes FROM "Users" WHERE "Namespace" = ${row.Namespace} FOR UPDATE
+          SELECT "BlobBytes", "MaxBlobBytes" AS max_blob_bytes FROM "Users" WHERE "Namespace" = ${currentNamespace} FOR UPDATE
         `;
         const quota =
           account?.max_blob_bytes ?? config.limits?.maxAccountBlobBytes ?? 64 * 1024 * 1024;
         if (Number(account?.BlobBytes ?? 0) + stored.size > quota) {
           throw new HttpError(413, {
             title: 'Payload Too Large',
-            detail: `Publishing ${stored.size} bytes would exceed the ${quota}-byte storage quota for @${row.Namespace}.`,
+            detail: `Publishing ${stored.size} bytes would exceed the ${quota}-byte storage quota for @${currentNamespace}.`,
           });
         }
         await tx.$executeRaw`
           UPDATE "Users" SET "BlobBytes" = "BlobBytes" + ${stored.size}
-          WHERE "Namespace" = ${row.Namespace}
+          WHERE "Namespace" = ${currentNamespace}
         `;
       } else if (shrunk) {
         // GC holds the exclusive lock; the promotion shares it until the new
@@ -905,6 +917,10 @@ export function makePackagesRouter({
             WHERE "Id" = ${row.Id} AND "Status" = 'pending'
             RETURNING *
           `;
+      // A sibling moderator that already moved the row makes this update a
+      // no-op. Throwing here, inside the transaction, rolls the BlobBytes charge
+      // back with it instead of leaving unearned bytes on the account.
+      if (!rows[0]) throw conflict('That version is no longer pending review.');
       if (rows[0]) {
         // The gate that decides whether a version needs review reads
         // has_published from the namespace account (finalStatus, and the boot
@@ -921,7 +937,7 @@ export function makePackagesRouter({
           const refund = Number(row.BlobSize) - stored.size;
           await tx.$executeRaw`
             UPDATE "Users" SET "BlobBytes" = GREATEST("BlobBytes" - ${refund}, 0)
-            WHERE "Namespace" = ${row.Namespace}
+            WHERE "Namespace" = ${currentNamespace}
           `;
         }
         await notifyUser(
@@ -936,11 +952,12 @@ export function makePackagesRouter({
       return rows[0];
     };
 
-    // The shared blob-gc lock is only needed when a new digest is written; the
-    // no-minify path takes a plain transaction.
-    const updated = shrunk
-      ? await withLocks(db, [{ key: BLOB_GC_LOCK_KEY, shared: true }], promote)
-      : await db.$transaction(promote);
+    // The promotion always takes the per-extension lock, so a transfer cannot
+    // move the address between the re-read above and the commit. The shared
+    // blob-gc lock is only needed when a new digest is written.
+    const locks = [{ key: `${row.Namespace}/${row.ExtensionId}` }];
+    if (builtCode || shrunk) locks.push({ key: BLOB_GC_LOCK_KEY, shared: true });
+    const updated = await withLocks(db, locks, promote);
     if (!updated) {
       throw conflict('That version is no longer pending review.');
     }
