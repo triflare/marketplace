@@ -12,9 +12,9 @@ extend:
   configFilename: "extend.yml"
 branding:
   colors:
-    primary: "#16A34A"
-    secondary: "#12823B"
-    tertiary: "#0D602C"
+    primary: "#FFEA35"
+    secondary: "#F1C40F"
+    tertiary: "#CB9E00"
 # The official instance the app falls back to outside development.
 defaults:
-  apiUrl: "https://twexts.sdisk.us/api/v1"
+  apiUrl: "https://marketplace.sdisk.us/api/v1"
