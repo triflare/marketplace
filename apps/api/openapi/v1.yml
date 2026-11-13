@@ -1781,6 +1781,41 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /users/{namespace}/versions:
+    parameters:
+      - $ref: '#/components/parameters/NamespacePath'
+    get:
+      summary: List an account's releases in review
+      operationId: listAccountVersions
+      tags: [Userspace]
+      description: >
+        Self or admin. Returns this namespace's versions with the given
+        moderation status, newest first. A first release has no published
+        extension to appear under, so this is how its publisher finds it.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, rejected]
+            default: pending
+      responses:
+        '200':
+          description: Matching versions, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PendingVersion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
   /users/{namespace}/webhooks:
     parameters:
       - $ref: '#/components/parameters/NamespacePath'
@@ -3438,12 +3473,15 @@ paths:
       description: >
         Uploads a gzipped tarball of the extension project (`extend.yml`, sources,
         `package.json` with `"type": "module"`). The server validates the
-        manifest against the path, compiles the project in a sandboxed child
-        process (no network, bounded filesystem/memory/time), and stages the
-        result for moderation; the build log and any static-analysis `warnings`
-        ride along in the queue entry.
-        A caller's first-ever publish is held as `pending`; once an admin
-        approves it, later publishes go straight to `published`. Only one
+        manifest against the path, then compiles the project in a sandboxed
+        child process (no network, bounded filesystem/memory/time) and stages
+        the result for moderation; the build log and any static-analysis
+        `warnings` ride along in the queue entry.
+        A release the scan flags (including `build.before`/`build.after` hooks
+        in `extend.yml`) is held as `pending` even for an account that has
+        published before, and its build is deferred until an admin approves the
+        source. A caller's first-ever publish is held as well; once an admin
+        approves it, other publishes go straight to `published`. Only one
         `pending`/`staging` version per owner may exist at a time. The
         version in `extend.yml` must be valid SemVer strictly greater than
         the current highest version for this package. Requires the `publish`

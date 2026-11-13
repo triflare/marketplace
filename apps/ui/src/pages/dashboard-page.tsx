@@ -19,6 +19,7 @@ import {
 import { ButtonLink } from "@/components/common/button-link"
 import { PageHeader } from "@/components/common/page-header"
 import { ExtensionRow } from "@/components/extensions/extension-row"
+import { VersionStatusBadge } from "@/components/extensions/version-status"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/context/auth"
@@ -86,13 +87,20 @@ export function DashboardPage() {
       }
 
       const notifications = await th.notifications.list({ limit: 5, signal })
-      return { extensions, notifications }
+      // A first release has no published address to list it under, so the queue
+      // is read by account instead of extension.
+      const pending = await th.users.listVersions(user.namespace, {
+        status: "pending",
+        signal,
+      })
+      return { extensions, notifications, pending: pending.data }
     },
     [user?.namespace],
     dashboardKey(user?.namespace)
   )
 
   const listed = data.data?.extensions ?? []
+  const pending = data.data?.pending ?? []
   const shown = listed.slice(0, VISIBLE_EXTENSIONS)
   // The registry lists published addresses and has no per-account view of the
   // review queue, so the releases waiting for a moderator are read back one
@@ -128,6 +136,15 @@ export function DashboardPage() {
     (total, entry) => total + Number(entry.downloads ?? 0),
     0
   )
+  // A pending first release is still an extension the account has, even though
+  // no listing carries it yet.
+  const pendingOnly = pending.filter(
+    (version) =>
+      !extensions.some(
+        (entry) =>
+          entry.namespace === version.namespace && entry.id === version.id
+      )
+  )
 
   async function markAllRead() {
     try {
@@ -159,7 +176,10 @@ export function DashboardPage() {
 
       <section className="grid grid-cols-2 divide-x overflow-hidden rounded-lg border sm:grid-cols-4">
         {[
-          { label: "Extensions", value: extensions.length },
+          {
+            label: "Extensions",
+            value: extensions.length + pendingOnly.length,
+          },
           { label: "Downloads", value: downloads },
           {
             label: "Unread",
@@ -200,6 +220,50 @@ export function DashboardPage() {
       ) : (
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
           <section className="flex min-w-0 flex-col gap-3">
+            {pending.length > 0 ? (
+              <div className="mb-2 flex flex-col gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight">
+                    Waiting for review
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    A moderator decides on these releases before they are
+                    listed, including a first release that has no public page
+                    yet.
+                  </p>
+                </div>
+                <ul className="divide-y overflow-hidden rounded-lg border">
+                  {pending.map((version) => (
+                    <li
+                      key={`${version.namespace}/${version.id}/${version.version}`}
+                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <Link
+                            to={`/@${version.namespace}/${version.id}/manage?tab=releases`}
+                            className="font-medium hover:underline"
+                          >
+                            {version.name || version.id}
+                          </Link>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            @{version.namespace}/{version.id} · v
+                            {version.version}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Uploaded {formatRelative(version.createdAt)}
+                          {version.warnings && version.warnings.length > 0
+                            ? ` · ${version.warnings.length} to review`
+                            : ""}
+                        </p>
+                      </div>
+                      <VersionStatusBadge status={version.status} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="flex items-end justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">
@@ -217,8 +281,16 @@ export function DashboardPage() {
               <LoadingRows rows={3} />
             ) : extensions.length === 0 ? (
               <EmptyState
-                title="You have not published yet"
-                description={`Create a ${extend.name} project and publish it with the CLI, or upload an existing project archive. A first release waits for a moderator before it is listed here or in the registry.`}
+                title={
+                  pending.length > 0
+                    ? "Nothing published yet"
+                    : "You have not published yet"
+                }
+                description={
+                  pending.length > 0
+                    ? "Your release is with a moderator. Once it is approved, the extension appears here and on your profile."
+                    : `Create a ${extend.name} project and publish it with the CLI, or upload an existing project archive. A first release, or any release with risky patterns, waits for a moderator before it is listed here or in the registry.`
+                }
                 action={
                   <div className="flex flex-wrap justify-center gap-2">
                     <ButtonLink to="/developers" variant="outline">

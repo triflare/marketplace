@@ -67,9 +67,9 @@ export function DevelopersPage() {
             <Command value={publish} />
             <p className="text-xs text-muted-foreground">
               No account yet? Run <span className="font-mono">{signup}</span>{" "}
-              first. A first release waits for review. Later releases from the
-              same account appear immediately unless a moderator asks for
-              changes.
+              first. A first release, and any release with risky patterns, waits
+              for review. Other releases appear immediately unless a moderator
+              asks for changes.
             </p>
           </GuideStep>
         </div>

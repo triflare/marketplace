@@ -2,6 +2,7 @@ import { extensionPath, pathValue, pickQuery, requestOptions } from "./http"
 import type { HttpClient } from "./http"
 import type {
   AccountEmail,
+  AccountVersionQuery,
   AdminReportQuery,
   AuditEntry,
   AuthDescriptor,
@@ -881,6 +882,21 @@ export class UsersResource {
 
   me(options: RequestOptions = {}): Promise<User> {
     return this.client.request("/me", requestOptions(options))
+  }
+
+  // A first release has no published address to list it under, so the
+  // dashboard reads the account's queue here.
+  listVersions(
+    namespace: string,
+    query: AccountVersionQuery = {}
+  ): Promise<Collection<PendingVersion>> {
+    return this.client.request(
+      `/users/${pathValue(namespace, "namespace")}/versions`,
+      {
+        query: pickQuery(query, ["status"]),
+        ...requestOptions(query),
+      }
+    )
   }
 
   exportData(options: RequestOptions = {}): Promise<Record<string, unknown>> {

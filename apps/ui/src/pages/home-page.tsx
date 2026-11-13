@@ -304,9 +304,9 @@ export function HomePage() {
             <ShieldCheckIcon className="size-4" /> Reviewed before release
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            A first release waits for a moderator. The registry builds every
-            upload itself, so the version people install matches the one that
-            was reviewed.
+            A first release, and any release with risky patterns, waits for a
+            moderator. The registry builds every upload itself, so the version
+            people install matches the one that was reviewed.
           </p>
         </div>
         <div>

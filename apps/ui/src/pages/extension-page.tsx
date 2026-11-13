@@ -275,7 +275,7 @@ function ExtensionView({ namespace, id }: { namespace: string; id: string }) {
             {latest?.status === "rejected"
               ? latest.rejectionReason ||
                 "The release needs changes before it can be published."
-              : "A first release is reviewed before it joins the registry, so there is nothing to install yet."}{" "}
+              : "This release is reviewed before it joins the registry, so there is nothing to install yet."}{" "}
             Only the owners of @{extension.namespace} can see this page.{" "}
             {isOwner ? (
               <Link

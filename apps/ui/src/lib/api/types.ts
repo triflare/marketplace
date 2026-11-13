@@ -792,6 +792,10 @@ export interface PendingVersionQuery extends PageQuery {
   status?: "pending"
 }
 
+export interface AccountVersionQuery extends RequestOptions {
+  status?: "pending" | "rejected"
+}
+
 export interface TrendingOptions extends RequestOptions {
   limit?: number
 }
@@ -1071,6 +1075,10 @@ export interface UsersResource {
   list(query?: PageQuery): Promise<Page<User>>
   get(namespace: string, options?: RequestOptions): Promise<User>
   me(options?: RequestOptions): Promise<User>
+  listVersions(
+    namespace: string,
+    query?: AccountVersionQuery
+  ): Promise<Collection<PendingVersion>>
   exportData(options?: RequestOptions): Promise<Record<string, unknown>>
   update(
     namespace: string,

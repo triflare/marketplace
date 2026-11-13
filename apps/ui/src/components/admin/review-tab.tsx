@@ -111,7 +111,8 @@ export function ReviewTab() {
         <div>
           <h2 className="text-base font-medium">Review queue</h2>
           <p className="text-sm text-muted-foreground">
-            New publishers wait here for a moderator to check their work.
+            A first release, or any release the scan flags, waits here for a
+            moderator to check it.
           </p>
         </div>
         <EmptyState

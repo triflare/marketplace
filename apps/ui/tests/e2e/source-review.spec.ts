@@ -40,22 +40,10 @@ test("owners can read a release source and compare it with another", async ({
       timeout: 45000,
     }
   )
-  await viewer.getByRole("tab", { name: "Built output" }).click()
-  const outputRegion = viewer.getByRole("region", {
-    name: "extension.js source",
-  })
-  await expect(outputRegion).toHaveAttribute("data-language", "javascript")
-  await expect(outputRegion).toContainText("function add(a, b) {", {
-    timeout: 45000,
-  })
-  await expect(outputRegion).toContainText("return a + b;", {
-    timeout: 45000,
-  })
-  await viewer.getByRole("button", { name: "Prettified" }).click()
-  await expect(viewer.getByRole("button", { name: "Minified" })).toBeVisible()
-  await expect(outputRegion).toContainText('var greeting="hello world";', {
-    timeout: 45000,
-  })
+  await expect(
+    viewer.getByRole("button", { name: "Download source" })
+  ).toBeVisible()
+  await expect(viewer.getByRole("tab", { name: "Built output" })).toHaveCount(0)
   await viewer.getByRole("button", { name: "Close" }).click()
 
   await page.getByRole("button", { name: "Compare" }).first().click()
