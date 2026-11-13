@@ -221,6 +221,7 @@ test('a complete legacy history is adopted in place', async () => {
         '7_idempotency_and_tombstones',
         '8_privacy_consent',
         '9_privacy_flows_and_email_history',
+        '9z_deferred_builds',
       ],
       'the baseline is recorded as applied, without its DDL running again',
     );
@@ -262,6 +263,7 @@ test('a history that stops before the download rollup is adopted and gets the ta
         '7_idempotency_and_tombstones',
         '8_privacy_consent',
         '9_privacy_flows_and_email_history',
+        '9z_deferred_builds',
       ],
       'the baseline is marked applied and the rollup is run after it',
     );
@@ -312,6 +314,7 @@ test('two bootstraps racing for one database serialize', async () => {
         '7_idempotency_and_tombstones',
         '8_privacy_consent',
         '9_privacy_flows_and_email_history',
+        '9z_deferred_builds',
       ],
       'the baseline is applied exactly once',
     );
