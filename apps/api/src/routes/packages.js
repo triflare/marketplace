@@ -75,6 +75,12 @@ import {
   versionDownloadTotals,
   hashDownloadAddress,
 } from '../metrics.js';
+import {
+  extensionAnalytics,
+  parseAnalyticsDays,
+  recordView,
+  setAnalyticsEnabled,
+} from '../analytics.js';
 import { makeWebhooks, WebhookInputError } from '../webhooks.js';
 import { makeWebhookDeliveryRoutes } from './webhook-deliveries.js';
 import { audit, auditSoon } from '../audit.js';
@@ -1520,6 +1526,44 @@ export function makePackagesRouter({
     res.status(204).end();
   });
 
+  // The publisher's own numbers. Reading is owner-or-admin; the address being
+  // public is not permission to see who looked at it.
+  router.get('/@:namespace/:id/analytics', requireAuth, async (req, res) => {
+    const { namespace, id } = req.params;
+    if (!isValidNamespace(namespace) || !isValidExtensionId(id)) throw notFound();
+    if (!(await isExtensionOwner(req.auth.user, namespace, id))) {
+      throw forbidden('Only an owner or an admin can read this extension’s analytics.');
+    }
+    if (!(await extensionExists(namespace, id))) throw notFound();
+    res.json(
+      await extensionAnalytics(db, {
+        namespace,
+        id,
+        days: parseAnalyticsDays(req.query.days),
+      }),
+    );
+  });
+
+  // Turning collection off stops new events. The daily rollups already written
+  // stay, so the charts keep their history and nothing has to be re-collected
+  // if the owner turns it back on.
+  router.put('/@:namespace/:id/analytics', ownerChain, async (req, res) => {
+    const { namespace, id } = req.params;
+    if (!isValidNamespace(namespace) || !isValidExtensionId(id)) throw notFound();
+    requireObjectBody(req);
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      throw fieldErrors([{ field: 'enabled', message: 'Must be true or false.' }]);
+    }
+    if (!(await isExtensionOwner(req.auth.user, namespace, id))) {
+      throw forbidden('Only an owner or an admin can change this extension’s analytics.');
+    }
+    if (!(await extensionExists(namespace, id))) throw notFound();
+    await setAnalyticsEnabled(db, namespace, id, enabled);
+    auditSoon(db, req.auth.user, 'extension.analytics', { namespace, id }, { enabled });
+    res.json({ namespace, id, enabled });
+  });
+
   router.get('/@:namespace/:id', async (req, res) => {
     const { namespace, id } = req.params;
     if (!isValidNamespace(namespace) || !isValidExtensionId(id)) throw notFound();
@@ -1537,6 +1581,9 @@ export function makePackagesRouter({
       versions.map((row) => versionToObject(row, config, totals.get(row.Version) ?? 0n)),
     );
     summary.downloads = await totalDownloads(db, namespace, id);
+    // A public page read is what the publisher's view count means. The call is
+    // fire-and-forget: a metrics failure costs the event, not the page.
+    recordView(db, config, req, { namespace, id, version: top.Version });
 
     // The two relations an extension page would otherwise fetch with a second
     // request. The owner is reduced to what a header shows: the public account
@@ -1608,6 +1655,21 @@ export function makePackagesRouter({
         where: { Namespace: namespace, ExtensionId: id },
       });
       await tx.ExtensionTransfers.deleteMany({ where: { Namespace: namespace, ExtensionId: id } });
+      // Analytics belong to the address's current life, not to the address.
+      // Leaving them behind would hand a republished extension the previous
+      // owner's numbers.
+      await tx.ViewEvents.deleteMany({ where: { Namespace: namespace, ExtensionId: id } });
+      await tx.ImpressionEvents.deleteMany({ where: { Namespace: namespace, ExtensionId: id } });
+      await tx.ExtensionDailyViews.deleteMany({ where: { Namespace: namespace, ExtensionId: id } });
+      await tx.ExtensionDailyImpressions.deleteMany({
+        where: { Namespace: namespace, ExtensionId: id },
+      });
+      await tx.ExtensionVersionDailyViews.deleteMany({
+        where: { Namespace: namespace, ExtensionId: id },
+      });
+      await tx.ExtensionVersionDailyImpressions.deleteMany({
+        where: { Namespace: namespace, ExtensionId: id },
+      });
       // Refund the account's quota for every byte this extension charged.
       const total = found.reduce(
         (sum, row) => sum + Number(row.BlobSize ?? 0) + Number(row.SourceSize ?? 0),

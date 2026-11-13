@@ -1,6 +1,8 @@
 import { extensionPath, pathValue, pickQuery, requestOptions } from "./http"
 import type { HttpClient } from "./http"
 import type {
+  AccountAnalytics,
+  AccountAnalyticsQuery,
   AccountEmail,
   AccountVersionQuery,
   AdminReportQuery,
@@ -27,6 +29,8 @@ import type {
   MailOutboxEntry,
   MailOutboxQuery,
   MailOutboxRetryResult,
+  ExtensionAnalytics,
+  ExtensionAnalyticsQuery,
   ExtensionDetail,
   ExtensionListQuery,
   ExtensionOwner,
@@ -880,6 +884,16 @@ export class UsersResource {
     })
   }
 
+  analytics(
+    query: AccountAnalyticsQuery = {},
+    options: RequestOptions = {}
+  ): Promise<AccountAnalytics> {
+    return this.client.request("/me/analytics", {
+      query: pickQuery(query, ["days"]),
+      ...requestOptions(options),
+    })
+  }
+
   me(options: RequestOptions = {}): Promise<User> {
     return this.client.request("/me", requestOptions(options))
   }
@@ -1483,6 +1497,39 @@ function transferPath(namespace: string, id: string, toNamespace: string) {
   return `${extensionPath(namespace, id)}/transfers/${pathValue(toNamespace, "destination namespace")}`
 }
 
+export class ExtensionAnalyticsResource {
+  client: HttpClient
+
+  constructor(client: HttpClient) {
+    this.client = client
+  }
+
+  get(
+    namespace: string,
+    id: string,
+    query: ExtensionAnalyticsQuery = {},
+    options: RequestOptions = {}
+  ): Promise<ExtensionAnalytics> {
+    return this.client.request(`${extensionPath(namespace, id)}/analytics`, {
+      query: pickQuery(query, ["days"]),
+      ...requestOptions(options),
+    })
+  }
+
+  setEnabled(
+    namespace: string,
+    id: string,
+    enabled: boolean,
+    options: RequestOptions = {}
+  ): Promise<{ namespace: string; id: string; enabled: boolean }> {
+    return this.client.request(`${extensionPath(namespace, id)}/analytics`, {
+      method: "PUT",
+      json: { enabled },
+      ...requestOptions(options),
+    })
+  }
+}
+
 export class ExtensionsResource {
   client: HttpClient
   versions: ExtensionVersionsResource
@@ -1490,6 +1537,7 @@ export class ExtensionsResource {
   owners: ExtensionOwnersResource
   transfers: ExtensionTransfersResource
   webhooks: ExtensionWebhooksResource
+  analytics: ExtensionAnalyticsResource
 
   constructor(client: HttpClient) {
     this.client = client
@@ -1498,6 +1546,7 @@ export class ExtensionsResource {
     this.owners = new ExtensionOwnersResource(client)
     this.transfers = new ExtensionTransfersResource(client)
     this.webhooks = new ExtensionWebhooksResource(client)
+    this.analytics = new ExtensionAnalyticsResource(client)
   }
 
   list(query: ExtensionListQuery = {}): Promise<Page<ExtensionSummary>> {

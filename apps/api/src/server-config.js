@@ -158,6 +158,15 @@ export const EDITABLE_SETTINGS = [
     help: 'Download rows older than this are removed by the maintenance sweep.',
   },
   {
+    key: 'privacy.analyticsEventRetentionDays',
+    type: 'number',
+    min: 1,
+    max: 3650,
+    restartRequired: false,
+    label: 'Analytics event retention (days)',
+    help: 'View and impression rows older than this are removed. Daily totals stay.',
+  },
+  {
     key: 'privacy.mailOutboxRetentionDays',
     type: 'number',
     min: 1,

@@ -73,6 +73,21 @@ model DistTags {
   @@index([Namespace, ExtensionId, Version], map: "dist_tags_version_idx")
 }
 
+model ViewEvents {
+  Id          BigInt   @id @default(autoincrement())
+  Namespace   String
+  ExtensionId String
+  Version     String?
+  UserAgent   String   @default("")
+  IpHash      String?
+  Window      String?
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([Namespace, ExtensionId, Window], map: "view_events_window_idx")
+  @@index([Namespace, ExtensionId, CreatedAt], map: "view_events_ns_id_ts_idx")
+  @@index([CreatedAt], map: "view_events_ts_idx")
+}
+
 model DownloadEvents {
   Id          BigInt   @id @default(autoincrement())
   Namespace   String
@@ -92,6 +107,27 @@ model ExtensionDailyDownloads {
   Day               DateTime @db.Date
   TotalDownloads    BigInt   @default(0)
   DistinctDownloads BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Day])
+}
+
+model ExtensionDailyImpressions {
+  Namespace           String
+  ExtensionId         String
+  Surface             String
+  Day                 DateTime @db.Date
+  TotalImpressions    BigInt   @default(0)
+  DistinctImpressions BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Surface, Day])
+}
+
+model ExtensionDailyViews {
+  Namespace     String
+  ExtensionId   String
+  Day           DateTime @db.Date
+  TotalViews    BigInt   @default(0)
+  DistinctViews BigInt   @default(0)
 
   @@id([Namespace, ExtensionId, Day])
 }
@@ -155,6 +191,43 @@ model ExtensionTransfers {
 
   @@id([Namespace, ExtensionId, ToNamespace])
   @@index([ToNamespace], map: "extension_transfers_to_idx")
+}
+
+model ImpressionEvents {
+  Id          BigInt   @id @default(autoincrement())
+  Namespace   String
+  ExtensionId String
+  Version     String?
+  Surface     String
+  Position    Int?
+  UserAgent   String   @default("")
+  IpHash      String?
+  CreatedAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([Namespace, ExtensionId, CreatedAt], map: "impression_events_ns_id_ts_idx")
+  @@index([CreatedAt], map: "impression_events_ts_idx")
+}
+
+model ExtensionVersionDailyImpressions {
+  Namespace           String
+  ExtensionId         String
+  Version             String
+  Day                 DateTime @db.Date
+  TotalImpressions    BigInt   @default(0)
+  DistinctImpressions BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Version, Day])
+}
+
+model ExtensionVersionDailyViews {
+  Namespace     String
+  ExtensionId   String
+  Version       String
+  Day           DateTime @db.Date
+  TotalViews    BigInt   @default(0)
+  DistinctViews BigInt   @default(0)
+
+  @@id([Namespace, ExtensionId, Version, Day])
 }
 
 model ExtensionVersionDailyDownloads {
@@ -225,11 +298,12 @@ model OidcFlows {
 /// cascading when the account goes away, so a report about an extension whose
 /// namespace account was deleted is still a report about that extension.
 model Extensions {
-  Id          BigInt    @id @default(autoincrement())
-  NamespaceId BigInt?
-  Namespace   String
-  ExtensionId String
-  CreatedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  Id               BigInt    @id @default(autoincrement())
+  NamespaceId      BigInt?
+  Namespace        String
+  ExtensionId      String
+  CreatedAt        DateTime  @default(now()) @db.Timestamptz(6)
+  AnalyticsEnabled Boolean   @default(true)
   Users       Users?    @relation(fields: [NamespaceId], references: [Id], onDelete: SetNull, onUpdate: NoAction)
   Reports     Reports[]
 

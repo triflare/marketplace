@@ -383,6 +383,56 @@ export interface PendingVersion extends VersionInfo {
   ownerNamespace: string
 }
 
+export type AnalyticsSurface = "explore" | "search" | "profile" | "trending"
+
+export interface AnalyticsDay {
+  day: string
+  views: number
+  distinctViews: number
+  impressions: number
+  distinctImpressions: number
+  downloads: number
+}
+
+export interface AnalyticsSurfaceTotal {
+  surface: AnalyticsSurface
+  impressions: number
+  distinctImpressions: number
+}
+
+export interface AnalyticsVersion {
+  version: string
+  views: number
+  distinctViews: number
+  impressions: number
+  downloads: number
+}
+
+export interface ExtensionAnalytics {
+  namespace: string
+  id: string
+  enabled: boolean
+  range: { days: number; from: string; to: string }
+  totals: { views: number; impressions: number; downloads: number }
+  daily: AnalyticsDay[]
+  surfaces: AnalyticsSurfaceTotal[]
+  versions: AnalyticsVersion[]
+}
+
+export interface AccountAnalytics {
+  namespace: string
+  range: { days: number; from: string; to: string }
+  totals: { views: number; impressions: number; downloads: number }
+}
+
+export interface AccountAnalyticsQuery {
+  days?: number
+}
+
+export interface ExtensionAnalyticsQuery {
+  days?: number
+}
+
 export interface ExtensionSummary {
   namespace: string
   id: string
@@ -1075,6 +1125,10 @@ export interface UsersResource {
   list(query?: PageQuery): Promise<Page<User>>
   get(namespace: string, options?: RequestOptions): Promise<User>
   me(options?: RequestOptions): Promise<User>
+  analytics(
+    query?: AccountAnalyticsQuery,
+    options?: RequestOptions
+  ): Promise<AccountAnalytics>
   listVersions(
     namespace: string,
     query?: AccountVersionQuery
@@ -1285,6 +1339,22 @@ export interface ExtensionsResource {
   owners: ExtensionOwnersResource
   transfers: ExtensionTransfersResource
   webhooks: ExtensionWebhooksResource
+  analytics: ExtensionAnalyticsResource
+}
+
+export interface ExtensionAnalyticsResource {
+  get(
+    namespace: string,
+    id: string,
+    query?: ExtensionAnalyticsQuery,
+    options?: RequestOptions
+  ): Promise<ExtensionAnalytics>
+  setEnabled(
+    namespace: string,
+    id: string,
+    enabled: boolean,
+    options?: RequestOptions
+  ): Promise<{ namespace: string; id: string; enabled: boolean }>
 }
 
 export interface BadgesResource {

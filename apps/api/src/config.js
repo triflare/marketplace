@@ -131,9 +131,11 @@ export const DEFAULTS = {
     allowedOrigins: '*',
   },
   privacy: {
-    // How long the download log and the mail outbox keep a row before the
-    // maintenance sweep removes it.
+    // How long the download log, the view and impression log, and the mail
+    // outbox keep a row before the maintenance sweep removes it. The daily
+    // rollups are not touched.
     downloadEventRetentionDays: 30,
+    analyticsEventRetentionDays: 30,
     mailOutboxRetentionDays: 30,
   },
   // An ordered failover chain. `none` is no mail: every feature whose driver
@@ -394,6 +396,13 @@ function normalizeServerSettings(config) {
   requireInteger(config.privacy?.downloadEventRetentionDays, 'privacy.downloadEventRetentionDays', {
     max: 3650,
   });
+  requireInteger(
+    config.privacy?.analyticsEventRetentionDays,
+    'privacy.analyticsEventRetentionDays',
+    {
+      max: 3650,
+    },
+  );
   requireInteger(config.privacy?.mailOutboxRetentionDays, 'privacy.mailOutboxRetentionDays', {
     max: 3650,
   });

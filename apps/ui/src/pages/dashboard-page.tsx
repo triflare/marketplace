@@ -126,6 +126,17 @@ export function DashboardPage() {
     },
     [shownKey]
   )
+  // Account reach is a separate request from the preloaded payload, so a slow
+  // rollup never holds up the rest of the dashboard.
+  const reach = useAsync(
+    async (signal) => {
+      if (!user) {
+        return null
+      }
+      return th.users.analytics({ days: 30 }, { signal })
+    },
+    [user?.namespace]
+  )
 
   if (!user) {
     return null
@@ -173,6 +184,36 @@ export function DashboardPage() {
           </>
         }
       />
+
+      <section className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-medium">Last 30 days</h2>
+          <p className="text-xs text-muted-foreground">
+            Across every extension under @{user.namespace}.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 divide-x overflow-hidden rounded-lg border">
+          {[
+            { label: "Views", value: reach.data?.totals.views ?? 0 },
+            {
+              label: "Impressions",
+              value: reach.data?.totals.impressions ?? 0,
+            },
+            { label: "Downloads", value: reach.data?.totals.downloads ?? 0 },
+          ].map((stat) => (
+            <div key={stat.label} className="px-4 py-3">
+              <p className="text-xs text-muted-foreground">{stat.label}</p>
+              <div className="mt-0.5 font-mono text-xl tabular-nums">
+                {reach.status === "loading" ? (
+                  <Skeleton className="h-5 w-10" />
+                ) : (
+                  formatNumber(stat.value)
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="grid grid-cols-2 divide-x overflow-hidden rounded-lg border sm:grid-cols-4">
         {[
