@@ -138,6 +138,18 @@ test('the retention sweep removes rows past their window and keeps the rest', as
   await db.MailOutbox.create({
     data: { To: 'fresh@example.com', Subject: 'New', Status: 'sent', CreatedAt: fresh },
   });
+  await db.ViewEvents.create({
+    data: { Namespace: 'old', ExtensionId: 'ext', CreatedAt: old },
+  });
+  await db.ViewEvents.create({
+    data: { Namespace: 'fresh', ExtensionId: 'ext', CreatedAt: fresh },
+  });
+  await db.ImpressionEvents.create({
+    data: { Namespace: 'old', ExtensionId: 'ext', Surface: 'explore', CreatedAt: old },
+  });
+  await db.ImpressionEvents.create({
+    data: { Namespace: 'fresh', ExtensionId: 'ext', Surface: 'explore', CreatedAt: fresh },
+  });
   await db.AuthChallenges.create({
     data: {
       Driver: 'magic-link',
@@ -169,6 +181,8 @@ test('the retention sweep removes rows past their window and keeps the rest', as
 
   const purged = await purgeExpiredPersonalData(db);
   assert.equal(purged.downloadEvents, 1);
+  assert.equal(purged.viewEvents, 1);
+  assert.equal(purged.impressionEvents, 1);
   assert.equal(purged.mailOutbox, 2);
   assert.equal(purged.authChallenges, 1);
   assert.equal(purged.deviceCodes, 1);
@@ -176,6 +190,8 @@ test('the retention sweep removes rows past their window and keeps the rest', as
   assert.equal(purged.idempotencyKeys, 1);
 
   assert.equal(await db.DownloadEvents.count(), 1);
+  assert.equal(await db.ViewEvents.count(), 1);
+  assert.equal(await db.ImpressionEvents.count(), 1);
   assert.equal(await db.MailOutbox.count(), 2);
   assert.equal(await db.MailOutbox.count({ where: { Status: 'pending' } }), 1);
   assert.equal(await db.AuthChallenges.count(), 0);

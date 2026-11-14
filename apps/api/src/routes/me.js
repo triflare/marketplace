@@ -10,6 +10,7 @@ import {
 } from '../serialize.js';
 import { notFound } from '../errors.js';
 import { userEtag } from '../validators.js';
+import { accountAnalytics, parseAnalyticsDays } from '../analytics.js';
 
 const EXPORT_PAGE_SIZE = 500;
 
@@ -78,6 +79,17 @@ export function makeMeRouter({ db, config }) {
     res.set('ETag', userEtag(req.auth.user)).json(userToObject(req.auth.user, config));
   });
 
+  // The dashboard's reach row: the same daily rollups as one extension's
+  // analytics, summed over every address this namespace publishes.
+  router.get('/me/analytics', requireAuth, async (req, res) => {
+    res.json(
+      await accountAnalytics(db, {
+        namespace: req.auth.user.Namespace,
+        days: parseAnalyticsDays(req.query.days),
+      }),
+    );
+  });
+
   // Everything the registry holds that names or describes this account, in one
   // document a person can read or take elsewhere. Secrets are left out: a
   // session or token is a credential, not a record about the person, and a
@@ -137,6 +149,7 @@ export function makeMeRouter({ db, config }) {
     };
     const retention = {
       downloadEventsDays: config.privacy.downloadEventRetentionDays,
+      analyticsEventsDays: config.privacy.analyticsEventRetentionDays,
       mailOutboxDays: config.privacy.mailOutboxRetentionDays,
     };
 

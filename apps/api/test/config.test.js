@@ -226,6 +226,10 @@ test('the server settings are validated at startup', (t) => {
   }
   write({ metrics: { intervalMs: 0 } });
   assert.throws(() => loadConfig(file), /metrics\.intervalMs must be/);
+  write({ privacy: { analyticsEventRetentionDays: 1 } });
+  assert.throws(() => loadConfig(file), /privacy\.analyticsEventRetentionDays must be/);
+  write({ privacy: { analyticsEventRetentionDays: 2 } });
+  assert.equal(loadConfig(file).privacy.analyticsEventRetentionDays, 2);
   write({ secrets: { downloadHashKey: '  ' } });
   assert.throws(() => loadConfig(file), /secrets\.downloadHashKey must be/);
 

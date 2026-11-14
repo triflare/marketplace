@@ -36,6 +36,7 @@ limits:
   maxProfileImageBytes: 2097152
 privacy:
   downloadEventRetentionDays: 30
+  analyticsEventRetentionDays: 30
   mailOutboxRetentionDays: 30
 compiler:
   timeoutMs: 30000

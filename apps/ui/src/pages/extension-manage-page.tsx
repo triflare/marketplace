@@ -8,6 +8,7 @@ import { EmptyState, ErrorState } from "@/components/common/async-state"
 import { ButtonLink } from "@/components/common/button-link"
 import { NotFoundPage } from "@/pages/not-found-page"
 import { PageHeader } from "@/components/common/page-header"
+import { AnalyticsTab } from "@/components/manage/analytics-tab"
 import { OwnersTab } from "@/components/manage/owners-tab"
 import { TagsTab } from "@/components/manage/tags-tab"
 import { TransfersTab } from "@/components/manage/transfers-tab"
@@ -23,6 +24,7 @@ import { errorMessage, th } from "@/lib/registry"
 
 const MANAGE_TABS = [
   "releases",
+  "analytics",
   "labels",
   "access",
   "automation",
@@ -162,6 +164,7 @@ function ExtensionManage({ namespace, id }: { namespace: string; id: string }) {
           className="w-full justify-start overflow-x-auto"
         >
           <TabsTrigger value="releases">Releases</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="labels">Version labels</TabsTrigger>
           <TabsTrigger value="access">Access</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
@@ -170,6 +173,9 @@ function ExtensionManage({ namespace, id }: { namespace: string; id: string }) {
 
         <TabsContent value="releases">
           <VersionsTab extension={extension} onChanged={access.reload} />
+        </TabsContent>
+        <TabsContent value="analytics">
+          <AnalyticsTab extension={extension} />
         </TabsContent>
         <TabsContent value="labels">
           <TagsTab extension={extension} />

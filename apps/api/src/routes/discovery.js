@@ -18,6 +18,7 @@ import {
   normalizeApiRoot,
 } from '../util.js';
 import { trendingExtensions, totalDownloads } from '../metrics.js';
+import { recordImpressions } from '../analytics.js';
 import { product, productSlug } from '../product.js';
 import {
   extensionSummaryFromRow,
@@ -215,7 +216,7 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
       ns: 'string',
       id: 'string',
     });
-    return listLatestVersions({
+    const page = await listLatestVersions({
       req,
       limit,
       cursor,
@@ -224,6 +225,16 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
       namespace,
       searchFilter,
     });
+    // One route serves explore, search, and a profile's extensions, told apart
+    // by the filters the caller sent.
+    recordImpressions(
+      db,
+      config,
+      req,
+      page.data,
+      folded ? 'search' : namespace ? 'profile' : 'explore',
+    );
+    return page;
   }
 
   router.get('/extensions', async (req, res) => {
@@ -273,6 +284,7 @@ export function makeDiscoveryRouter({ db, config, termsGate }) {
         return summary;
       })
       .sort((a, b) => Number(b.downloads) - Number(a.downloads));
+    recordImpressions(db, config, req, page, 'trending');
     res.json({ data: page, _links: pageLinks(req) });
   });
 

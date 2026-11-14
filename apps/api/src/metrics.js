@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
+import { BLOB_GC_LOCK_KEY } from './blobs.js';
 import { normalizeValue } from './db.js';
 import { downloadAddressKey } from './download-address.js';
+import { withLocks } from './locks.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -21,7 +23,10 @@ export function aggregateDayLoader(db) {
     // referenced twice, so Postgres materializes it once; the data-modifying
     // `"extension"` CTE runs alongside the primary version insert. Kept as a
     // single raw statement: both upserts share one snapshot.
-    await db.$executeRaw`
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
       WITH events AS (
         SELECT
           "Namespace",
@@ -61,7 +66,93 @@ export function aggregateDayLoader(db) {
       DO UPDATE SET
         "TotalDownloads" = EXCLUDED."TotalDownloads",
         "DistinctDownloads" = EXCLUDED."DistinctDownloads"
-    `;
+    `,
+    );
+    // Each pair shares an event snapshot, including unversioned events only in
+    // extension totals. Impression surfaces remain separate at extension level.
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
+      WITH events AS (
+        SELECT
+          "Namespace",
+          "ExtensionId",
+          "Version",
+          COALESCE("IpHash", "UserAgent", '') AS client
+        FROM "ViewEvents"
+        WHERE "CreatedAt" >= ${dayStart}
+          AND "CreatedAt" < ${dayEnd}
+      ),
+      "extension" AS (
+        INSERT INTO "ExtensionDailyViews" ("Namespace", "ExtensionId", "Day", "TotalViews", "DistinctViews")
+        SELECT "Namespace", "ExtensionId", ${dayStart}::date, COUNT(*)::bigint, COUNT(DISTINCT client)::bigint
+        FROM events
+        GROUP BY "Namespace", "ExtensionId"
+        ON CONFLICT ("Namespace", "ExtensionId", "Day")
+        DO UPDATE SET
+          "TotalViews" = EXCLUDED."TotalViews",
+          "DistinctViews" = EXCLUDED."DistinctViews"
+      )
+      INSERT INTO "ExtensionVersionDailyViews" ("Namespace", "ExtensionId", "Version", "Day", "TotalViews", "DistinctViews")
+      SELECT
+        "Namespace",
+        "ExtensionId",
+        "Version",
+        ${dayStart}::date AS "Day",
+        COUNT(*)::bigint AS "TotalViews",
+        COUNT(DISTINCT client)::bigint AS "DistinctViews"
+      FROM events
+      WHERE "Version" IS NOT NULL
+      GROUP BY "Namespace", "ExtensionId", "Version"
+      ON CONFLICT ("Namespace", "ExtensionId", "Version", "Day")
+      DO UPDATE SET
+        "TotalViews" = EXCLUDED."TotalViews",
+        "DistinctViews" = EXCLUDED."DistinctViews"
+    `,
+    );
+    await withLocks(
+      db,
+      [{ key: BLOB_GC_LOCK_KEY, shared: true }],
+      (tx) => tx.$executeRaw`
+      WITH events AS (
+        SELECT
+          "Namespace",
+          "ExtensionId",
+          "Version",
+          "Surface",
+          COALESCE("IpHash", "UserAgent", '') AS client
+        FROM "ImpressionEvents"
+        WHERE "CreatedAt" >= ${dayStart}
+          AND "CreatedAt" < ${dayEnd}
+      ),
+      "extension" AS (
+        INSERT INTO "ExtensionDailyImpressions" ("Namespace", "ExtensionId", "Surface", "Day", "TotalImpressions", "DistinctImpressions")
+        SELECT "Namespace", "ExtensionId", "Surface", ${dayStart}::date, COUNT(*)::bigint, COUNT(DISTINCT client)::bigint
+        FROM events
+        GROUP BY "Namespace", "ExtensionId", "Surface"
+        ON CONFLICT ("Namespace", "ExtensionId", "Surface", "Day")
+        DO UPDATE SET
+          "TotalImpressions" = EXCLUDED."TotalImpressions",
+          "DistinctImpressions" = EXCLUDED."DistinctImpressions"
+      )
+      INSERT INTO "ExtensionVersionDailyImpressions" ("Namespace", "ExtensionId", "Version", "Day", "TotalImpressions", "DistinctImpressions")
+      SELECT
+        "Namespace",
+        "ExtensionId",
+        "Version",
+        ${dayStart}::date AS "Day",
+        COUNT(*)::bigint AS "TotalImpressions",
+        COUNT(DISTINCT client)::bigint AS "DistinctImpressions"
+      FROM events
+      WHERE "Version" IS NOT NULL
+      GROUP BY "Namespace", "ExtensionId", "Version"
+      ON CONFLICT ("Namespace", "ExtensionId", "Version", "Day")
+      DO UPDATE SET
+        "TotalImpressions" = EXCLUDED."TotalImpressions",
+        "DistinctImpressions" = EXCLUDED."DistinctImpressions"
+    `,
+    );
   };
 }
 

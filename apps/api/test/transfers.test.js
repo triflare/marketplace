@@ -683,3 +683,47 @@ describe('what the move carries', () => {
     assert.equal(row.publisher, ns);
   });
 });
+
+test('analytics move with an extension and replace destination history', async () => {
+  const { ns, owner } = await publishedExtension();
+  const other = await signupAndAccept(app, uniqNs());
+  const destination = other.user.namespace;
+  const day = new Date('2026-01-02T00:00:00Z');
+  const tables = [
+    'ViewEvents',
+    'ImpressionEvents',
+    'ExtensionDailyViews',
+    'ExtensionDailyImpressions',
+    'ExtensionVersionDailyViews',
+    'ExtensionVersionDailyImpressions',
+  ];
+  for (const table of tables) {
+    for (const Namespace of [ns, destination]) {
+      const data = { Namespace, ExtensionId: 'hello' };
+      if (table.endsWith('Events')) Object.assign(data, { Version: '1.0.0', CreatedAt: day });
+      else {
+        data.Day = day;
+        const metric = table.endsWith('Views') ? 'Views' : 'Impressions';
+        data[`Total${metric}`] = Namespace === ns ? 3n : 99n;
+        data[`Distinct${metric}`] = 1n;
+        if (table.includes('Version')) data.Version = '1.0.0';
+      }
+      if (table === 'ImpressionEvents' || table === 'ExtensionDailyImpressions')
+        data.Surface = 'explore';
+      await db[table].create({ data });
+    }
+  }
+  await offer(ns, 'hello', destination, owner.token).expect(201);
+  await accept(ns, 'hello', destination, other.token);
+  for (const table of tables) {
+    assert.equal(await db[table].count({ where: { Namespace: ns, ExtensionId: 'hello' } }), 0);
+    const rows = await db[table].findMany({
+      where: { Namespace: destination, ExtensionId: 'hello' },
+    });
+    assert.equal(rows.length, 1);
+    if (!table.endsWith('Events')) {
+      const metric = table.endsWith('Views') ? 'Views' : 'Impressions';
+      assert.equal(Number(rows[0][`Total${metric}`]), 3);
+    }
+  }
+});

@@ -141,6 +141,7 @@ export function makeMaintenanceJob({ db, config, blobs }) {
       // past its window. The two sweeps keep separate caps and settings.
       const purged = await purgeExpiredPersonalData(db, {
         downloadEventRetentionDays: config.privacy.downloadEventRetentionDays,
+        analyticsEventRetentionDays: config.privacy.analyticsEventRetentionDays,
         mailOutboxRetentionDays: config.privacy.mailOutboxRetentionDays,
       });
       const purgedRows = Object.values(purged).reduce((sum, count) => sum + count, 0);
