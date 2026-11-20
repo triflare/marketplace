@@ -16,6 +16,10 @@ permissions:
 jobs:
   release:
     name: Publish release
+    # semantic-release pushes the release commit back to the branch. Skip it
+    # here so dropping [skip ci] from that commit does not re-run this workflow,
+    # while the tag pushed with it still reaches CD.
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
     services:
       postgres:
