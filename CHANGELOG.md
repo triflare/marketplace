@@ -1,3 +1,9 @@
+## [1.3.0-alpha.3](https://github.com/triflare/marketplace/compare/v1.3.0-alpha.2...v1.3.0-alpha.3) (2026-11-20)
+
+### Bug Fixes
+
+- **release:** publish alpha and beta versions ([69916be](https://github.com/triflare/marketplace/commit/69916beccc9c4fe74790fcfc34e902ed065b4911))
+
 ## [1.3.0-alpha.2](https://github.com/triflare/marketplace/compare/v1.3.0-alpha.1...v1.3.0-alpha.2) (2026-11-14)
 
 ### Features
